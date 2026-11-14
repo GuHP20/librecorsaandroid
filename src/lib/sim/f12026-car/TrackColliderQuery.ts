@@ -14,8 +14,9 @@
  * under it (the road beneath a bridge). A kerb or sausage above that ground carries the wheel at its modelled height,
  * up to its surface's `maxRiseM`; failing all of these, the highest tagged surface (terrain) is used. The surface /
  * grip of a contact is the top-most tagged surface within `SURFACE_MATCH_M` of the contact height, falling back to
- * the contact layer's own tags. Converted circuits built with `conformSurfaces` fit their off-road bands to the
- * road first, and then also drive on their grass and let a kerb fitted just under the road name the surface.
+ * the contact layer's own tags. Converted circuits built with `conformSurfaces` fit their off-road bands to the road
+ * first and take them off it where another stretch's bands cover it (`clearOffroadOverRoad`), and then also drive on
+ * their grass and let a kerb fitted just under the road name the surface.
  *
  * Queries are vertical rays (the wheels probe straight down), answered from a uniform XZ grid of
  * world-space triangles, so a query costs a cell lookup plus a handful of 2D triangle tests. `queryMany` answers a
@@ -545,6 +546,188 @@ export function conformTrackSurfaceColliders(root: THREE.Object3D): void {
   }
 }
 
+/** The off-road bands a converted circuit lays either side of its lap */
+const OFFROAD_BANDS: ReadonlySet<string> = new Set(['Track_Surface_Runoff', 'Track_Surface_Gravel', 'Track_Surface_Grass']);
+/** A band face this close (m) above or below the road under it lies on it (a bridge's deck or the road under one does not) */
+const OVER_ROAD_HEIGHT_M = 1;
+/**
+ * A band face partly over the road is quartered until its pieces are this small (longest side, m), and then each
+ * piece's middle decides: the cut follows the road's edge to within half of it
+ */
+const OVER_ROAD_PIECE_M = 0.25;
+
+/**
+ * Takes the run-off, gravel and grass bands off the lap's road (`Track_Surface_Road`, the band between its edges) where
+ * they lie on it, once they are fitted to it (`conformTrackSurfaceColliders`). A converted circuit's bands run out from
+ * each stretch of its lap to 12 m past the barriers (where it found none, 57 m out), so wherever another stretch of the
+ * same lap passes within that reach, its road was covered: VIR's South course 55 m across open ground from the run
+ * back, Norisring's two straights either side of one wall. Fitted onto the road, that grass named the surface and the
+ * car on the asphalt was off the track, on grass grip. The road is under those faces, so they are dropped (the porter's
+ * `offroadOverRoad` moves them at the build, where a circuit asks for it); a face partly over the road is quartered
+ * until its middle, corners and side middles agree, or down to `OVER_ROAD_PIECE_M`. A band's own faces start at the
+ * road's edge and keep every face, and the porter's own `Track_Surface_Apron`
+ * (the mod's paved ground off the lap, Dunsfold's runways) is left as built. Returns the area dropped (m², per band).
+ */
+export function clearOffroadOverRoad(root: THREE.Object3D): Record<string, number> {
+  root.updateMatrixWorld(true);
+  const bands: THREE.Mesh[] = [];
+  const road: number[] = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const forEachTri = (mesh: THREE.Mesh, fn: (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, i0: number, i1: number, i2: number) => void) => {
+    const geom = mesh.geometry as THREE.BufferGeometry;
+    const pos = geom.getAttribute('position');
+    if (!pos) return;
+    const idx = geom.getIndex();
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i + 2 < n; i += 3) {
+      const i0 = idx ? idx.getX(i) : i;
+      const i1 = idx ? idx.getX(i + 1) : i + 1;
+      const i2 = idx ? idx.getX(i + 2) : i + 2;
+      fn(a.fromBufferAttribute(pos, i0).applyMatrix4(mesh.matrixWorld), b.fromBufferAttribute(pos, i1).applyMatrix4(mesh.matrixWorld),
+        c.fromBufferAttribute(pos, i2).applyMatrix4(mesh.matrixWorld), i0, i1, i2);
+    }
+  };
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    // A band's node may hold its mesh as a child (several primitives)
+    let node: THREE.Object3D | null = o;
+    while (node && node !== root && !OFFROAD_BANDS.has(node.name) && node.name !== 'Track_Surface_Road') node = node.parent;
+    if (!node || node === root) return;
+    if (OFFROAD_BANDS.has(node.name)) {
+      bands.push(o);
+      return;
+    }
+    forEachTri(o, (p, q, r) => {
+      // Upward faces only: the road's skirts and steps are no ground to lie on
+      const ny = (q.z - p.z) * (r.x - p.x) - (q.x - p.x) * (r.z - p.z);
+      const len = Math.hypot((q.y - p.y) * (r.z - p.z) - (q.z - p.z) * (r.y - p.y), ny, (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+      if (len < 1e-9 || Math.abs(ny) / len < 0.5) return;
+      road.push(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z);
+    });
+  });
+  const dropped: Record<string, number> = {};
+  if (road.length === 0 || bands.length === 0) return dropped;
+
+  // The road's faces on an XZ grid, each listed in every cell its box overlaps
+  let minX = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < road.length; i += 3) {
+    minX = Math.min(minX, road[i]);
+    maxX = Math.max(maxX, road[i]);
+    minZ = Math.min(minZ, road[i + 2]);
+    maxZ = Math.max(maxZ, road[i + 2]);
+  }
+  const grid = buildCsrGrid(minX, minZ, maxX, maxZ, road.length / 9, (t, box) => {
+    const o = t * 9;
+    box[0] = Math.min(road[o], road[o + 3], road[o + 6]);
+    box[1] = Math.min(road[o + 2], road[o + 5], road[o + 8]);
+    box[2] = Math.max(road[o], road[o + 3], road[o + 6]);
+    box[3] = Math.max(road[o + 2], road[o + 5], road[o + 8]);
+    return true;
+  });
+  const onRoad = (x: number, y: number, z: number): boolean => {
+    const fx = (x - minX) / CELL_SIZE_M;
+    const fz = (z - minZ) / CELL_SIZE_M;
+    if (fx < 0 || fz < 0 || fx >= grid.nx || fz >= grid.nz) return false;
+    const cell = Math.floor(fz) * grid.nx + Math.floor(fx);
+    for (let k = grid.cellStart[cell], end = grid.cellStart[cell + 1]; k < end; k++) {
+      const o = grid.items[k] * 9;
+      const v0x = road[o + 3] - road[o];
+      const v0z = road[o + 5] - road[o + 2];
+      const v1x = road[o + 6] - road[o];
+      const v1z = road[o + 8] - road[o + 2];
+      const den = v0x * v1z - v1x * v0z;
+      if (Math.abs(den) < 1e-12) continue;
+      const px = x - road[o];
+      const pz = z - road[o + 2];
+      const u = (px * v1z - v1x * pz) / den;
+      const v = (v0x * pz - px * v0z) / den;
+      if (u < 0 || v < 0 || u + v > 1) continue;
+      const h = road[o + 1] + u * (road[o + 4] - road[o + 1]) + v * (road[o + 7] - road[o + 1]);
+      if (Math.abs(h - y) <= OVER_ROAD_HEIGHT_M) return true;
+    }
+    return false;
+  };
+
+  // A face as 3 corners of [x, y, z, u, v] (world position, texture coordinates)
+  type Corner = number[];
+  const votesOnRoad = (f: Corner[]): { all: boolean; none: boolean; middle: boolean } => {
+    const mx = (f[0][0] + f[1][0] + f[2][0]) / 3;
+    const my = (f[0][1] + f[1][1] + f[2][1]) / 3;
+    const mz = (f[0][2] + f[1][2] + f[2][2]) / 3;
+    const middle = onRoad(mx, my, mz);
+    let n = middle ? 1 : 0;
+    // The corners and the middles of the sides, each a tenth of the way in (a point on the road's edge is on neither side)
+    for (let k = 0; k < 3; k++) {
+      const p = f[k];
+      const q = f[(k + 1) % 3];
+      if (onRoad(p[0] + 0.1 * (mx - p[0]), p[1] + 0.1 * (my - p[1]), p[2] + 0.1 * (mz - p[2]))) n++;
+      const sx = (p[0] + q[0]) / 2;
+      const sy = (p[1] + q[1]) / 2;
+      const sz = (p[2] + q[2]) / 2;
+      if (onRoad(sx + 0.1 * (mx - sx), sy + 0.1 * (my - sy), sz + 0.1 * (mz - sz))) n++;
+    }
+    return { all: n === 7, none: n === 0, middle };
+  };
+  const mid = (p: Corner, q: Corner): Corner => p.map((v, k) => (v + q[k]) / 2);
+  const areaXZ = (f: Corner[]) => Math.abs((f[1][0] - f[0][0]) * (f[2][2] - f[0][2]) - (f[2][0] - f[0][0]) * (f[1][2] - f[0][2])) / 2;
+  const longestSide = (f: Corner[]) =>
+    Math.max(Math.hypot(f[1][0] - f[0][0], f[1][2] - f[0][2]), Math.hypot(f[2][0] - f[1][0], f[2][2] - f[1][2]), Math.hypot(f[0][0] - f[2][0], f[0][2] - f[2][2]));
+
+  for (const mesh of bands) {
+    const geom = mesh.geometry as THREE.BufferGeometry;
+    const uv = geom.getAttribute('uv');
+    const kept: Corner[][] = [];
+    let droppedM2 = 0;
+    forEachTri(mesh, (p, q, r, i0, i1, i2) => {
+      const corner = (v: THREE.Vector3, i: number): Corner => [v.x, v.y, v.z, uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0];
+      let todo: Corner[][] = [[corner(p, i0), corner(q, i1), corner(r, i2)]];
+      // (9 quarterings take a 100 m face under 0.25 m: the cap of 12 only guards against a degenerate one)
+      for (let depth = 0; depth <= 12 && todo.length; depth++) {
+        const next: Corner[][] = [];
+        for (const f of todo) {
+          const vote = votesOnRoad(f);
+          const last = depth === 12 || longestSide(f) < OVER_ROAD_PIECE_M;
+          if (vote.none || (last && !vote.all && !vote.middle)) kept.push(f);
+          else if (vote.all || last) droppedM2 += areaXZ(f);
+          else {
+            const ab = mid(f[0], f[1]);
+            const bc = mid(f[1], f[2]);
+            const ca = mid(f[2], f[0]);
+            next.push([f[0], ab, ca], [ab, f[1], bc], [ca, bc, f[2]], [ab, bc, ca]);
+          }
+        }
+        todo = next;
+      }
+    });
+    if (droppedM2 === 0) continue;
+    // Rebuilt unindexed, in the mesh's own space, keeping its texture coordinates (the surface ripple reads them)
+    const toLocal = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+    const positions = new Float32Array(kept.length * 9);
+    const uvs = uv ? new Float32Array(kept.length * 6) : null;
+    const v = new THREE.Vector3();
+    kept.forEach((f, i) => {
+      f.forEach((p, k) => {
+        v.set(p[0], p[1], p[2]).applyMatrix4(toLocal);
+        positions.set([v.x, v.y, v.z], i * 9 + k * 3);
+        uvs?.set([p[3], p[4]], i * 6 + k * 2);
+      });
+    });
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    if (uvs) out.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    mesh.geometry = out;
+    let name = mesh.name;
+    for (let o: THREE.Object3D | null = mesh; o && o !== root; o = o.parent) if (OFFROAD_BANDS.has(o.name)) name = o.name;
+    dropped[name] = (dropped[name] ?? 0) + droppedM2;
+  }
+  return dropped;
+}
+
 export class TrackColliderQuery implements GroundQuery {
   /** Each query starts from cleared scratch buffers: nothing carries over from the last */
   readonly stateless = true;
@@ -577,7 +760,11 @@ export class TrackColliderQuery implements GroundQuery {
     table: SurfaceTable = DEFAULT_SURFACE_TABLE,
     options: { conformSurfaces?: boolean } = {}
   ): TrackColliderQuery {
-    if (options.conformSurfaces) conformTrackSurfaceColliders(root);
+    if (options.conformSurfaces) {
+      conformTrackSurfaceColliders(root);
+      // After the fitting: the pieces kept of a face split here lie in its fitted plane, where the fitting left it
+      clearOffroadOverRoad(root);
+    }
     root.updateMatrixWorld(true);
     const sources: ColliderLayerSource[] = [];
     const found: { road?: THREE.Object3D } = {};

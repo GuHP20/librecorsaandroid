@@ -249,7 +249,8 @@ export interface TrackMetaExtras {
    * `roadMaterials`: the scan's racing-surface materials (build_track.py), drawn with the asphalt shader;
    * `cutBoxes` / `cutMaterials`: scan geometry standing on the racing line, left out at load (scenery-cuts.ts);
    * `conformSurfaces`: the off-road collider bands and the visual road are fitted to `Track_Surface_Road` at load
-   * (TrackColliderQuery.ts), for converted circuits whose surfaces don't meet the road edge as exported;
+   * (TrackColliderQuery.ts), for converted circuits whose surfaces don't meet the road edge as exported, and the bands
+   * are taken off the road where they lie on it;
    * `scenery`: scenery files drawn with the circuit (instanced trees: scenery-instances.ts);
    * `barrierMeshes`: drawn barriers the converted circuit gives no collider (Monaco's Armco ends and orange blocks),
    * by mesh name: the cars hit them and the racing line keeps clear of them as of the `Track_Collider_Wall_*` walls
