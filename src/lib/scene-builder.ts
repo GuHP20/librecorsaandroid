@@ -121,6 +121,18 @@ const SHADOW_RECEIVE_ONLY = new Set([
   "Track_Kerb_Blocks",
 ]);
 
+/**
+ * A `castShadow` extra (true or false) on the mesh or the nearest node above it, below `root`; undefined when none
+ * sets one, and the naming and size rules decide. glTF node and mesh extras land in `userData`.
+ */
+export function castShadowExtra(obj: THREE.Object3D, root: THREE.Object3D): boolean | undefined {
+  for (let node: THREE.Object3D | null = obj; node && node !== root; node = node.parent) {
+    const v = node.userData?.castShadow;
+    if (typeof v === "boolean") return v;
+  }
+  return undefined;
+}
+
 const COLLIDER_DEBUG_COLOURS: Record<string, number> = {
   Track_Surface_Road: 0x3b82f6,
   Track_Surface_Kerb: 0xef4444,
@@ -256,7 +268,11 @@ function loadTrackGlb(
 
         const receiveOnly = SHADOW_RECEIVE_ONLY.has(topName) || isDecal;
         obj.receiveShadow = true;
-        if (topName === "Track_Model") {
+        const castExtra = castShadowExtra(obj, root);
+        if (castExtra !== undefined) {
+          // Set by the build per node or mesh: a mesh split into pieces keeps its shadow whatever each piece's size
+          obj.castShadow = castExtra;
+        } else if (topName === "Track_Model") {
           // Converted scans have no naming contract: only tall things (stands, buildings, trees, barriers) cast
           obj.geometry.computeBoundingBox();
           box.copy(obj.geometry.boundingBox!).applyMatrix4(obj.matrixWorld).getSize(size);
