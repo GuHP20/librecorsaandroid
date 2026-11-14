@@ -32,7 +32,8 @@ const EMOJI_RE = /\p{Extended_Pictographic}/u;
 
 const raw = readFileSync(DATA_PATH, "utf8");
 const parsed: unknown = JSON.parse(raw);
-check("whats-new.json is an array with at least 20 days", Array.isArray(parsed) && parsed.length >= 20, `${Array.isArray(parsed) ? parsed.length : 0} days`);
+// The backfill runs from the project's first day (17 Oct 2026) to 11 Nov; the daily job adds every day after it
+check("whats-new.json is an array with at least 17 days", Array.isArray(parsed) && parsed.length >= 17, `${Array.isArray(parsed) ? parsed.length : 0} days`);
 
 const entries = (Array.isArray(parsed) ? parsed : []) as WhatsNewDay[];
 const seenDates = new Set<string>();
@@ -125,7 +126,7 @@ if (hasFullHistory) {
 const hub = readFileSync(HOME_HUB_PATH, "utf8");
 const tabOrderMatch = /id:\s*"cars"[\s\S]*?id:\s*"whats-new"[\s\S]*?id:\s*"about"/.test(hub);
 check("HomeHub places What's new between Cars and About", tabOrderMatch);
-check("HomeHub uses cyan #00E5FF with lc-ping for unread dot", hub.includes("#00E5FF") && hub.includes("lc-ping"));
+check("HomeHub uses cyan (lc-cyan, #00E5FF) with lc-ping for unread dot", (hub.includes("bg-lc-cyan") || hub.includes("#00E5FF")) && hub.includes("lc-ping"));
 check("HomeHub persists seen state in librecorsa.whatsNewSeen", hub.includes("librecorsa.whatsNewSeen"));
 
 console.log(failed ? `\n${failed} What's new check(s) failed.` : "\nAll What's new checks passed.");

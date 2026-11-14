@@ -1,38 +1,5 @@
 [
   {
-    "date": "2026-11-14",
-    "title": "Wheel bridge stops holding the wheel when WebHID is active",
-    "items": [
-      "The force-feedback bridge now opens DirectInput only while the game sends it force and releases the wheel 3 seconds after force stops, avoiding busy-device conflicts with WebHID while telemetry keeps running."
-    ],
-    "commits": 1,
-    "lastSha": "2c3ab0e9c3cf461f0d2cfa69376b40874019f76b"
-  },
-  {
-    "date": "2026-11-13",
-    "title": "2026 Prototype LC26 physics, cockpit driver, and smarter AI lines",
-    "items": [
-      "Added an optional cockpit driver figure in a race suit whose hands and arms turn with the steering wheel, controlled by a Display setting (off by default).",
-      "Upgraded the 2026 Prototype (now LC26) with per-element aero drag, pressure-coupled tyre heating, temperature-dependent carbon brakes, fuel centre-of-gravity shift, Straight Mode flaps on every straight, and lift-off energy recovery in all gears.",
-      "AI opponents now ride flat kerbs on exits, respect puncture grip losses, and train racing lines against leaderboard ghosts on both layouts of RISE Motordrome.",
-      "Carried existing personal bests, saved setups, and leaderboard records seamlessly over to the LC26 identifier, and fixed iOS tilt steering motion permission prompts."
-    ],
-    "commits": 31,
-    "lastSha": "765cdcbe3c80f6a7625878fc20bf6bae6076f6d0"
-  },
-  {
-    "date": "2026-11-12",
-    "title": "Grobnik and Oschersleben, WebHID wheel expansion, and 60 Hz binary netcode",
-    "items": [
-      "Added Automotodrom Grobnik and Motorsport Arena Oschersleben, upgraded the Mercedes-AMG GT3 to the Evo body with live cockpit dashes and rear-view mirrors, and moved the 2026 Prototype onto Qvist Designs' 2026 concept chassis with articulated suspension and four liveries.",
-      "Added WebHID force feedback for Logitech G25, G27, Driving Force GT, G29, G920, G923, and Thrustmaster T300RS, T248, TX, TS-XW, and TS-PC bases, plus Logitech rev lights, a force curve tuning option, and cross-platform bridge telemetry.",
-      "Rebuilt multiplayer car sync around a 60 Hz binary protocol with graceful coasting and ghosting during stalls, updated race course-cut time penalties and rolling starts, and dropped the flashback rewind feature.",
-      "Added a new Dash view over the wheel with a per-car adjustable seat panel, moved Touch and Tilt to the front of mobile control setup, and added Source credits chips on car and circuit cards."
-    ],
-    "commits": 123,
-    "lastSha": "22c31fcc7a66429a94f4e03c1884171478f75819"
-  },
-  {
     "date": "2026-11-11",
     "title": "Home hub launch, Istanbul Park, and full LC26 clean-room architecture",
     "items": [
