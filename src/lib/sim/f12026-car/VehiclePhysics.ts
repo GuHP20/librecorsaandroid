@@ -115,14 +115,19 @@ import {
   type ZoneData_DRSZone,
 } from './F12026CarConfig';
 import {
+  convexHullIndices,
   createGroundHit,
+  createWallEndHit,
   createWallHit,
   type GroundHit,
   type GroundQuery,
+  OUTLINE_EDGE_STRIDE,
   type TrackSurfaceKind,
-  wallPenetration,
+  wallCornerContact,
+  wallEndInOutline,
   type WallQuery,
   wallSweep,
+  writeOutlineEdges,
 } from './TrackColliderQuery';
 import { queryContactPatch } from './ContactPatch';
 import { type AutoShiftSchedule, autoShift, createAutoShiftInput, ManualShiftOverride } from '../auto-gearbox';
@@ -251,15 +256,21 @@ const PLANK_FRICTION = 0.35;
 const PLANK_PROBE_UP_M = 0.05;
 /**
  * Barrier contact: restitution, the most rebound a hit can give (m/s: the barrier and the crash structure soak up
- * the rest, so a 300 km/h hit bounces the car back onto the track side, not across it), wall friction, deepest
- * believable penetration (m)
+ * the rest, so a 300 km/h hit bounces the car back onto the track side, not across it), wall friction
  */
 const WALL_RESTITUTION = 0.2;
 const WALL_MAX_REBOUND_MS = 5;
 const WALL_FRICTION = 0.5;
-const WALL_MAX_DEPTH_M = 1.2;
+/** Wall ends and corners inside the outline resolved per sub-step (two posts met at once, one each) */
+const WALL_END_PASSES = 2;
 /** Clearance a barrier contact is resolved to, so the next step starts strictly on the near side (m) */
 const WALL_SKIN_M = 0.001;
+/**
+ * The most the barrier contacts move the car in a sub-step (m/s × the sub-step): more than the outline can go into a
+ * wall in one (100 m/s). A contact is only deeper when the wall was not there a moment before (one whose height band
+ * the car has just come into on a slope, a placement on it): that overlap is let out over a few sub-steps, not in a jump
+ */
+const WALL_MAX_PUSH_MS = 100;
 /** Height band around a wall segment's own height range that still counts as touching it (m) */
 const WALL_Y_SLACK_M = 0.3;
 /** Impact speed (m/s) that raises a `WALL_IMPACT` event */
@@ -866,6 +877,8 @@ const _kpGeo = { kpiRad: 0, casterRad: 0, scrubRadiusM: 0, casterTrailM: 0 };
 const _p = new THREE.Vector3();
 const _plankHit = createGroundHit();
 const _wallHit = createWallHit();
+const _wallEndHit = createWallEndHit();
+const _pFrom = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _fw = new THREE.Vector3();
 const _lw = new THREE.Vector3();
@@ -876,6 +889,13 @@ const _qi = new THREE.Quaternion();
 const _w2 = new THREE.Vector3();
 const _rxd = new THREE.Vector3();
 const _air = new THREE.Vector3();
+
+/**
+ * The barrier outline's corners relative to the CG, in order round it (x, z pairs), and its edges
+ * (`OUTLINE_EDGE_STRIDE` floats each): scratch, filled before every read, so no car's state
+ */
+const _outlineCorners = new Float64Array(64);
+const _outlineEdges = new Float64Array(32 * OUTLINE_EDGE_STRIDE);
 
 export class VehiclePhysics {
   public static readonly FIXED_DT = 0.002;
@@ -1063,8 +1083,13 @@ export class VehiclePhysics {
   public readonly wallProbePoints: THREE.Vector3[];
   /** Wall search radius around the CG: the farthest probe plus a margin (m) */
   private readonly wallQueryRadius: number;
-  /** CG at the start of the substep, for the swept barrier test */
+  /** The probes on the outline's convex hull, in order round it (indices into `wallProbePoints`) */
+  private readonly wallOutline: number[];
+  /** The farthest probe from the CG (m): the outline's bounding radius */
+  private readonly wallOutlineRadius: number;
+  /** CG and attitude at the start of the substep, for the swept barrier tests */
   private readonly wallPrevCg = new THREE.Vector3();
+  private readonly wallPrevQuat = new THREE.Quaternion();
   /** Zone whose detection point was crossed eligibly and not yet left */
   private drsArmedZone: string | null = null;
   private lastDrsZoneId: string | null = null;
@@ -1348,7 +1373,10 @@ export class VehiclePhysics {
         this.wallProbePoints.push(new THREE.Vector3(side * x, py, z));
       }
     }
-    this.wallQueryRadius = Math.max(...this.wallProbePoints.map((p) => Math.hypot(p.x, p.z))) + 0.5;
+    this.wallOutlineRadius = Math.max(...this.wallProbePoints.map((p) => Math.hypot(p.x, p.z)));
+    this.wallQueryRadius = this.wallOutlineRadius + 0.5;
+    this.wallOutline = convexHullIndices(this.wallProbePoints);
+    if (this.wallOutline.length > _outlineCorners.length / 2) throw new Error(`barrier outline of ${this.wallOutline.length} corners`);
     this.setTyreBlanketState();
     this.computeStaticGeometry();
 
@@ -1501,6 +1529,7 @@ export class VehiclePhysics {
     this.mapAeroRearN = 0;
     this.mapAeroDragN = 0;
     this.wallPrevCg.copy(this.position);
+    this.wallPrevQuat.copy(this.quaternion);
     // Tyres kept through a placement are only worth keeping while their state is a number
     if (!keepTyres || !this.tyreStateFinite()) this.setTyreBlanketState();
 
@@ -2670,6 +2699,7 @@ export class VehiclePhysics {
     this.velocity.z += (this.force.z / this.totalMassKg) * h;
     this.velocity.y += (this.force.y / this.sprungMassKg) * h;
     this.wallPrevCg.copy(this.position);
+    this.wallPrevQuat.copy(this.quaternion);
     this.position.addScaledVector(this.velocity, h);
 
     // ω̇ = I⁻¹(τ − ω × (Iω + h)), with I in body axes and h the spinning wheels' angular momentum (body frame): each
@@ -2787,11 +2817,16 @@ export class VehiclePhysics {
   }
 
   /**
-   * Barriers: the outline probes against the wall segments. A probe past a wall (on the far side from the CG, within
-   * the segment) gets an impulse with a capped rebound and wall friction, and the body is pushed fully back out along
-   * the wall normal. The impulse acts at the CG's height: a barrier loads the whole side of the body, so a hit yaws
-   * the car but does not roll it over the wall. The CG's own path is swept against the walls as well, so it can never
-   * end up behind one (the side the CG is on is what the probes measure from).
+   * Barriers: the car's outline (its probes, and the edges between them) against the wall segments, from where it was
+   * at the start of the sub-step to where it is now. A probe that went through a face this sub-step (its path entered
+   * it from the CG's side), or that is past a face lying between it and the CG, is in contact with that face; and a wall
+   * end or corner inside the outline (a post between the probes) is in contact with the outline's nearest edge
+   * (`wallCornerContact`, `wallEndInOutline`). Each contact gets an impulse with a capped rebound and wall friction, and
+   * the body is pushed back out along the contact's normal by its depth: no more than the outline really is into the
+   * wall (and at most WALL_MAX_PUSH_MS worth in a sub-step). The impulse acts at the CG's height: a barrier loads the
+   * whole side of the body, so a hit yaws the car but does not roll it over the wall. The CG's own path is swept
+   * against the walls as well, so it can never end up behind one (the side the CG is on is what the probes measure
+   * from).
    */
   private applyWallContacts(): void {
     const walls = this.walls;
@@ -2805,6 +2840,7 @@ export class VehiclePhysics {
     let impact = 0;
     let hitX = 0;
     let hitZ = 0;
+    let budget = (WALL_MAX_PUSH_MS * VehiclePhysics.FIXED_DT) / VehiclePhysics.SUBSTEPS;
     if (wallSweep(walls, this.wallIds, n, prev.x, prev.z, p.x, p.z, p.y, WALL_Y_SLACK_M, _wallHit) >= 0) {
       this.wallContactNow = true;
       p.x += _wallHit.nx * (_wallHit.depth + WALL_SKIN_M);
@@ -2812,11 +2848,11 @@ export class VehiclePhysics {
       impact = Math.max(impact, this.wallImpulse(_r.set(0, 0, 0), _wallHit.nx, _wallHit.nz));
     }
     for (const probe of this.wallProbePoints) {
-      _p.copy(probe).applyQuaternion(this.quaternion).add(p);
-      const depth = wallPenetration(walls, this.wallIds, n, _p.x, _p.y, _p.z, p.x, p.z, WALL_MAX_DEPTH_M, WALL_Y_SLACK_M, _wallHit);
+      _r.copy(probe).applyQuaternion(this.quaternion);
+      _pFrom.copy(probe).applyQuaternion(this.wallPrevQuat).add(prev);
+      const depth = wallCornerContact(walls, this.wallIds, n, p.x + _r.x, p.y + _r.y, p.z + _r.z, _pFrom.x, _pFrom.z, p.x, p.z, WALL_Y_SLACK_M, _wallHit);
       if (depth <= 0) continue;
       this.wallContactNow = true;
-      _r.subVectors(_p, p);
       _r.y = 0;
       const hitMs = this.wallImpulse(_r, _wallHit.nx, _wallHit.nz);
       if (hitMs > impact) {
@@ -2824,8 +2860,44 @@ export class VehiclePhysics {
         hitX = probe.x;
         hitZ = probe.z;
       }
-      p.x += _wallHit.nx * (depth + WALL_SKIN_M);
-      p.z += _wallHit.nz * (depth + WALL_SKIN_M);
+      const push = Math.min(depth, budget);
+      budget -= push;
+      p.x += _wallHit.nx * (push + WALL_SKIN_M);
+      p.z += _wallHit.nz * (push + WALL_SKIN_M);
+    }
+    // Wall ends and corners between the probes
+    this.outlineEdges(this.quaternion, _outlineEdges);
+    const edges = this.wallOutline.length;
+    const py = p.y + _p.set(0, this.wallProbePoints[0].y, 0).applyQuaternion(this.quaternion).y;
+    for (let pass = 0; pass < WALL_END_PASSES; pass++) {
+      const depth = wallEndInOutline(
+        walls,
+        this.wallIds,
+        n,
+        p.x,
+        p.z,
+        py,
+        _outlineEdges,
+        edges,
+        this.wallOutlineRadius,
+        WALL_Y_SLACK_M,
+        _wallEndHit
+      );
+      if (depth <= 0) break;
+      this.wallContactNow = true;
+      _r.set(_wallEndHit.x - p.x, 0, _wallEndHit.z - p.z);
+      const hitMs = this.wallImpulse(_r, _wallEndHit.nx, _wallEndHit.nz);
+      if (hitMs > impact) {
+        impact = hitMs;
+        // The contact point in the body frame
+        _p.copy(_r).applyQuaternion(_qd.copy(this.quaternion).invert());
+        hitX = _p.x;
+        hitZ = _p.z;
+      }
+      const push = Math.min(depth, budget);
+      budget -= push;
+      p.x += _wallEndHit.nx * (push + WALL_SKIN_M);
+      p.z += _wallEndHit.nz * (push + WALL_SKIN_M);
     }
     if (this.wallContactNow) {
       this.wallContactStep = true;
@@ -2838,6 +2910,17 @@ export class VehiclePhysics {
         this.onEvent?.({ type: 'WALL_IMPACT', speedMs: impact, localX: hitX, localZ: hitZ });
       }
     }
+  }
+
+  /** The outline's edges at attitude `q`, relative to the CG (`wallEndInOutline`) */
+  private outlineEdges(q: THREE.Quaternion, out: Float64Array): void {
+    const hullIdx = this.wallOutline;
+    for (let i = 0; i < hullIdx.length; i++) {
+      _p.copy(this.wallProbePoints[hullIdx[i]]).applyQuaternion(q);
+      _outlineCorners[2 * i] = _p.x;
+      _outlineCorners[2 * i + 1] = _p.z;
+    }
+    writeOutlineEdges(_outlineCorners, hullIdx.length, out);
   }
 
   /**

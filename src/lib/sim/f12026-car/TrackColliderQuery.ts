@@ -1709,8 +1709,308 @@ export function wallPenetration(
 }
 
 /**
+ * A corner of a car's barrier outline at (px, py, pz) against the wall segments `ids[0..count)`, the car's centre at
+ * (cgX, cgZ) and the corner at (fromX, fromZ) at the start of the sub-step. A face counts when the corner's path this
+ * sub-step entered it from the centre's side; of several, the first it entered (a post's front, not its back; the side
+ * of a row, not the end it then slid out past). A corner already past a face at the start of the sub-step (left there
+ * by another contact's push) counts the first face between the centre and the corner, when the corner lies behind
+ * that face within its length: a face the corner only got behind by going round its end is not one it is through (the
+ * end is inside the outline then, `wallEndInOutline`). Nothing further away counts: a face beside the corner, or one the
+ * corner is "behind" only as seen from the centre across empty ground, is not a contact. Only segments whose height
+ * range reaches within `ySlack` of `py` count (a NaN `py` skips the height test). The normal points back toward the
+ * centre's side; returns the depth behind the face, 0 when clear.
+ */
+export function wallCornerContact(
+  walls: WallQuery,
+  ids: Int32Array,
+  count: number,
+  px: number,
+  py: number,
+  pz: number,
+  fromX: number,
+  fromZ: number,
+  cgX: number,
+  cgZ: number,
+  ySlack: number,
+  out: WallHit
+): number {
+  const seg = walls.segments;
+  let firstEntry = Infinity;
+  let entryDepth = 0;
+  let entryNx = 0;
+  let entryNz = 0;
+  let firstOnRay = Infinity;
+  let rayDepth = 0;
+  let rayNx = 0;
+  let rayNz = 0;
+  let rayBehind = false;
+  for (let k = 0; k < count; k++) {
+    const o = ids[k] * WALL_SEGMENT_STRIDE;
+    if (py < seg[o + 4] - ySlack || py > seg[o + 5] + ySlack) continue;
+    const ax = seg[o];
+    const az = seg[o + 1];
+    const dx = seg[o + 2] - ax;
+    const dz = seg[o + 3] - az;
+    const len2 = dx * dx + dz * dz;
+    if (len2 < 1e-6) continue;
+    const inv = 1 / Math.sqrt(len2);
+    let nx = -dz * inv;
+    let nz = dx * inv;
+    let sc = (cgX - ax) * nx + (cgZ - az) * nz;
+    if (Math.abs(sc) < 1e-4) continue;
+    if (sc < 0) {
+      nx = -nx;
+      nz = -nz;
+      sc = -sc;
+    }
+    const sp = (px - ax) * nx + (pz - az) * nz;
+    if (sp >= 0) continue;
+    // Entered along the corner's own path, from the centre's side
+    const sf = (fromX - ax) * nx + (fromZ - az) * nz;
+    if (sf >= 0) {
+      const g = sf / (sf - sp);
+      const t = ((fromX + (px - fromX) * g - ax) * dx + (fromZ + (pz - fromZ) * g - az) * dz) / len2;
+      if (t >= 0 && t <= 1) {
+        if (g < firstEntry) {
+          firstEntry = g;
+          entryDepth = -sp;
+          entryNx = nx;
+          entryNz = nz;
+        }
+        continue;
+      }
+    }
+    // Between the centre and the corner: the line from one to the other crosses the face
+    const f = sc / (sc - sp);
+    const t = ((cgX + (px - cgX) * f - ax) * dx + (cgZ + (pz - cgZ) * f - az) * dz) / len2;
+    if (t < 0 || t > 1 || f >= firstOnRay) continue;
+    firstOnRay = f;
+    const tq = ((px - ax) * dx + (pz - az) * dz) / len2;
+    rayBehind = tq >= 0 && tq <= 1;
+    rayDepth = -sp;
+    rayNx = nx;
+    rayNz = nz;
+  }
+  if (firstEntry !== Infinity) {
+    out.depth = entryDepth;
+    out.nx = entryNx;
+    out.nz = entryNz;
+  } else if (firstOnRay !== Infinity && rayBehind) {
+    out.depth = rayDepth;
+    out.nx = rayNx;
+    out.nz = rayNz;
+  } else out.depth = 0;
+  return out.depth;
+}
+
+/** A wall's end or corner inside a car's outline: as `WallHit` (the normal is the way to push the car), and where it is */
+export interface WallEndHit extends WallHit {
+  x: number;
+  z: number;
+}
+
+export function createWallEndHit(): WallEndHit {
+  return { depth: 0, nx: 0, nz: 0, x: 0, z: 0 };
+}
+
+/** Floats per outline edge in `wallEndInOutline`'s edge lists: the outward unit normal (nx, nz) and its offset c */
+export const OUTLINE_EDGE_STRIDE = 3;
+
+/** The points (x, z) on the convex hull of `pts`, as indices in order round it (points on a straight edge left out) */
+export function convexHullIndices(pts: readonly { x: number; z: number }[]): number[] {
+  const order = pts.map((_, i) => i).sort((i, j) => pts[i].x - pts[j].x || pts[i].z - pts[j].z);
+  const cross = (o: number, a: number, b: number) =>
+    (pts[a].x - pts[o].x) * (pts[b].z - pts[o].z) - (pts[a].z - pts[o].z) * (pts[b].x - pts[o].x);
+  const half = (idx: number[]) => {
+    const h: number[] = [];
+    for (const i of idx) {
+      while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], i) <= 0) h.pop();
+      h.push(i);
+    }
+    return h.slice(0, -1);
+  };
+  return half(order).concat(half([...order].reverse()));
+}
+
+/**
+ * A convex outline's edges for `wallEndInOutline`, from its `k` corners in order round it relative to the centre
+ * inside it (`corners`: x, z pairs): edge i runs from corner i − 1 to corner i
+ */
+export function writeOutlineEdges(corners: Float64Array, k: number, out: Float64Array): void {
+  let ax = corners[2 * k - 2];
+  let az = corners[2 * k - 1];
+  for (let i = 0; i < k; i++) {
+    const bx = corners[2 * i];
+    const bz = corners[2 * i + 1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dz) || 1;
+    let nx = -dz / len;
+    let nz = dx / len;
+    let c = nx * ax + nz * az;
+    // Outward: away from the centre
+    if (c < 0) {
+      nx = -nx;
+      nz = -nz;
+      c = -c;
+    }
+    const e = i * OUTLINE_EDGE_STRIDE;
+    out[e] = nx;
+    out[e + 1] = nz;
+    out[e + 2] = c;
+    ax = bx;
+    az = bz;
+  }
+}
+
+/** Faces meeting at a wall's joint within this angle of a straight line make a smooth wall there, not a corner */
+const SMOOTH_JOINT_COS = Math.cos((30 * Math.PI) / 180);
+/**
+ * A face passing this close (m) to a wall's end meets it there. More than touching: faces under 5 cm are dropped from
+ * the walls (`TrackWallQuery`), which leaves gaps that size in a traced outline, and a barrier's sections can stand a
+ * few centimetres proud of each other (Monaco's Armco)
+ */
+const JOINT_TOLERANCE_M = 0.06;
+
+/**
+ * The deepest end or corner of the wall segments `ids[0..count)` inside a car's convex barrier outline: a post or a
+ * wall's end between the outline's corners, which no corner touches. The outline is given by its edges relative to its
+ * centre (at cgX, cgZ): `OUTLINE_EDGE_STRIDE` floats each, the outward unit normal n and c = n · (a corner on the edge);
+ * a point r from the centre is inside when r · n < c on every edge. `radius` bounds the outline. Height test against
+ * `py` as in `wallCornerContact`.
+ *
+ * The contact normal is that of the outline's edge nearest the end, and the depth how far it is in past that edge: a
+ * post met by the nose pushes the car straight back by the little it got in during the sub-step, one met by the nose's
+ * corner turns it aside. At a joint of a smooth wall (every face reaching the end within 30° of a straight line) the
+ * faces' own normal is used instead, with the push along it that clears the joint (if that is not much more than
+ * through the edge): a barrier's slight zig-zag, or a section standing a few centimetres proud of the one before,
+ * would otherwise catch a car sliding along it on the edge of its nose. `out` gets the way to push the car and the
+ * end's position; returns the depth, 0 when none is in.
+ */
+export function wallEndInOutline(
+  walls: WallQuery,
+  ids: Int32Array,
+  count: number,
+  cgX: number,
+  cgZ: number,
+  py: number,
+  edges: Float64Array,
+  edgeCount: number,
+  radius: number,
+  ySlack: number,
+  out: WallEndHit
+): number {
+  const seg = walls.segments;
+  const r2 = radius * radius;
+  out.depth = 0;
+  for (let k = 0; k < count; k++) {
+    const o = ids[k] * WALL_SEGMENT_STRIDE;
+    if (py < seg[o + 4] - ySlack || py > seg[o + 5] + ySlack) continue;
+    for (let end = 0; end < 2; end++) {
+      const ex = seg[o + 2 * end];
+      const ez = seg[o + 1 + 2 * end];
+      const rx = ex - cgX;
+      const rz = ez - cgZ;
+      if (rx * rx + rz * rz > r2) continue;
+      let inside = true;
+      let nearest = -Infinity;
+      let nearestEdge = 0;
+      for (let i = 0; i < edgeCount; i++) {
+        const e = i * OUTLINE_EDGE_STRIDE;
+        const d = rx * edges[e] + rz * edges[e + 1] - edges[e + 2];
+        if (d >= 0) {
+          inside = false;
+          break;
+        }
+        if (d > nearest) {
+          nearest = d;
+          nearestEdge = i;
+        }
+      }
+      if (!inside) continue;
+      let depth = -nearest;
+      let ux = -edges[nearestEdge * OUTLINE_EDGE_STRIDE];
+      let uz = -edges[nearestEdge * OUTLINE_EDGE_STRIDE + 1];
+      if (depth <= out.depth) continue;
+      // A joint of a smooth wall: the faces reaching the end, their directions turned to agree; the side the car is on
+      // is read from the face whose line runs furthest from its centre (one pointing at the centre cannot tell)
+      let faces = 0;
+      let smooth = true;
+      let fx = 0;
+      let fz = 0;
+      let sx = 0;
+      let sz = 0;
+      let side = 0;
+      let sideDist = -1;
+      for (let j = 0; j < count && smooth; j++) {
+        const oj = ids[j] * WALL_SEGMENT_STRIDE;
+        if (py < seg[oj + 4] - ySlack || py > seg[oj + 5] + ySlack) continue;
+        const ax = seg[oj];
+        const az = seg[oj + 1];
+        const bx = seg[oj + 2];
+        const bz = seg[oj + 3];
+        const dx = bx - ax;
+        const dz = bz - az;
+        const len2 = dx * dx + dz * dz;
+        if (len2 < 1e-6) continue;
+        const t = Math.min(1, Math.max(0, ((ex - ax) * dx + (ez - az) * dz) / len2));
+        const gx = ax + t * dx - ex;
+        const gz = az + t * dz - ez;
+        if (gx * gx + gz * gz > JOINT_TOLERANCE_M * JOINT_TOLERANCE_M) continue;
+        const len = Math.sqrt(len2);
+        let tx = dx / len;
+        let tz = dz / len;
+        if (faces === 0) {
+          fx = tx;
+          fz = tz;
+        } else if (Math.abs(tx * fx + tz * fz) < SMOOTH_JOINT_COS) smooth = false;
+        else if (tx * fx + tz * fz < 0) {
+          tx = -tx;
+          tz = -tz;
+        }
+        sx += tx;
+        sz += tz;
+        // The centre's distance from this face's line, on the side of the normal (−tz, tx)
+        const sc = (cgX - ax) * -tz + (cgZ - az) * tx;
+        if (Math.abs(sc) > sideDist) {
+          sideDist = Math.abs(sc);
+          side = Math.sign(sc);
+        }
+        faces++;
+      }
+      const sl = Math.hypot(sx, sz);
+      if (faces >= 2 && smooth && sl > 1e-6 && side !== 0) {
+        // The faces' mean normal, toward the car's side
+        const wx = (-sz / sl) * side;
+        const wz = (sx / sl) * side;
+        // How far the car must move along w for the joint to leave the outline: through the first edge it reaches
+        let s = Infinity;
+        for (let i = 0; i < edgeCount; i++) {
+          const e = i * OUTLINE_EDGE_STRIDE;
+          const un = wx * edges[e] + wz * edges[e + 1];
+          if (un >= 0) continue;
+          s = Math.min(s, (rx * edges[e] + rz * edges[e + 1] - edges[e + 2]) / un);
+        }
+        if (s <= 3 * depth + JOINT_TOLERANCE_M) {
+          depth = s;
+          ux = wx;
+          uz = wz;
+        }
+      }
+      if (depth <= out.depth) continue;
+      out.depth = depth;
+      out.nx = ux;
+      out.nz = uz;
+      out.x = ex;
+      out.z = ez;
+    }
+  }
+  return out.depth;
+}
+
+/**
  * Where the path (ax, az) → (bx, bz) first crosses one of the wall segments `ids[0..count)` (height test as in
- * `wallPenetration`): the fraction along the path, or −1 when it crosses none. `out` gets that wall's normal toward the
+ * `wallCornerContact`): the fraction along the path, or −1 when it crosses none. `out` gets that wall's normal toward the
  * path's start and how far (bx, bz) is past it.
  */
 export function wallSweep(
