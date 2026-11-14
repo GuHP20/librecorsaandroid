@@ -56,11 +56,23 @@ minutes instead of twenty.
 
 The checks run without Cloudflare: `npm run verify` covers the room server, the race server (both sides) and the
 boards on an in-memory database (`scripts/verify-room-server.ts`, `verify-race-server.ts`, `verify-race-client.ts`,
-`verify-leaderboard.ts`), and the usage counter and the admin numbers (`verify-usage.ts`).
+`verify-leaderboard.ts`), the boards' pages and totals (`verify-board-stats.ts`), and the usage counter and the
+admin numbers (`verify-usage.ts`).
 
 ## Rules worth knowing
 
-- Nothing under `/api` is cached (Workers caching is on for the large files): every answer says `no-store`.
+- Under `/api` only the answers that are the same for everyone are cached (Workers caching is on for the large
+  files): a board's page read without a driver's name (`public, max-age=30`), and the totals, `GET /api/stats`
+  (30 s) and `GET /api/stats/circuit` (60 s). Everything else, errors included, says `no-store`, so a driver's own
+  place shows their new lap at once.
+- The boards' pages: `GET /api/laps` takes `offset` (places skipped) with `limit` (1 to 100), and `near=1..5` adds the
+  places either side of the driver's own. `vehicle=all` is the circuit's board over every car: each driver once,
+  with their fastest lap in any car, each car on the physics revision this build ships it on (worked out in the Worker
+  from `lapPhysicsVersion`, and sent back as `current`, so a browser on the LC26's older engine still reads it).
+- The totals (`api/stats.ts`): a circuit's laps are the laps the usage reports counted (migration
+  `0006_lap_counts.sql`), or the laps stored on its boards when that is more, so the number is an honest lower bound
+  from day one; its drivers are its current board's. Drivers to date are the names with a lap on a board or in an open
+  race result their driver key proved, counted once per name (a rename takes the laps and results along).
 - The race server and a room's host run the same checks on everything a player sends (`src/lib/net/wire.ts`). Only
   the server ever sends a lobby, a start or a result; a socket speaks for one car.
 - Each car reports its finish once; the race server classifies the reports with the game's own order and sends one
@@ -73,7 +85,8 @@ boards on an in-memory database (`scripts/verify-room-server.ts`, `verify-race-s
   model, the mode (`practice`, `time_trial`, `ai_race`, `open_race`, `room_race`) and the minutes. The Worker checks
   each field, caps the minutes at 240, limits one address to 10 reports a minute (`USAGE_LIMIT`), and adds one session
   and the minutes to that day's row in `usage_daily` (migration `0003_usage.sql`) with the country Cloudflare puts on
-  the request. No address, player id or cookie is stored. Newer builds add what the stretch was driven with: `input`
+  the request. No address, player id or cookie is stored. Newer builds also send the laps the stretch completed, added
+  to the same row (`laps`, capped at six a minute). Newer builds add what the stretch was driven with: `input`
   (keyboard, controller, wheel, touch), `device` (desktop, tablet, phone), `weather` (dry, wet), `assists` and `build`
   (the commit: `NEXT_PUBLIC_BUILD` in the deploy, put in a `lc-build` meta tag so the game's script stays the same). Each is added up on its own in `usage_extra` (migration
   `0004_admin_numbers.sql`), one row per day, field and value, never crossed with another field, the circuit or the

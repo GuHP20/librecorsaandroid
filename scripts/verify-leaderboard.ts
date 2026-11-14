@@ -385,15 +385,16 @@ async function main(): Promise<void> {
     check('board: every row has its ghost and every ghost its row', ghosts.objects.size === stored, `${ghosts.objects.size} ghosts, ${stored} rows`);
   }
   {
-    // Through the API: switched on and off, never cached
+    // Through the API: switched on and off; a page that says where a driver stands is never cached (a page anyone
+    // may read is kept half a minute: verify-board-stats.ts)
     const env = { ONLINE_BOARD: 'on', BOARD_DB: deps.db, GHOSTS: ghosts } as unknown as Env;
     const api = (path: string, e: Env) => {
       const url = new URL(`https://librecorsa.org${path}`);
       return handleApi(new Request(url), e, url);
     };
-    const listed = await api(`/api/laps?track=rwanda_official_short&vehicle=lc26&physics=${CURRENT}`, env);
+    const listed = await api(`/api/laps?track=rwanda_official_short&vehicle=lc26&physics=${CURRENT}&name=Test%20Driver`, env);
     const rows = ((await listed.json()) as ListAnswer).laps;
-    check('api: GET /api/laps lists the board, never cached', listed.status === 200 && rows.length === 3 && listed.headers.get('Cache-Control') === 'no-store');
+    check('api: GET /api/laps lists the board, never cached with a name', listed.status === 200 && rows.length === 3 && listed.headers.get('Cache-Control') === 'no-store');
     const ghost = await api(`/api/laps/${rows[0].id}`, env);
     check('api: GET /api/laps/<id> returns the ghost', ghost.status === 200 && validateLapRecording(await ghost.json()) !== null);
     check('api: an unknown lap is 404', (await api('/api/laps/00000000-0000-4000-8000-000000000000', env)).status === 404);
