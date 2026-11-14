@@ -773,6 +773,29 @@ body {
   }
 }
 
+/*
+ * iOS and iPadOS WebKit (the only engines with -webkit-touch-callout). There a tab is closed once it passes its memory
+ * limit (#110), and the full-screen menus' layers are held at the screen's 3x resolution, so the menus keep fewer.
+ * - The pause menu under Settings is not drawn (.lc-menu-covered): about 70 MB of layers with Settings open, in the
+ *   iOS simulator. Hidden, not removed, it keeps its tab, scroll and focus for when Settings closes.
+ * - Panels do not slide in, and nothing in the full-screen menus (.lc-menu-screen: pause, Settings) has a transition.
+ *   A part that animated or ran a transition as the menu opened kept a layer of its own afterwards: about 45 MB with
+ *   the pause menu open and 60 MB with Settings open, in the iOS simulator.
+ */
+@supports (-webkit-touch-callout: none) {
+  .lc-menu-covered {
+    visibility: hidden;
+  }
+  .lc-panel-in {
+    animation: none;
+  }
+  .lc-menu-screen *,
+  .lc-menu-screen *::before,
+  .lc-menu-screen *::after {
+    transition: none;
+  }
+}
+
 /* Bars that grow up from their base: lap summary corner bars (grow), race podium steps (rise) */
 @keyframes lc-grow {
   from {
