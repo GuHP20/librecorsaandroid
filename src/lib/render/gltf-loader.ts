@@ -28,6 +28,8 @@ const workersAvailable = () =>
 
 /** Resolves true once the workers answered the probe decode correctly; false sends every decode to the main thread */
 let workersReady: Promise<boolean> | null = null;
+/** The workers failed their probe once: this page decodes on the main thread from then on, without trying again */
+let workersFailed = false;
 let pending = 0;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -43,6 +45,7 @@ function startWorkers(): Promise<boolean> {
     } catch (err) {
       console.warn("Model decoding stays on the main thread:", err);
     }
+    workersFailed = true;
     ThreeMeshoptDecoder.useWorkers(0);
     return false;
   })();
@@ -73,7 +76,7 @@ function scheduleIdleStop(): void {
 export const MeshoptDecoder: typeof ThreeMeshoptDecoder = {
   ...ThreeMeshoptDecoder,
   async decodeGltfBufferAsync(...args: DecodeArgs): Promise<Uint8Array> {
-    if (!workersAvailable()) return ThreeMeshoptDecoder.decodeGltfBufferAsync(...args);
+    if (workersFailed || !workersAvailable()) return ThreeMeshoptDecoder.decodeGltfBufferAsync(...args);
     pending++;
     if (idleTimer !== null) {
       clearTimeout(idleTimer);
