@@ -192,6 +192,11 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
   const shownTotals = totals?.of === totalsOf ? totals.totals : null;
   const totalsLoading = totals?.of !== totalsOf;
 
+  // The board shrank under the page shown (drivers renamed or lapsed since): back to its last page
+  useEffect(() => {
+    if (settled && shown && shown.total > 0 && page > pages) setPaging({ base, page: pages });
+  }, [settled, shown, page, pages, base]);
+
   const goTo = (next: number) => {
     const to = Math.min(pages, Math.max(1, next));
     if (to !== page) setPaging({ base, page: to });
@@ -333,7 +338,7 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
       ) : null}
 
       {!shown && !failed ? (
-        <BoardSkeleton rows={6} label="Loading online times" />
+        <BoardSkeleton rows={6} label="Loading online times…" />
       ) : !shown ? (
         <BoardError onRetry={() => setReload((n) => n + 1)}>Couldn&apos;t load the online times. Check your connection.</BoardError>
       ) : shown.entries.length === 0 && total === 0 ? (

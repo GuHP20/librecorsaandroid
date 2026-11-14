@@ -116,6 +116,9 @@ export function towerLines(page: BoardPage, myKey: string, rowsRoom = 99): Line[
   return lines;
 }
 
+/** The cursor on the widget's controls, for the keys only (a click lets go of the focus at once, see `letGo`) */
+const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-lc-volt";
+
 /** Keeps a pressed HUD control from holding the focus: Space (boost) must never press it again */
 const letGo = (e: React.SyntheticEvent<HTMLElement>) => e.currentTarget.blur();
 
@@ -279,7 +282,7 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
           letGo(e);
           setMenu((m) => !m);
         }}
-        className="inline-flex size-7 items-center justify-center rounded-full text-lc-slate transition-colors duration-200 ease-lc hover:bg-white/8 hover:text-lc-chalk aria-expanded:bg-white/8 aria-expanded:text-lc-chalk"
+        className={`inline-flex size-7 items-center justify-center rounded-full text-lc-slate transition-colors duration-200 ease-lc hover:bg-white/8 hover:text-lc-chalk aria-expanded:bg-white/8 aria-expanded:text-lc-chalk ${FOCUS}`}
       >
         <Icon name="settings" size="xs" className="size-3.5" />
       </button>
@@ -298,7 +301,7 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
                 setLapOpenUntil(0);
                 onChangeMode(m);
               }}
-              className="flex h-8 items-center gap-2 rounded-full px-2.5 text-left text-[12px] font-semibold text-lc-fog transition-colors duration-200 ease-lc hover:bg-white/8 hover:text-lc-chalk aria-checked:text-lc-chalk"
+              className={`flex h-8 items-center gap-2 rounded-full px-2.5 text-left text-[12px] font-semibold text-lc-fog transition-colors duration-200 ease-lc hover:bg-white/8 hover:text-lc-chalk aria-checked:text-lc-chalk ${FOCUS}`}
             >
               <span className="inline-flex size-3.5 shrink-0 items-center justify-center">{m === mode ? <Icon name="check" size="xs" className="size-3.5" /> : null}</span>
               {MODE_LABEL[m]}
@@ -323,7 +326,7 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
             aria-expanded
             aria-label={`Fold the lap board${keyName ? ` (${keyName})` : ""}`}
             title={trackName}
-            className="flex h-11 w-full items-center gap-2.5 rounded-t-lc-tile rounded-b-lc-row bg-lc-chalk pr-2.5 pl-3 text-left text-lc-void"
+            className={`flex h-11 w-full items-center gap-2.5 rounded-t-lc-tile rounded-b-lc-row bg-lc-chalk pr-2.5 pl-3 text-left text-lc-void ${FOCUS}`}
           >
             <span className="lc-disp min-w-0 flex-1 truncate text-[17px] leading-none">{trackName}</span>
             {rank !== null ? (
@@ -380,7 +383,7 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
             aria-expanded={false}
             aria-label={`Open the lap board${keyName ? ` (${keyName})` : ""}: ${trackName}, ${place ?? "no time yet"}`}
             title={trackName}
-            className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-lc-chalk"
+            className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-full text-left text-lc-chalk ${FOCUS}`}
           >
             <span className="lc-disp min-w-0 flex-1 truncate text-[14px] leading-none">{trackName}</span>
             <span className="lc-data shrink-0 text-[12px] text-lc-chalk">{place ?? <span className="text-lc-slate">No time yet</span>}</span>

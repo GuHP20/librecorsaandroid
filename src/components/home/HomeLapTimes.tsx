@@ -47,7 +47,7 @@ function afterLoad(run: () => void): () => void {
 }
 
 const LoadingCard: React.FC = () => (
-  <div role="status" aria-label="Loading lap times" className="flex flex-col gap-3 rounded-lc-card border border-white/7 bg-lc-carbon/80 p-4.5">
+  <div role="status" aria-label="Loading lap times…" className="flex flex-col gap-3 rounded-lc-card border border-white/7 bg-lc-carbon/80 p-4.5">
     <Skeleton shape="line" className="h-5 w-40" />
     <Skeleton shape="line" className="h-3 w-56" />
     <Skeleton className="mt-2 h-48 w-full rounded-lc-row" />
