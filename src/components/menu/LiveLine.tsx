@@ -21,8 +21,8 @@ export const LiveLine: React.FC<{ className?: string }> = ({ className = "" }) =
       void fetchSiteStats()
         .catch(() => null)
         .then((s) => {
-          // A failed read keeps the numbers already shown for this minute; none at all hides the line
-          if (live) setStats((prev) => s ?? (prev && document.visibilityState === "hidden" ? prev : null));
+          // A failed read hides the line: an older number is never shown as if it were live
+          if (live) setStats(s);
         });
     read();
     const id = window.setInterval(() => {

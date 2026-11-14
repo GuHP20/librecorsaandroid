@@ -63,7 +63,7 @@ import { PhoneHud, usePhoneLayout } from "./hud/styles/PhoneHud";
 import { useUiZoom } from "@/lib/ui-zoom";
 import { buildHudMap, revRangeOf, useLapInvalid, type HudDesignProps } from "./hud/styles/hud-style-parts";
 import type { BoardWidgetMode, HudPreset } from "@/lib/settings/player-settings";
-import { BoardWidget } from "./hud/BoardWidget";
+import { BoardWidget, useLargeScreen } from "./hud/BoardWidget";
 import { PodiumOverlay } from "./hud/PodiumOverlay";
 import type { NextRaceProps } from "./hud/RaceResults";
 import type { PodiumUi } from "@/lib/render/podium-shot";
@@ -265,6 +265,8 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   // The touch pads take both bottom corners and the top-left, where every other preset puts its panels:
   // with them up, the Phone HUD (laid out round them) is the layout at any screen size
   const phone = usePhoneLayout() || Boolean(props.touchControls);
+  // The lap board is for large screens only: not mounted below 1280 × 720
+  const largeScreen = useLargeScreen();
   const lapInvalid = useLapInvalid(telemetry);
   // Under the virtual mirror's strip (its rect is shared with the renderer), with a little air
   // The renderer draws the mirror into this rect; the HUD frames it and starts the top-centre column under it
@@ -321,8 +323,8 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   // own tower and split gaps sit. A leaf with plain props, so this frame's render passes it by
   const boardKeyName = props.keyNames?.board;
   const boardNode =
-    props.onChangeBoardWidget && !phone && !race ? (
-      <div className="compact:hidden">
+    props.onChangeBoardWidget && largeScreen && !phone && !race ? (
+      <div>
         <BoardWidget
           trackId={ACTIVE_TRACK_ID}
           trackName={trackInfo.name}

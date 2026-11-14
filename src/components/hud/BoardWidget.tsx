@@ -10,7 +10,7 @@
  * A leaf of the HUD with plain props, so the HUD's frame-by-frame renders pass it by; it reads the board itself, and
  * rarely: when it mounts, when it opens, at a lap's end, and every few minutes while it stays open. Never per frame.
  */
-import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { VehicleModelId } from "@/types/f1";
 import type { BoardWidgetMode } from "@/lib/settings/player-settings";
 import { HUD_TOGGLE_EVENT } from "@/lib/input/bindings";
@@ -150,7 +150,8 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
       const box = el.getBoundingClientRect();
       const scale = el.offsetWidth > 0 ? box.width / el.offsetWidth : 1;
       let floor = window.innerHeight - 12;
-      for (const below of document.querySelectorAll<HTMLElement>("[data-hud-floor]")) {
+      // The corner's own panels, and on a narrower window the centre pod or dash and the MFD where they reach under it
+      for (const below of document.querySelectorAll<HTMLElement>("[data-hud-floor], [data-hud-avoid]")) {
         const b = below.getBoundingClientRect();
         if (b.height < 1 || b.right <= box.left || b.left >= box.right || b.top <= box.top) continue;
         floor = Math.min(floor, b.top - 10);
@@ -398,3 +399,19 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
 
 /** The lap board while driving: passed over by the HUD's own renders while its props stay the same */
 export const BoardWidget = memo(BoardWidgetImpl);
+
+/**
+ * A screen large enough for the board: at least 1280 × 720. Narrower, the top-centre column (the launch hint, race
+ * control's notices) reaches over the top-left corner where the Wheel dash and Minimal layouts put the board
+ */
+const LARGE_QUERY = "(min-width: 80rem) and (min-height: 45rem)";
+const subscribeLarge = (onChange: () => void) => {
+  const query = window.matchMedia(LARGE_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+};
+
+/** True on a screen large enough for the lap board: below it the board is not mounted at all (no reads, no key) */
+export function useLargeScreen(): boolean {
+  return useSyncExternalStore(subscribeLarge, () => window.matchMedia(LARGE_QUERY).matches, () => false);
+}
