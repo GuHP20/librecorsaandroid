@@ -83,6 +83,8 @@ import {
   steeringAssistSettings,
 } from '../src/lib/sim/steering-assist';
 import { resetAllSettings } from '../src/components/settings/storage';
+import { tiltSteer } from '../src/components/settings/defs';
+import type { SettingsEnv } from '../src/components/settings/env';
 import {
   enterFullscreenOnTouch,
   installedFrom,
@@ -857,6 +859,25 @@ check('without a window: not installed, not Apple, no prompt, and going full scr
   assert.deepEqual(installStore.getSnapshot(), { canPrompt: false, installed: false });
   assert.equal(installStore.getSnapshot(), installStore.getServerSnapshot(), 'one snapshot object until something changes');
   enterFullscreenOnTouch();
+});
+check('Settings > Touch: turning Tilt to steer on asks iOS for motion access in the same tap; turning it off does not', () => {
+  const g = globalThis as unknown as { window?: unknown; DeviceOrientationEvent?: unknown };
+  let asked = 0;
+  g.window = {};
+  g.DeviceOrientationEvent = { requestPermission: () => (asked++, Promise.resolve('granted')) };
+  try {
+    let settings = DEFAULT_PLAYER_SETTINGS;
+    const env = { settings, update: (fn: (s: typeof settings) => typeof settings) => void (settings = fn(settings)) } as unknown as SettingsEnv;
+    tiltSteer.write(env, true);
+    assert.equal(asked, 1, 'asked before the tap handler returns (iOS prompts only inside the gesture)');
+    assert.equal(settings.touch.tiltSteer, true);
+    tiltSteer.write(env, false);
+    assert.equal(asked, 1, 'turning tilt off asks nothing');
+    assert.equal(settings.touch.tiltSteer, false);
+  } finally {
+    delete g.window;
+    delete g.DeviceOrientationEvent;
+  }
 });
 
 /** Manual clock and timers for the WebHID driver and its writer */

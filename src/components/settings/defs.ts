@@ -1,6 +1,6 @@
 import { keyLabel } from "@/lib/input/bindings";
 import { PAD_SENSITIVITY } from "@/lib/input/device-input";
-import { isTouchDevice } from "@/lib/input/touch-input";
+import { isTouchDevice, requestTiltPermission } from "@/lib/input/touch-input";
 import { ALL_CAMERA_MODES, CAMERA_MODES } from "@/lib/render/camera-modes";
 import {
   COCKPIT_FOV_MAX_DEG,
@@ -334,12 +334,21 @@ export const touchMode = choice("segmented", {
   ...touch("mode"),
 });
 
+const tiltSteerLens = touch("tiltSteer");
+
 export const tiltSteer = toggle({
   id: "tiltSteer",
   label: "Tilt to steer",
   hint: "Tilt the device instead of using the on-screen slider",
   off: noTouch,
-  ...touch("tiltSteer"),
+  ...tiltSteerLens,
+  // iOS sends tilt only once the player allows it, and shows its prompt only to a request made inside a tap: this
+  // switch's tap is one, so the prompt comes as tilt is turned on (as it does in the setup's Tilt choice). Refused,
+  // the touch controls fall back to the slider and offer a retry on track.
+  write: (env, on) => {
+    if (on) void requestTiltPermission();
+    tiltSteerLens.write(env, on);
+  },
 });
 
 export const tiltRange = slider({
