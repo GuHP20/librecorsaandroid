@@ -133,7 +133,16 @@ import {
 } from './sim/wet-tyres';
 import { surfaceRippleM, type TrackSurfaceKind } from './sim/track-surfaces';
 import { BRAKE_DUCT_STEP, type ChassisSetup, clampChassisSetup, DEFAULT_CHASSIS_SETUP, pctScale, startingFuelKg, WING_CLICK_DEG } from './sim/car-setup';
-import { FLYING_SLOT_SPACING_M, flyingExitSpeedMs, flyingStartPoint, rollingStartSlots, rollingStartSpeedMs, type TyreVisualState } from './sim/simulator-car';
+import {
+  FLYING_SLOT_SPACING_M,
+  flyingExitSpeedMs,
+  flyingStartPoint,
+  rollingStartSlots,
+  rollingStartSpeedMs,
+  START_HANDS_OFF_S,
+  startPose,
+  type TyreVisualState,
+} from './sim/simulator-car';
 import type { VehicleWheelState, WheelCornerIndex } from './sim/vehicle-types';
 import { lockShareOf } from './sim/tyre-slide-fx';
 import { CourseCutWatch, isCourseHop } from './sim/course-limits';
@@ -1011,10 +1020,13 @@ export class F1Physics2026 {
         fieldSize !== undefined
           ? rollingStartSlots(this.track, start, gridSlot + 1)[gridSlot]
           : (((start.s - gridSlot * FLYING_SLOT_SPACING_M) % lapLen) + lapLen) % lapLen;
-      const smp = this.track.getSampleAtDistance(s);
-      const edge = Math.max(0, smp.width / 2 - 1.2);
       const stagger = gridSlot === 0 ? 0 : gridSlot % 2 === 1 ? -2.6 : 2.6;
-      const lateral = THREE.MathUtils.clamp(aiLineOffsetM(smp) + stagger, -edge, edge);
+      const lineAt = (at: number) => {
+        const smp = this.track.getSampleAtDistance(at);
+        const edge = Math.max(0, smp.width / 2 - 1.2);
+        return THREE.MathUtils.clamp(aiLineOffsetM(smp) + stagger, -edge, edge);
+      };
+      const edge = Math.max(0, this.track.getSampleAtDistance(s).width / 2 - 1.2);
       const spotSpeed = (at: number) => {
         const sample = this.track.getSampleAtDistance(at);
         return Math.min(75, (0.9 * (sample.brakeLimitKmh ?? sample.optimalSpeedKmh)) / 3.6);
@@ -1023,7 +1035,24 @@ export class F1Physics2026 {
       let speed = spotSpeed(s);
       if (fieldSize !== undefined) speed = rollingStartSpeedMs(this.track, start, fieldSize, spotSpeed, cornerExit);
       else if (start.cornerS !== null) speed = Math.min(speed, flyingExitSpeedMs(cornerExit, (s - start.cornerS + lapLen) % lapLen));
-      this.placeCar(s, speed, lateral);
+      if (fieldSize === undefined) {
+        // A flying lap hands the car over at speed: pointed so that, hands-off, its tyres stay on the asphalt for its
+        // first second (`startPose`; a race's rolling start is left on its line along the road, as `F12026CarSim` does)
+        const footprint = {
+          halfWidthM: Math.max(...this.wheels.map((w) => Math.abs(w.staticPos.y) + 0.5 * w.tyre.spec.width)),
+          frontM: this.cgToFrontAxleM,
+          rearM: this.cgToRearAxleM,
+        };
+        const pose = startPose(this.track, this.ground ?? null, s, lineAt(s), lineAt, -edge, edge, footprint, speed * START_HANDS_OFF_S);
+        this.placeCar(s, speed, pose.lateral);
+        // + = nose right of the road's tangent
+        const tangent = this.track.getSampleAtDistance(s).tangent;
+        const off = Math.atan2(tangent.x, tangent.z) - pose.yawRad;
+        this.headingErrorRad = Math.atan2(Math.sin(off), Math.cos(off));
+        this.syncCartesianFromCurvilinear();
+      } else {
+        this.placeCar(s, speed, lineAt(s));
+      }
       if (speed < 75) flyingGear = this.selectGearForSpeed(speed);
     } else {
       // Exported grid slot (behind the S/F line, staggered left / right)

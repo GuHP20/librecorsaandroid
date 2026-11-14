@@ -13,10 +13,11 @@ import type {
   LiveTunerPatch,
   LiveTunerState,
   TireCompound,
+  TrackSamplePoint,
   TyreSetup,
 } from '@/types/f1';
 import type { VehicleWheelState } from './vehicle-types';
-import type { GroundQuery } from './f12026-car/TrackColliderQuery';
+import { createGroundHit, type GroundHit, type GroundQuery, type TrackSurfaceKind } from './f12026-car/TrackColliderQuery';
 import type { SteeringAssistSettings, SteeringSource } from './steering-assist';
 import type { BrakingGuide } from './speed-profile';
 
@@ -244,6 +245,130 @@ export function flyingStartPoint(track: {
 /** Speed (m/s) a car leaving the last corner at `exitMs` carries `distanceM` further on */
 export function flyingExitSpeedMs(exitMs: number, distanceM: number): number {
   return Math.sqrt(exitMs * exitMs + 2 * FLYING_EXIT_ACCEL * Math.max(0, distanceM));
+}
+
+/**
+ * A car put down at speed for a flying lap has no yaw rate and its wheel straight, so it runs straight on until its
+ * driver reacts: for this long (s) its tyres must stay on the asphalt with no help (`startPose`)
+ */
+export const START_HANDS_OFF_S = 1;
+/** What those tyres may run on: the road and its kerbs, not run-off, gravel, grass, sausage kerbs or the pit lane */
+const START_SURFACES: ReadonlySet<TrackSurfaceKind> = new Set(['road', 'kerb']);
+/** Spacing of the checks along that run (m) */
+const START_RUN_STEP_M = 2;
+/** Spacing of the spots `startPose` tries across the road (m) */
+const START_LATERAL_STEP_M = 0.25;
+/**
+ * Furthest `startPose` turns a car off the road's heading (rad) or moves it off its line (m) to keep its tyres on.
+ * A start that needs more is in a corner (VIR Patriot's: 100 m radius at 185 km/h, where only a car turned 24° and
+ * moved 7 m across the road kept them on for a second), and stays on its line along the road
+ */
+const START_MAX_TURN_RAD = (10 * Math.PI) / 180;
+const START_MAX_SHIFT_M = 2;
+
+/** A car's tyres for `startPose`: their outer edges either side of its centre, its axles ahead of and behind it (m) */
+export interface StartFootprint {
+  halfWidthM: number;
+  frontM: number;
+  rearM: number;
+}
+
+/** Where a car starts: world x / z, heading (rad, `atan2` of its forward x and z) and its offset right of the centreline (m) */
+export interface StartPose {
+  x: number;
+  z: number;
+  yawRad: number;
+  lateral: number;
+}
+
+interface StartTrack {
+  getSampleAtDistance(s: number): Pick<TrackSamplePoint, 'position' | 'tangent' | 'binormal'>;
+}
+
+/** The point `lateral` m right of the centreline at `s`, across the road as a car is placed (`binormal` flattened) */
+function pointAcross(track: StartTrack, s: number, lateral: number): [number, number] {
+  const smp = track.getSampleAtDistance(s);
+  const b = smp.binormal;
+  const bl = Math.hypot(b.x, b.z) || 1;
+  return [smp.position.x + (b.x / bl) * lateral, smp.position.z + (b.z / bl) * lateral];
+}
+
+/**
+ * How far (m, up to `runM`) a car at (x, z), `s` along the lap, heading `yawRad`, runs straight on before a tyre's
+ * outer edge leaves the asphalt (`START_SURFACES`), read off the circuit's ground under all four every `START_RUN_STEP_M`
+ */
+function straightRunOnAsphaltM(
+  track: StartTrack,
+  ground: GroundQuery,
+  hit: GroundHit,
+  s: number,
+  pose: StartPose,
+  fp: StartFootprint,
+  runM: number
+): number {
+  const fx = Math.sin(pose.yawRad);
+  const fz = Math.cos(pose.yawRad);
+  let clean = 0;
+  for (let d = 0; d <= runM + 1e-6; d += START_RUN_STEP_M) {
+    // From above the road there: the run stays close to it
+    const probeY = track.getSampleAtDistance(s + d).position.y + 3;
+    for (const along of [fp.frontM, -fp.rearM]) {
+      for (const across of [-fp.halfWidthM, fp.halfWidthM]) {
+        // (-fz, fx) is the car's right, as the binormal is the road's
+        const x = pose.x + fx * (d + along) - fz * across;
+        const z = pose.z + fz * (d + along) + fx * across;
+        if (!ground.query(x, z, probeY, hit) || !START_SURFACES.has(hit.surface)) return clean;
+      }
+    }
+    clean = Math.min(runM, d);
+  }
+  return runM;
+}
+
+/**
+ * Where a car put down at `s` at speed for a flying lap starts, and which way it points (`START_HANDS_OFF_S`). On its
+ * line (`lateral`) heading along the road wherever, from there, its tyres stay on the asphalt for `runM` (m) hands-off,
+ * as on a straight. Where they would not (a short final straight starts on the last corner's exit: at Sachsenring the
+ * road still bends left there and its right edge closes in, and the right-hand tyres were on the run-off 0.3 s after
+ * a flying start), it points at its line `runM` ahead (`aimLateral` there), from `lateral` or from the spot nearest it
+ * within `lo`..`hi` that keeps them on, turned and moved no further than `START_MAX_TURN_RAD` / `START_MAX_SHIFT_M`;
+ * failing every one, it stays on its line along the road. The circuit's ground (its colliders) decides what is
+ * asphalt, not the track data's width. With no `ground` (the track samples' stand-in) the car goes on its line, along
+ * the road
+ */
+export function startPose(
+  track: StartTrack,
+  ground: GroundQuery | null,
+  s: number,
+  lateral: number,
+  aimLateral: (s: number) => number,
+  lo: number,
+  hi: number,
+  footprint: StartFootprint,
+  runM: number
+): StartPose {
+  const tangent = track.getSampleAtDistance(s).tangent;
+  const [x0, z0] = pointAcross(track, s, lateral);
+  const alongRoad: StartPose = { x: x0, z: z0, yawRad: Math.atan2(tangent.x, tangent.z), lateral };
+  if (!ground || !(runM > 0)) return alongRoad;
+  const hit = createGroundHit();
+  const run = (pose: StartPose) => straightRunOnAsphaltM(track, ground, hit, s, pose, footprint, runM);
+  if (run(alongRoad) >= runM) return alongRoad;
+  const [ax, az] = pointAcross(track, s + runM, aimLateral(s + runM));
+  // Nearest the line first, and of two as near, the one nearer the centre
+  const toCentre = lateral > 0 ? -1 : 1;
+  for (let k = 0; k * START_LATERAL_STEP_M <= START_MAX_SHIFT_M + 1e-9; k++) {
+    for (const side of k === 0 ? [0] : [toCentre, -toCentre]) {
+      const lat = lateral + side * k * START_LATERAL_STEP_M;
+      if (k > 0 && (lat < lo || lat > hi)) continue;
+      const [x, z] = pointAcross(track, s, lat);
+      const pose: StartPose = { x, z, yawRad: Math.atan2(ax - x, az - z), lateral: lat };
+      const turn = pose.yawRad - alongRoad.yawRad;
+      if (Math.abs(Math.atan2(Math.sin(turn), Math.cos(turn))) > START_MAX_TURN_RAD) continue;
+      if (run(pose) >= runM) return pose;
+    }
+  }
+  return alongRoad;
 }
 
 /** Gap between grid slots in a flying start's queue (m); the slots alternate sides */

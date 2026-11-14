@@ -65,8 +65,11 @@ import {
   flyingStartPoint,
   rollingStartSlots,
   rollingStartSpeedMs,
+  START_HANDS_OFF_S,
   type SimulatorCar,
   type SimulatorWheel,
+  type StartFootprint,
+  startPose,
   type TyreVisualState,
 } from '../simulator-car';
 import { aiLineOffsetM, type BrakingGuide, brakingGuideFor, circuitBrakingGuide, sampleProfile, type SpeedProfileCarModel } from '../speed-profile';
@@ -1508,10 +1511,14 @@ export class F12026CarSim implements SimulatorCar {
         fieldSize !== undefined
           ? rollingStartSlots(this.track, start, gridSlot + 1)[gridSlot]
           : wrap(start.s - gridSlot * FLYING_SLOT_SPACING_M, L);
-      const smp = this.track.getSampleAtDistance(s);
-      const [lo, hi] = autopilotLateralRange(this.track, smp, s, this.autopilotEdges(), this.profile);
       const stagger = gridSlot === 0 ? 0 : gridSlot % 2 === 1 ? -2.6 : 2.6;
-      const lateral = THREE.MathUtils.clamp(aiLineOffsetM(smp, this.line) + stagger, Math.min(0, lo), Math.max(0, hi));
+      const rangeAt = (at: number) =>
+        autopilotLateralRange(this.track, this.track.getSampleAtDistance(at), at, this.autopilotEdges(), this.profile);
+      const lineAt = (at: number) => {
+        const [lo, hi] = rangeAt(at);
+        return THREE.MathUtils.clamp(aiLineOffsetM(this.track.getSampleAtDistance(at), this.line) + stagger, Math.min(0, lo), Math.max(0, hi));
+      };
+      const [lo, hi] = rangeAt(s);
       const prof = autopilotProfile(this.track, this.profile, this.autopilotEdges());
       const ownAt = (at: number) => prof[Math.floor(wrap(at, L) / (L / prof.length)) % prof.length];
       const spotSpeed = (at: number) => {
@@ -1523,7 +1530,17 @@ export class F12026CarSim implements SimulatorCar {
       let speed = spotSpeed(s);
       if (fieldSize !== undefined) speed = rollingStartSpeedMs(this.track, start, fieldSize, spotSpeed, cornerExit);
       else if (start.cornerS !== null) speed = Math.min(speed, flyingExitSpeedMs(cornerExit, wrap(s - start.cornerS, L)));
-      this.placeAt(s, lateral, speed);
+      if (fieldSize === undefined) {
+        // A flying lap hands the car over at speed: pointed so that, hands-off, its tyres stay on the asphalt for its
+        // first second (`startPose`)
+        const pose = startPose(this.track, this.collider, s, lineAt(s), lineAt, lo, hi, this.startFootprint(), speed * START_HANDS_OFF_S);
+        this.progressHintS = this.poseHintS = s;
+        this.resetVehicle(pose.x, pose.z, pose.yawRad, speed);
+      } else {
+        // A race's rolling start puts each slot on its line along the road, unchecked: its queue runs back into the
+        // last corner, where pointing a car at its line ahead turned one 19° across the road (Le Mans 1982's fourth slot)
+        this.placeAt(s, lineAt(s), speed);
+      }
     } else {
       const grid = this.track.spawnGrid;
       const slot = grid[Math.min(gridSlot, grid.length - 1)];
@@ -2219,6 +2236,17 @@ export class F12026CarSim implements SimulatorCar {
     return fz > 0 && l.peakSlipAngleRad > 0 && r.peakSlipAngleRad > 0
       ? (l.fz * l.peakSlipAngleRad + r.fz * r.peakSlipAngleRad) / fz
       : (this.compoundData.modelData.friction_limit_angle || DEFAULT_FRICTION_LIMIT_ANGLE_DEG) * DEG2RAD;
+  }
+
+  /** The tyres' outer edges either side of the car's centre and its axles ahead and behind (`startPose`) */
+  private startFootprint(): StartFootprint {
+    const ch = this.config.chassis;
+    const tyres = this.compoundData;
+    return {
+      halfWidthM: 0.5 * Math.max(ch.trackWidthFront + tyres.front.width, ch.trackWidthRear + tyres.rear.width),
+      frontM: this.vehicle.cgToFrontM,
+      rearM: this.vehicle.cgToRearM,
+    };
   }
 
   /** At track distance `s`, `lateral` m right of the centreline, heading along the track */
