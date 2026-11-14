@@ -1,15 +1,15 @@
 "use client";
 
 import React from "react";
-import type { BadgeSize, BadgeTone, PaletteColor } from "@/components/ui/Badge";
+import type { BadgeSize, BadgeTone } from "@/components/ui/Badge";
 import { QualityBadge } from "@/components/ui/badges/QualityBadge";
 import { circuitQualityMeta, type CircuitQuality, type TrackInfo } from "@/lib/track-registry";
-import { anyCarForVehicle, carById, carQualityMeta, PHYSICS_CHECK, type CarClassId, type CarDefinition, type CarId, type CarQuality } from "@/lib/cars/car-registry";
+import { carById, carQualityMeta, PHYSICS_CHECK, type CarClassId, type CarDefinition, type CarId, type CarQuality } from "@/lib/cars/car-registry";
 import { ClassTag } from "@/components/ui/badges/ClassTag";
-import { CLASS_COLORS, type CarClassCode } from "@/components/ui/badges/class-colors";
+import type { CarClassCode } from "@/components/ui/badges/class-colors";
 import { setCarSkin, useCarSkinId } from "@/lib/cars/car-skins";
 import { carPhysics, useF1ModPhysics } from "@/lib/cars/f1-mod-physics";
-import type { LiveryConfig, VehicleModelId } from "@/types/f1";
+import type { LiveryConfig } from "@/types/f1";
 /** The older size names the callers pass (xs is the small badge) */
 export type ChipSize = "md" | "sm" | "xs";
 import { focusOnHover } from "./useFocusNav";
@@ -164,15 +164,8 @@ export const CarSkinPicker: React.FC<{ carId: CarId; surface?: string }> = ({ ca
 /** The registry's class ids on the kit's class codes (one colour table, in class-colors.ts) */
 const CLASS_CODE: Record<CarClassId, CarClassCode> = { f1: "openWheel", gt3: "gt3", proto: "proto", classic: "classic", road: "road" };
 
-/**
- * A car on the online board of every car: its short name (the badge it wears in the menus) in its class colour. The
- * rigid-body model's board holds the ported F1 team cars, which have no car of their own.
- */
-export function carBoardTag(vehicle: VehicleModelId): { label: string; color: PaletteColor } {
-  const car = vehicle === "f12026-car" ? undefined : anyCarForVehicle(vehicle);
-  if (!car) return { label: vehicle === "f12026-car" ? "F1 teams" : vehicle, color: CLASS_COLORS.openWheel.color };
-  return { label: car.badge, color: CLASS_COLORS[CLASS_CODE[car.classId] ?? "road"].color };
-}
+/** A car on the online board of every car (src/lib/cars/board-tag.ts, shared with the home page) */
+export { carBoardTag } from "@/lib/cars/board-tag";
 
 /** A car's class as the kit's `ClassTag` */
 export const CarClassTag: React.FC<{ car: Pick<CarDefinition, "classId">; size?: BadgeSize; className?: string }> = ({

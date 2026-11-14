@@ -1,5 +1,7 @@
 import type { LapOutline } from "@/lib/home/lap-outline";
 import type { ModelSource } from "@/lib/model-source";
+import type { VehicleModelId } from "@/types/f1";
+import type { PaletteColor } from "@/components/ui/Badge";
 
 /**
  * How far a circuit or car can be trusted, in the two kinds the home page shows (from the registries' `quality`):
@@ -82,6 +84,8 @@ export interface HomeData {
   contactEmail: string;
   repoUrl: string;
   supportUrl: string;
+  /** Each car's short name and class colour, for the rows of the online board of every car (the Lap times section) */
+  boardCars: Partial<Record<VehicleModelId, { label: string; color: PaletteColor }>>;
 }
 
 

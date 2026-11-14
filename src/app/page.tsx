@@ -4,6 +4,8 @@ import { HomeHub } from "@/components/home/HomeHub";
 import type { HomeData } from "@/components/home/home-data";
 import { withBasePath } from "@/lib/base-path";
 import { CAR_CLASSES, CARS, carThumbUrl, type CarId } from "@/lib/cars/car-registry";
+import { carBoardTag } from "@/lib/cars/board-tag";
+import { VEHICLE_MODEL_IDS } from "@/types/f1";
 import { REPO_CAR_IDS } from "@/lib/hosted-content";
 import outlines from "@/lib/home/circuit-outlines.json";
 import type { LapOutline } from "@/lib/home/lap-outline";
@@ -63,6 +65,7 @@ export default function HomePage() {
     contactEmail: CONTACT_EMAIL,
     repoUrl: REPO_URL,
     supportUrl: SUPPORT_URL,
+    boardCars: Object.fromEntries(VEHICLE_MODEL_IDS.map((v) => [v, carBoardTag(v)])),
   };
 
   // Old links to "/" that belong to the game go on to /play from the root layout (forward-to-game.ts)
