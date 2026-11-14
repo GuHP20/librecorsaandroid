@@ -45,6 +45,7 @@ import { REPO_URL, SUPPORT_URL, TAKEDOWN_URL } from "@/lib/site";
 import { withBasePath } from "@/lib/base-path";
 import { EmbeddedBadge } from "./EmbeddedBadge";
 import { InstallAppButton } from "./InstallAppButton";
+import { LiveLine } from "./LiveLine";
 
 type TitlePanel = "race" | "circuit" | "car" | "conditions" | "garage" | "multiplayer" | "challenge" | "leaderboard" | "display" | "credits" | "request";
 
@@ -652,6 +653,8 @@ export const TitleMenu: React.FC<TitleMenuProps> = (props) => {
         <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-3">
             <LibreCorsaLogo variant="compact" size={panel ? "sm" : "md"} />
+            {/* Beside the logo: who is driving now and how many have (gone with the online side) */}
+            <LiveLine className="short:hidden" />
             <EmbeddedBadge />
             {/* Never beside the badge: a framed game offers no install */}
             <InstallAppButton />
