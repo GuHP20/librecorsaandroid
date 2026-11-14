@@ -32,11 +32,12 @@ import { TEXT_LINK } from "./SitePage";
  * and Start drives.
  */
 
-type Tab = "home" | "circuits" | "cars" | "about";
+type Tab = "home" | "circuits" | "cars" | "laps" | "about";
 const TABS: { id: Tab; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "circuits", label: "Circuits" },
   { id: "cars", label: "Cars" },
+  { id: "laps", label: "Lap times" },
   { id: "about", label: "About" },
 ];
 
@@ -81,7 +82,7 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
   const focusOnOpen = useRef(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const speedRef = useRef<HTMLSpanElement | null>(null);
-  /** The Lap times section is on the page (the prompt bar then names its page keys) */
+  /** The Lap times board is on screen (the prompt bar then names its page keys) */
   const [boardShown, setBoardShown] = useState(false);
   /** Every layout for the board's circuit picker, named with its layout where a venue has more than one */
   const boardCircuits = useMemo(
@@ -164,8 +165,8 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
   });
 
   /** The prompts along the bottom: the controller's buttons once one is used, else the keys */
-  // The lap times' pages turn with the triggers (Z / C) while the board is on the Home section
-  const pagePrompt: Prompt[] = tab === "home" && boardShown ? [{ action: "pages", label: "Lap times page" }] : [];
+  // The lap times' pages turn with the triggers (Z / C) while the board is on the Lap times section
+  const pagePrompt: Prompt[] = tab === "laps" && boardShown ? [{ action: "pages", label: "Lap times page" }] : [];
   const prompts: Prompt[] = pad
     ? [
         { action: "move", label: "Move" },
@@ -242,8 +243,7 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
             className={`min-h-0 flex-1 overflow-y-auto overscroll-contain pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none max-lg:pb-24 ${GUTTER}`}
           >
             {tab === "home" ? (
-              <div className="flex flex-col gap-3 lg:h-full">
-              <div className="grid shrink-0 gap-3 lg:h-full lg:min-h-[520px] lg:grid-cols-12 lg:grid-rows-2">
+              <div className="grid gap-3 lg:h-full lg:min-h-[520px] lg:grid-cols-12 lg:grid-rows-2">
                 <a
                   href={PLAY_HREF}
                   onClick={() => rememberPicks(picks)}
@@ -358,9 +358,11 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
                   </span>
                 </a>
               </div>
-              {/* Under the tiles, loaded once it comes near the view: the online board of every car */}
+            ) : null}
+
+            {/* The online board of every car, loaded when the section is opened; it starts on the hub's circuit */}
+            {tab === "laps" ? (
               <HomeLapTimes circuits={boardCircuits} circuit={layout.id} carTags={data.boardCars} scrollRoot={panelRef} onShown={setBoardShown} />
-              </div>
             ) : null}
 
             {tab === "circuits" ? (

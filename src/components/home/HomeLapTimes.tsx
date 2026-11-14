@@ -1,7 +1,7 @@
 "use client";
 
 /*
- * The home page's lap times: the game's online board (src/components/board/OnlineBoard.tsx) under the Home tiles,
+ * The home page's lap times: the game's online board (src/components/board/OnlineBoard.tsx) in its own Lap times section,
  * every car's by default (the home page drives no car), with its circuit picker and pages. Nothing of it loads with
  * the page: once the page has finished loading and the section comes near the view, the online side is asked whether
  * its boards are on, and only then are the board's code and its first page fetched. With the boards off, out of reach
