@@ -14,7 +14,7 @@ import { withBasePath } from "@/lib/base-path";
 import { useSavedInterfaceSettings, useUnits } from "@/lib/settings/ui-prefs";
 import { DISTANCE_LABEL, distanceIn, SPEED_LABEL, speedIn } from "@/lib/settings/units";
 import { SITE_DESCRIPTION } from "@/lib/site";
-import { day, GAME_FACTS, GRADE_NOTES, type HomeData, type HomeLayout, type HomeVenue } from "./home-data";
+import { day, GAME_FACTS, GRADE_NOTES, type HomeData, type HomeLayout, type HomeVenue, type WhatsNewDay } from "./home-data";
 import { CarThumb, GradeBadge, GradeLegend, OutlineThumb } from "./home-ui";
 import { LapMap } from "./LapMap";
 import { HomeLapTimes } from "./HomeLapTimes";
@@ -32,14 +32,41 @@ import { TEXT_LINK } from "./SitePage";
  * and Start drives.
  */
 
-type Tab = "home" | "circuits" | "cars" | "laps" | "about";
+type Tab = "home" | "circuits" | "cars" | "laps" | "whats-new" | "about";
 const TABS: { id: Tab; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "circuits", label: "Circuits" },
   { id: "cars", label: "Cars" },
   { id: "laps", label: "Lap times" },
+  { id: "whats-new", label: "What's new" },
   { id: "about", label: "About" },
 ];
+
+/** The What's new feed the visitor last opened (its fingerprint), so a new or updated day lights the tab again */
+const WHATS_NEW_SEEN_KEY = "librecorsa.whatsNewSeen";
+
+/** A short fingerprint of the patch notes: any new or updated day changes it */
+function whatsNewFingerprint(days: readonly WhatsNewDay[]): string {
+  if (days.length === 0) return "";
+  const input = days.map((d) => `${d.date}:${d.lastSha}`).join("\n");
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/** The cyan dot after "What's new" while it holds notes the visitor has not opened (colour is not alone: it is named) */
+const UNREAD_DOT = (
+  <>
+    <span aria-hidden className="relative inline-flex size-2 shrink-0">
+      <span className="lc-ping absolute inset-0 rounded-full bg-lc-cyan motion-reduce:hidden" />
+      <span className="relative size-2 rounded-full bg-lc-cyan" />
+    </span>
+    <span className="sr-only"> (unread updates)</span>
+  </>
+);
 
 const GUTTER =
   "pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] sm:pl-[max(2rem,env(safe-area-inset-left))] sm:pr-[max(2rem,env(safe-area-inset-right))]";
@@ -92,6 +119,29 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
         .sort((a, b) => a.label.localeCompare(b.label)),
     [data.venues],
   );
+
+  /** What's new holds notes this visitor has not opened yet */
+  const [unseenUpdates, setUnseenUpdates] = useState(false);
+  const whatsNewToken = useMemo(() => whatsNewFingerprint(data.whatsNew), [data.whatsNew]);
+  useEffect(() => {
+    if (!whatsNewToken) return;
+    try {
+      setUnseenUpdates(localStorage.getItem(WHATS_NEW_SEEN_KEY) !== whatsNewToken);
+    } catch {
+      setUnseenUpdates(true);
+    }
+  }, [whatsNewToken]);
+  // Opening the section marks this feed read
+  useEffect(() => {
+    if (tab !== "whats-new" || !whatsNewToken) return;
+    setUnseenUpdates(false);
+    try {
+      localStorage.setItem(WHATS_NEW_SEEN_KEY, whatsNewToken);
+    } catch {
+      // Storage unavailable: the dot stays off for this visit
+    }
+  }, [tab, whatsNewToken]);
+  const tabs = useMemo(() => TABS.map((t) => (t.id === "whats-new" && unseenUpdates ? { ...t, badge: UNREAD_DOT } : t)), [unseenUpdates]);
 
   // A returning player's last circuit and car (the page is built with the defaults)
   useEffect(() => {
@@ -205,7 +255,7 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
             }}
           >
             <Tabs
-              tabs={TABS}
+              tabs={tabs}
               value={tab}
               onChange={(id) => go(id)}
               aria-label="Sections"
@@ -363,6 +413,60 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
             {/* The online board of every car, loaded when the section is opened; it starts on the hub's circuit */}
             {tab === "laps" ? (
               <HomeLapTimes circuits={boardCircuits} circuit={layout.id} carTags={data.boardCars} scrollRoot={panelRef} onShown={setBoardShown} />
+            ) : null}
+
+            {/* Day-by-day patch notes, newest first, written each morning from the day's commits */}
+            {tab === "whats-new" ? (
+              <div className="flex max-w-[880px] flex-col">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 pb-4">
+                  <p className="lc-body m-0 text-lc-slate">Day-by-day summary of every change to LibreCorsa, updated each morning.</p>
+                  <a href={`${data.repoUrl}/commits/main`} target="_blank" rel="noopener" onPointerEnter={focusOnHover} className={`inline-flex items-center gap-1 ${TEXT_LINK}`}>
+                    Full commit log on GitHub
+                    <Icon name="externalLink" />
+                  </a>
+                </div>
+                {data.whatsNew.length === 0 ? (
+                  <EmptyState icon={<Icon name="info" size="lg" />}>The first day&apos;s notes appear here after the next morning&apos;s update.</EmptyState>
+                ) : (
+                  <ol className="m-0 flex list-none flex-col p-0">
+                    {data.whatsNew.map((entry, index) => (
+                      <li key={entry.date} className="grid gap-x-8 gap-y-2 border-t border-lc-line py-5 last:border-b sm:grid-cols-[150px_minmax(0,1fr)]">
+                        <div className="flex items-baseline justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-1.5">
+                          <span className="lc-data text-[14px] text-lc-chalk">{day(entry.date)}</span>
+                          <a
+                            href={
+                              entry.commits === 1
+                                ? `${data.repoUrl}/commit/${entry.lastSha.slice(0, 7)}`
+                                : `${data.repoUrl}/commits/main/?since=${entry.date}&until=${entry.date}`
+                            }
+                            target="_blank"
+                            rel="noopener"
+                            onPointerEnter={focusOnHover}
+                            data-nav-default={index === 0 ? "" : undefined}
+                            className="inline-flex items-center gap-1 rounded-full text-[12px] text-lc-slate no-underline transition-colors duration-200 hover:text-lc-chalk focus-visible:text-lc-chalk"
+                          >
+                            <span className="lc-data">
+                              {entry.commits} {entry.commits === 1 ? "commit" : "commits"}
+                            </span>
+                            <Icon name="externalLink" size="sm" />
+                          </a>
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-2">
+                          <h2 className="lc-title m-0 text-[17px] leading-snug text-lc-chalk">{entry.title}</h2>
+                          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                            {entry.items.map((item) => (
+                              <li key={item} className="relative pl-4 text-[14px] leading-relaxed text-lc-fog">
+                                <span aria-hidden className="absolute top-[9px] left-0 size-1 rounded-full bg-lc-slate" />
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
             ) : null}
 
             {tab === "circuits" ? (

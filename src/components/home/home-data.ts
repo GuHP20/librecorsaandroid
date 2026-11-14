@@ -99,6 +99,8 @@ export interface HomeData {
   supportUrl: string;
   /** Each car's short name and class colour, for the rows of the online board of every car (the Lap times section) */
   boardCars: Partial<Record<VehicleModelId, { label: string; color: PaletteColor }>>;
+  /** The What's new section's patch notes, newest day first */
+  whatsNew: WhatsNewDay[];
 }
 
 
