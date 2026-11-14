@@ -3038,10 +3038,13 @@ export class VehiclePhysics {
       engage = wheelSideRpm >= lockRpm ? 1 : t * t * (3 - 2 * t);
       // Anti-stall: off the pedal, with the wheels turning slower than the engine idles, the auto-clutch lets go. The
       // idle controller holds the engine at or above some cars' bite speed, and its torque through the slipping clutch
-      // walked a car standing on the grid away. A pedal past 5 % has the whole clutch again, for the launch
-      if (wheelSideRpm < eng.idleRpm) {
+      // walked a car standing on the grid away. A pedal past 5 % has the whole clutch again, for the launch. Wheels
+      // turning against the gear (a car spinning backwards off a barrier, in first) count as slower than idle: through
+      // the clutch they would turn the engine backwards, and a stopped engine never starts again
+      const wheelSideForwardRpm = axleOmega * ratio * RADS2RPM;
+      if (wheelSideForwardRpm < eng.idleRpm) {
         const pedal = THREE.MathUtils.clamp(inp.throttle / 0.05, 0, 1);
-        const turning = THREE.MathUtils.smoothstep(wheelSideRpm, 0.7 * eng.idleRpm, eng.idleRpm);
+        const turning = THREE.MathUtils.smoothstep(wheelSideForwardRpm, 0.7 * eng.idleRpm, eng.idleRpm);
         engage *= Math.max(pedal, turning);
       }
       if (inp.clutch !== undefined) engage = Math.min(engage, 1 - inp.clutch);
