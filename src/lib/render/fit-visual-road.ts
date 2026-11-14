@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createGroundHit, type GroundQuery } from "@/lib/sim/f12026-car/TrackColliderQuery";
+import { createGroundHit, TrackColliderQuery, type GroundQuery } from "@/lib/sim/f12026-car/TrackColliderQuery";
 
 /**
  * The nearest `userData[key]` on `obj` or its ancestors below `root`: glTF node extras land on the node, and the
@@ -31,6 +31,8 @@ export function fitVisualRoad(root: THREE.Object3D, ground: GroundQuery): void {
   if (!models.length) return;
   root.updateMatrixWorld(true);
   const hit = createGroundHit();
+  // Leaves out, before the ground query, the vertices the fit cannot move (most of a scan)
+  const reach = roadReach(ground);
   const inv = new THREE.Matrix4();
   const v = new THREE.Vector3();
   const seen = new Set<THREE.BufferGeometry>();
@@ -44,6 +46,7 @@ export function fitVisualRoad(root: THREE.Object3D, ground: GroundQuery): void {
     let dirty = false;
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      if (reach && !reach(v.x, v.y, v.z)) continue;
       if (!ground.query(v.x, v.z, v.y + FIT_WINDOW_M, hit) || hit.surface === "grass" || !(Math.abs(v.y - hit.height) < FIT_WINDOW_M)) continue;
       v.y = hit.height + lift;
       v.applyMatrix4(inv);
@@ -52,4 +55,88 @@ export function fitVisualRoad(root: THREE.Object3D, ground: GroundQuery): void {
     }
     if (dirty) pos.needsUpdate = true;
   });
+}
+
+/** Cell size of `roadReach`'s grid (m) */
+const REACH_CELL_M = 4;
+/**
+ * Margin for the ground query's barycentric tolerance (a point up to 1e-6 of an edge outside a triangle still hits
+ * it, and its height is extrapolated as far) and for float rounding (m)
+ */
+const REACH_SLACK_M = 0.01;
+
+/**
+ * A cheap test, before the ground query, that leaves out the vertices `fitVisualRoad` cannot move (most of a scan:
+ * scenery away from the road, grass, the upper parts of stands and trees). Per grid cell it keeps the height range of
+ * every collider triangle over the cell and whether any of them is not grass. Every candidate the query picks lies
+ * over the point, so its answer is one of those triangles' heights (or between two of them) plus a surface ripple of
+ * at most the deepest one in the collider, and its surface is one of those triangles' layers. So a vertex over no
+ * triangle, over grass only, or further than the fit window plus that ripple from the cell's height range gets either
+ * no ground, grass or a ground out of reach from the query: the fit would leave it as it is.
+ *
+ * Null for a ground without triangles to bound (flat or analytic): every vertex is then queried.
+ */
+function roadReach(ground: GroundQuery): ((x: number, y: number, z: number) => boolean) | null {
+  if (!(ground instanceof TrackColliderQuery)) return null;
+  const { tris, triLayer, layers } = ground.toBuffers();
+  const triCount = triLayer.length;
+  if (triCount === 0) return null;
+  // The deepest ripple any layer can add to a height (TrackColliderQuery.rippleAt / surfaceRippleM)
+  let ripple = 0;
+  for (const l of layers) {
+    if (l.uvScaleM > 0 && l.props.bumpLengthM > 0 && l.props.bumpHeightM > 0) ripple = Math.max(ripple, l.props.bumpHeightM);
+  }
+  const pad = (t: number) => {
+    const o = t * 9;
+    const span = Math.max(
+      Math.max(tris[o], tris[o + 3], tris[o + 6]) - Math.min(tris[o], tris[o + 3], tris[o + 6]),
+      Math.max(tris[o + 2], tris[o + 5], tris[o + 8]) - Math.min(tris[o + 2], tris[o + 5], tris[o + 8])
+    );
+    return REACH_SLACK_M + 4e-6 * span;
+  };
+  let minX = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxZ = -Infinity;
+  for (let t = 0; t < triCount; t++) {
+    const o = t * 9;
+    const p = pad(t);
+    minX = Math.min(minX, tris[o] - p, tris[o + 3] - p, tris[o + 6] - p);
+    maxX = Math.max(maxX, tris[o] + p, tris[o + 3] + p, tris[o + 6] + p);
+    minZ = Math.min(minZ, tris[o + 2] - p, tris[o + 5] - p, tris[o + 8] - p);
+    maxZ = Math.max(maxZ, tris[o + 2] + p, tris[o + 5] + p, tris[o + 8] + p);
+  }
+  const nx = Math.floor((maxX - minX) / REACH_CELL_M) + 1;
+  const nz = Math.floor((maxZ - minZ) / REACH_CELL_M) + 1;
+  const lo = new Float32Array(nx * nz).fill(Infinity);
+  const hi = new Float32Array(nx * nz).fill(-Infinity);
+  const notGrass = new Uint8Array(nx * nz);
+  for (let t = 0; t < triCount; t++) {
+    const o = t * 9;
+    const p = pad(t);
+    const x0 = Math.floor((Math.min(tris[o], tris[o + 3], tris[o + 6]) - p - minX) / REACH_CELL_M);
+    const x1 = Math.floor((Math.max(tris[o], tris[o + 3], tris[o + 6]) + p - minX) / REACH_CELL_M);
+    const z0 = Math.floor((Math.min(tris[o + 2], tris[o + 5], tris[o + 8]) - p - minZ) / REACH_CELL_M);
+    const z1 = Math.floor((Math.max(tris[o + 2], tris[o + 5], tris[o + 8]) + p - minZ) / REACH_CELL_M);
+    // Float32 values: the min and max are stored exactly
+    const y0 = Math.min(tris[o + 1], tris[o + 4], tris[o + 7]);
+    const y1 = Math.max(tris[o + 1], tris[o + 4], tris[o + 7]);
+    const road = layers[triLayer[t]].surface !== "grass";
+    for (let cz = Math.max(0, z0); cz <= Math.min(nz - 1, z1); cz++) {
+      for (let cx = Math.max(0, x0); cx <= Math.min(nx - 1, x1); cx++) {
+        const c = cz * nx + cx;
+        if (y0 < lo[c]) lo[c] = y0;
+        if (y1 > hi[c]) hi[c] = y1;
+        if (road) notGrass[c] = 1;
+      }
+    }
+  }
+  const reachM = FIT_WINDOW_M + ripple + REACH_SLACK_M;
+  return (x, y, z) => {
+    const cx = Math.floor((x - minX) / REACH_CELL_M);
+    const cz = Math.floor((z - minZ) / REACH_CELL_M);
+    if (!(cx >= 0 && cx < nx && cz >= 0 && cz < nz)) return false;
+    const c = cz * nx + cx;
+    return notGrass[c] === 1 && y > lo[c] - reachM && y < hi[c] + reachM;
+  };
 }
