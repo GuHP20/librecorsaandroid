@@ -6,31 +6,21 @@
  * driven with (assists, realism, dry or wet). The board can be narrowed to laps of one kind ("no assists").
  * Only the LapRecording and the driver key are ever sent; answers are validated before use.
  */
-import { isVehicleModelId, type AssistPreset, type VehicleModelId } from "@/types/f1";
+import type { VehicleModelId } from "@/types/f1";
 import { listBestLaps } from "@/lib/sim/ghost-store";
 import { lapPlausibilityProblem } from "@/lib/sim/lap-plausibility";
 import { isPointToPointTrack } from "@/lib/track-kinds";
 import { validateLapRecording } from "@/lib/sim/lap-recorder";
-import { lapBoardClass, lapPhysicsVersion, parseLapConditions, type LapConditions, type LapRecording, type LeaderboardEntry } from "@/lib/sim/lap-types";
-import type { SimRealism } from "@/lib/sim/sim-realism";
+import { lapBoardClass, type LapConditions, type LapRecording, type LeaderboardEntry } from "@/lib/sim/lap-types";
 import { getOrCreateDriverKey } from "./driver-key";
 import { getOnlineConfig, onlineUrl } from "./online-config";
+import { cappedString, clampLimit, fetchBoardPage, finiteNumber, parseBoardPage, requestJson, type BoardFilter } from "./board-client";
 
-const REQUEST_TIMEOUT_MS = 8000;
+export { boardLabel, driverNameKey, type BoardFilter } from "./board-client";
+
 const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 100;
 const MAX_ID_LENGTH = 64;
-const MAX_NAME_LENGTH = 64;
-const MAX_CODE_LENGTH = 16;
-const MAX_TRACK_ID_LENGTH = 64;
 const MAX_ERROR_LENGTH = 200;
-
-/** Narrows the online board to laps driven a certain way; absent fields take every lap */
-export interface BoardFilter {
-  assists?: AssistPreset;
-  realism?: SimRealism;
-  surface?: "dry" | "wet";
-}
 
 /** One online board as fetched: its fastest drivers, how many drivers it has, and where this player stands */
 export interface RemoteBoard {
@@ -39,9 +29,9 @@ export interface RemoteBoard {
   total: number;
   /**
    * This player's place and lap, and the best lap of the place above theirs (null at the top, or from a server that
-   * does not say); null when they have no lap here
+   * does not say); null when they have no lap here. `pos`: their place in the board's order (a tie shares the rank)
    */
-  me: { rank: number; entry: LeaderboardEntry; aboveMs: number | null } | null;
+  me: { rank: number; pos?: number; entry: LeaderboardEntry; aboveMs: number | null } | null;
   /** Physics revisions that have laps for this circuit and car, newest first */
   physics: number[];
 }
@@ -142,19 +132,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** A non-empty string no longer than max, or null */
-function cappedString(value: unknown, max: number): string | null {
-  return typeof value === "string" && value.length > 0 && value.length <= max ? value : null;
-}
-
-function finiteNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function clampLimit(limit: number): number {
-  return Number.isFinite(limit) ? Math.min(MAX_LIMIT, Math.max(1, Math.floor(limit))) : DEFAULT_LIMIT;
-}
-
 /** Board row for a lap: its driver, time and car, without the samples */
 export function lapToEntry(rec: LapRecording, source: "local" | "remote", id?: string): LeaderboardEntry {
   const entry: LeaderboardEntry = {
@@ -172,18 +149,6 @@ export function lapToEntry(rec: LapRecording, source: "local" | "remote", id?: s
   return entry;
 }
 
-const ASSIST_LABEL: Record<LapConditions["assists"], string> = { pro: "No assists", semi_pro: "Some assists", assisted: "Assisted" };
-const REALISM_LABEL: Record<LapConditions["realism"], string> = { casual: "Casual", standard: "Standard", full: "Full" };
-
-/** "No assists · Full · Dry": what a lap was driven with */
-export function boardLabel(c: Pick<LapConditions, "assists" | "realism" | "surface">): string {
-  return `${ASSIST_LABEL[c.assists]} · ${REALISM_LABEL[c.realism]} · ${c.surface === "wet" ? "Wet" : "Dry"}`;
-}
-
-/** The claim key of a driver name, as the board compares names: outer spaces off, inner runs as one, lower case */
-export function driverNameKey(name: string): string {
-  return name.replace(/^ +| +$/g, "").replace(/[ \t\n\r\f\v]+/g, " ").toLowerCase();
-}
 
 /** Local personal bests for this circuit (all cars, or one car), every class, fastest first */
 export async function localLeaderboard(trackId: string, vehicle?: VehicleModelId): Promise<LeaderboardEntry[]> {
@@ -194,67 +159,7 @@ export async function localLeaderboard(trackId: string, vehicle?: VehicleModelId
     .sort((a, b) => a.lapTimeMs - b.lapTimeMs);
 }
 
-/** Validates one remote board row; null when any field is missing or malformed, or it belongs on another board */
-function parseRemoteEntry(raw: unknown, trackId: string, vehicle: VehicleModelId, physics: number, filter: BoardFilter): LeaderboardEntry | null {
-  if (!isRecord(raw)) return null;
-  const name = cappedString(raw.name, MAX_NAME_LENGTH);
-  const code = cappedString(raw.code, MAX_CODE_LENGTH);
-  const entryTrack = cappedString(raw.trackId, MAX_TRACK_ID_LENGTH);
-  const lapTimeMs = finiteNumber(raw.lapTimeMs);
-  const recordedAt = finiteNumber(raw.recordedAt);
-  const sectors = Array.isArray(raw.sectorTimesMs) ? raw.sectorTimesMs : null;
-  if (!sectors || sectors.length !== 3) return null;
-  const s0 = finiteNumber(sectors[0]);
-  const s1 = finiteNumber(sectors[1]);
-  const s2 = finiteNumber(sectors[2]);
-  if (!name || !code || !entryTrack || lapTimeMs === null || lapTimeMs <= 0 || recordedAt === null) return null;
-  if (s0 === null || s1 === null || s2 === null || s0 < 0 || s1 < 0 || s2 < 0) return null;
-  // Rows for another circuit or car do not belong on this board
-  if (entryTrack !== trackId || raw.vehicle !== vehicle || !isVehicleModelId(raw.vehicle)) return null;
-  if (raw.id !== undefined && cappedString(raw.id, MAX_ID_LENGTH) === null) return null;
-  // Nor do rows from another physics revision, or outside what was asked for
-  const conditions = parseLapConditions(raw.conditions);
-  if (!conditions || conditions.physicsVersion !== physics) return null;
-  if (filter.assists && conditions.assists !== filter.assists) return null;
-  if (filter.realism && conditions.realism !== filter.realism) return null;
-  if (filter.surface && conditions.surface !== filter.surface) return null;
-
-  const entry: LeaderboardEntry = {
-    name,
-    code,
-    lapTimeMs,
-    sectorTimesMs: [s0, s1, s2],
-    vehicle,
-    trackId: entryTrack,
-    recordedAt,
-    source: "remote",
-    conditions,
-  };
-  if (typeof raw.id === "string") entry.id = raw.id;
-  return entry;
-}
-
-/** fetch() with an 8 s timeout; resolves null on network error, timeout or unreadable body */
-async function requestJson(url: string, init: RequestInit): Promise<{ status: number; body: unknown } | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      ...init,
-      signal: controller.signal,
-      credentials: "omit",
-      cache: "no-store",
-    });
-    const body: unknown = await res.json().catch(() => null);
-    return { status: res.status, body };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** An answer of GET /api/laps, validated; null when it is not one */
+/** An answer of GET /api/laps for one car's board, validated (board-client.ts); null when it is not one */
 export function parseRemoteBoard(
   body: unknown,
   trackId: string,
@@ -263,27 +168,8 @@ export function parseRemoteBoard(
   filter: BoardFilter,
   limit: number = DEFAULT_LIMIT,
 ): RemoteBoard | null {
-  if (!isRecord(body) || !Array.isArray(body.laps)) return null;
-  const entries: LeaderboardEntry[] = [];
-  for (const row of body.laps.slice(0, clampLimit(limit))) {
-    const entry = parseRemoteEntry(row, trackId, vehicle, physics, filter);
-    if (entry) entries.push(entry);
-  }
-  entries.sort((a, b) => a.lapTimeMs - b.lapTimeMs);
-  const total = finiteNumber(body.total);
-  let me: RemoteBoard["me"] = null;
-  if (isRecord(body.me)) {
-    const rank = finiteNumber(body.me.rank);
-    const entry = parseRemoteEntry(body.me.lap, trackId, vehicle, physics, filter);
-    const above = finiteNumber(body.me.aboveMs);
-    // Only a time faster than the player's own is the place above
-    const aboveMs = entry && above !== null && above > 0 && above < entry.lapTimeMs ? above : null;
-    if (entry && rank !== null && rank >= 1) me = { rank: Math.floor(rank), entry, aboveMs };
-  }
-  const revisions = Array.isArray(body.physics)
-    ? body.physics.filter((v): v is number => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 1000).slice(0, 20)
-    : [];
-  return { entries, total: total !== null && total >= entries.length ? Math.floor(total) : entries.length, me, physics: revisions };
+  const page = parseBoardPage(body, trackId, vehicle, physics, filter, clampLimit(limit, DEFAULT_LIMIT));
+  return page ? { entries: page.entries, total: page.total, me: page.me, physics: page.physics } : null;
 }
 
 /**
@@ -295,20 +181,8 @@ export async function fetchRemoteBoard(
   vehicle: VehicleModelId,
   opts: { filter?: BoardFilter; physics?: number; name?: string; event?: string; limit?: number } = {},
 ): Promise<RemoteBoard | null> {
-  const base = onlineUrl("/laps");
-  if (!base || !(await boardOnline())) return null;
-  const filter = opts.filter ?? {};
-  const physics = opts.physics ?? lapPhysicsVersion(vehicle);
-  const count = clampLimit(opts.limit ?? DEFAULT_LIMIT);
-  const query = new URLSearchParams({ track: trackId, vehicle, physics: String(physics), limit: String(count) });
-  if (filter.assists) query.set("assists", filter.assists);
-  if (filter.realism) query.set("realism", filter.realism);
-  if (filter.surface) query.set("surface", filter.surface);
-  if (opts.event) query.set("event", opts.event);
-  if (opts.name) query.set("name", opts.name.slice(0, MAX_NAME_LENGTH));
-  const res = await requestJson(`${base}?${query.toString()}`, { method: "GET" });
-  if (!res || res.status < 200 || res.status >= 300) return null;
-  return parseRemoteBoard(res.body, trackId, vehicle, physics, filter, count);
+  const page = await fetchBoardPage(trackId, vehicle, { ...opts, limit: clampLimit(opts.limit ?? DEFAULT_LIMIT, DEFAULT_LIMIT) });
+  return page ? { entries: page.entries, total: page.total, me: page.me, physics: page.physics } : null;
 }
 
 /** The wire form of a lap: exactly the LapRecording fields the board keeps and nothing else */

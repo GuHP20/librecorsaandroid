@@ -24,7 +24,8 @@ export type KeyAction =
   | "replay"
   | "mfdPage"
   | "mfd"
-  | "hud";
+  | "hud"
+  | "board";
 
 /** Actions a controller or wheel button can trigger */
 export type PadAction =
@@ -39,7 +40,8 @@ export type PadAction =
   | "pause"
   | "mfd"
   | "mfdPage"
-  | "hud";
+  | "hud"
+  | "board";
 
 export type KeyBindings = Record<KeyAction, string[]>;
 
@@ -68,6 +70,7 @@ export const KEY_ACTIONS: readonly { id: KeyAction; label: string }[] = [
   { id: "mfdPage", label: "Next MFD page" },
   { id: "mfd", label: "Open / close MFD" },
   { id: "hud", label: "Show / hide HUD" },
+  { id: "board", label: "Open / close lap board" },
 ];
 
 export const PAD_ACTIONS: readonly { id: PadAction; label: string }[] = [
@@ -83,6 +86,7 @@ export const PAD_ACTIONS: readonly { id: PadAction; label: string }[] = [
   { id: "mfd", label: "Open / close MFD" },
   { id: "mfdPage", label: "Next MFD page" },
   { id: "hud", label: "Show / hide HUD" },
+  { id: "board", label: "Open / close lap board" },
 ];
 
 export const DEFAULT_KEY_BINDINGS: KeyBindings = {
@@ -108,6 +112,8 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = {
   mfdPage: ["Insert", "KeyI"],
   mfd: ["KeyO"],
   hud: ["KeyH"],
+  // Beside the HUD's own key, away from L (which restarts the lap)
+  board: ["KeyJ"],
 };
 
 /** Keys that cannot be bound: Esc opens the menu, "/" starts the /boost command */
@@ -129,6 +135,8 @@ export const DEFAULT_PAD_BUTTONS: PadButtonBindings = {
   mfd: 10, // LS click (L3)
   mfdPage: 1, // B
   hud: 11, // RS click (R3)
+  // Every button has a job already: a player can give it one
+  board: null,
 };
 
 /** Ready-made controller layouts, after the defaults of the racing games players come from */
@@ -158,6 +166,7 @@ export const PAD_LAYOUTS: Record<PadLayout, { label: string; buttons: PadButtonB
       mfdPage: 1, // B (○)
       hud: 4, // LB (L1)
       racingLine: null,
+      board: null,
     },
   },
   // F1 24: A up, X down, B overtake, Y DRS, RB next camera, Menu pause
@@ -176,6 +185,7 @@ export const PAD_LAYOUTS: Record<PadLayout, { label: string; buttons: PadButtonB
       mfdPage: 4, // LB (L1)
       hud: 11, // RS (R3)
       racingLine: null,
+      board: null,
     },
   },
   // Forza: B up, X down (manual layout), RB switch camera, LS toggle convertible, Menu pause
@@ -194,6 +204,7 @@ export const PAD_LAYOUTS: Record<PadLayout, { label: string; buttons: PadButtonB
       mfdPage: 3, // Y (△)
       hud: 11, // RS (R3)
       racingLine: null,
+      board: null,
     },
   },
 };
@@ -209,7 +220,7 @@ export function matchPadLayout(bindings: PadButtonBindings): PadLayout | null {
 }
 
 /** Window events the game loop fires for the HUD's own pad toggles (the MFD and the HUD listen for them) */
-export const HUD_TOGGLE_EVENT = { mfd: "lc:toggle-mfd", mfdPage: "lc:mfd-page", hud: "lc:toggle-hud" } as const;
+export const HUD_TOGGLE_EVENT = { mfd: "lc:toggle-mfd", mfdPage: "lc:mfd-page", hud: "lc:toggle-hud", board: "lc:toggle-board" } as const;
 
 /** Fixed standard-mapping axes / buttons for the pedals and steering on a controller */
 export const PAD_THROTTLE_BUTTON = 7; // RT

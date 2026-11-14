@@ -6,7 +6,7 @@ import { CONTACT_EMAIL, REPO_URL, SITE_NAME } from "@/lib/site";
 // storage, cloudflare/api (boards, races, rooms, usage) and the connection servers in multiplayer-sync.ts. Change this
 // page in the same commit as anything that changes what is stored or sent.
 const DESCRIPTION = "What LibreCorsa keeps in your browser, what it sends online and when, and how to have it removed.";
-const UPDATED = "12 November 2026";
+const UPDATED = "14 November 2026";
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -64,11 +64,18 @@ export default function PrivacyPage() {
           </li>
           <li>
             <span className={B}>Usage totals.</span> When a stretch of driving ends, the game reports the circuit, the
-            car, the mode and the minutes driven. The site adds them to that day’s totals, by country. It also
+            car, the mode, the minutes driven and how many laps you completed. The site adds them to that day’s totals,
+            by country, and the lap boards show the laps as each circuit’s total. It also
             says what you drove with (keyboard, controller, wheel or touch screen), on what (desktop, tablet or phone),
             whether the track was wet, which assists were on and which version of the game you had. Each of these is
             counted on its own, never combined with another or with the circuit or country. The report carries no
             name, key or id, and it can’t be tied to you or to your other sessions.
+          </li>
+          <li>
+            <span className={B}>Live count.</span> While the game is open and its tab is in view, your browser sends an
+            empty message to the site once a minute, and none while the tab is hidden. The site counts the messages of
+            the last minute to show how many people are playing right now. The message carries no name, key or id. The
+            site keeps only the time each one arrived, in memory, and forgets it after a minute.
           </li>
         </ul>
       </SiteSection>
@@ -76,7 +83,7 @@ export default function PrivacyPage() {
       <SiteSection id="addresses" title="IP addresses and logs">
         <p className={READ}>
           The site is served by Cloudflare, which handles your IP address to deliver the pages, to work out the country
-          for the usage totals, and to limit how often one address can post. Cloudflare keeps request logs for a few
+          for the usage totals, and to limit how often one address can post or send the live count’s message. Cloudflare keeps request logs for a few
           days. The site’s own database stores no IP address. To limit lap uploads it keeps a scrambled form of
           the address for up to two hours and then deletes it.
         </p>
@@ -87,6 +94,7 @@ export default function PrivacyPage() {
           <li>Laps and race results stay for as long as the boards exist, or until you ask for them to be removed.</li>
           <li>A driver name stays yours while you use it. After six months without a lap it can be claimed by someone else.</li>
           <li>The usage totals are kept as daily totals. They hold nothing about any one player.</li>
+          <li>The live count keeps nothing: each message is forgotten a minute after it arrives.</li>
         </ul>
       </SiteSection>
 

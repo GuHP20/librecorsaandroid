@@ -475,5 +475,11 @@ export const carsByYear = (id: CarClassId): { year: number; cars: CarDefinition[
 };
 
 /** The car that stands for a vehicle model (its first car), e.g. for a leaderboard entry or a class rule */
+/**
+ * The first car of a vehicle model whether or not this copy lists it: an online board holds laps of cars another copy
+ * lists (a clone without the hosted files sees the GT3's laps too). Undefined for a model with no car of its own.
+ */
+export const anyCarForVehicle = (vehicle: VehicleModelId): CarDefinition | undefined => ALL_CARS.find((c) => c.physics === vehicle);
+
 export const carForVehicle = (vehicle: VehicleModelId): CarDefinition =>
   KNOWN_CARS.find((c) => c.physics === vehicle) ?? CARS[0];

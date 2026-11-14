@@ -100,6 +100,10 @@ export interface Env {
   /** The anonymous usage counter (usage.ts): its switch, and how often one address may report */
   ONLINE_USAGE?: string;
   USAGE_LIMIT?: RateLimit;
+  /** The live count (presence.ts): the one object that counts the heartbeats, its switch, and how often one address may beat */
+  PRESENCE?: DurableObjectNamespace;
+  ONLINE_LIVE?: string;
+  LIVE_LIMIT?: RateLimit;
   /** Key of the private admin numbers (admin.ts), a secret; without it the route does not answer */
   ADMIN_KEY?: string;
   /** Cloudflare's own numbers on the admin page (analytics.ts): a read-only analytics token (a secret), the account,

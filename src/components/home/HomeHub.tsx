@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { currentInputMode, useInputMode } from "@/components/menu/input-mode";
 import { focusables, focusOnHover, useFocusNav } from "@/components/menu/useFocusNav";
 import { LayoutChoice } from "@/components/LayoutChoice";
@@ -17,6 +17,7 @@ import { SITE_DESCRIPTION } from "@/lib/site";
 import { day, GAME_FACTS, GRADE_NOTES, type HomeData, type HomeLayout, type HomeVenue } from "./home-data";
 import { CarThumb, GradeBadge, GradeLegend, OutlineThumb } from "./home-ui";
 import { LapMap } from "./LapMap";
+import { HomeLapTimes } from "./HomeLapTimes";
 import { PLAY_HREF, rememberPicks, storedPicks } from "./play";
 import { TEXT_LINK } from "./SitePage";
 
@@ -80,6 +81,16 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
   const focusOnOpen = useRef(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const speedRef = useRef<HTMLSpanElement | null>(null);
+  /** The Lap times section is on the page (the prompt bar then names its page keys) */
+  const [boardShown, setBoardShown] = useState(false);
+  /** Every layout for the board's circuit picker, named with its layout where a venue has more than one */
+  const boardCircuits = useMemo(
+    () =>
+      data.venues
+        .flatMap((v) => v.layouts.map((l) => ({ id: l.id, label: v.layouts.length > 1 ? `${v.name} · ${l.layout}` : v.name })))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [data.venues],
+  );
 
   // A returning player's last circuit and car (the page is built with the defaults)
   useEffect(() => {
@@ -153,16 +164,20 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
   });
 
   /** The prompts along the bottom: the controller's buttons once one is used, else the keys */
+  // The lap times' pages turn with the triggers (Z / C) while the board is on the Home section
+  const pagePrompt: Prompt[] = tab === "home" && boardShown ? [{ action: "pages", label: "Lap times page" }] : [];
   const prompts: Prompt[] = pad
     ? [
         { action: "move", label: "Move" },
         { action: "select", label: "Select" },
         ...(tab !== "home" ? [{ action: "back", label: "Back" } as const] : []),
         { action: "tabs", label: "Switch section" },
+        ...pagePrompt,
         { action: "start", label: "Drive" },
       ]
     : [
         { action: "tabs", label: "Switch section" },
+        ...pagePrompt,
         { action: "start", label: "Drive", key: "Enter" },
       ];
 
@@ -227,7 +242,8 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
             className={`min-h-0 flex-1 overflow-y-auto overscroll-contain pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none max-lg:pb-24 ${GUTTER}`}
           >
             {tab === "home" ? (
-              <div className="grid gap-3 lg:h-full lg:min-h-[520px] lg:grid-cols-12 lg:grid-rows-2">
+              <div className="flex flex-col gap-3 lg:h-full">
+              <div className="grid shrink-0 gap-3 lg:h-full lg:min-h-[520px] lg:grid-cols-12 lg:grid-rows-2">
                 <a
                   href={PLAY_HREF}
                   onClick={() => rememberPicks(picks)}
@@ -341,6 +357,9 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
                     <Icon name="next" />
                   </span>
                 </a>
+              </div>
+              {/* Under the tiles, loaded once it comes near the view: the online board of every car */}
+              <HomeLapTimes circuits={boardCircuits} circuit={layout.id} carTags={data.boardCars} scrollRoot={panelRef} onShown={setBoardShown} />
               </div>
             ) : null}
 

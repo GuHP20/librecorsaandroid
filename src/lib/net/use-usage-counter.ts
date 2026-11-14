@@ -76,6 +76,14 @@ export function onChallenge(s: Pick<Settled, "trackId" | "vehicle" | "assists" |
 /** The counter's switch as last read; read again with each new stretch (the config keeps its answer a while) */
 let usageOn = false;
 
+/** The clock of the counter mounted now (the game has one) */
+let activeClock: UsageClock | null = null;
+
+/** A lap the player completed (not the autopilot): counted in the stretch under way, sent with it when it ends */
+export function countUsageLap(): void {
+  activeClock?.lap();
+}
+
 export function useUsageCounter(state: UsageState): void {
   const stateRef = useRef<Settled | null>(null);
   const clockRef = useRef<UsageClock | null>(null);
@@ -108,6 +116,7 @@ export function useUsageCounter(state: UsageState): void {
       if (usageOn) sendUsage({ ...line, ...extrasRef.current });
     });
     clockRef.current = clock;
+    activeClock = clock;
     // Hidden or closed ends the stretch; back on the page starts a new one
     const onPageHide = () => clock.end();
     document.addEventListener("visibilitychange", apply);
@@ -120,6 +129,7 @@ export function useUsageCounter(state: UsageState): void {
       window.removeEventListener("pageshow", apply);
       clock.end();
       clockRef.current = null;
+      if (activeClock === clock) activeClock = null;
     };
   }, [apply]);
 

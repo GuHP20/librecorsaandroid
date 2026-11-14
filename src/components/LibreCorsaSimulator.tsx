@@ -30,12 +30,11 @@ import {
   saveBoardBest,
   saveChallengeBest,
   submitLap,
-  type BoardFilter,
   type SubmitResult,
 } from "@/lib/net/leaderboard";
 import { exportDriverKeyFile, importDriverKeyFile } from "@/lib/net/driver-key";
 import { challengeAt, fitsChallenge } from "@/lib/net/weekly-challenge";
-import { useUsageCounter } from "@/lib/net/use-usage-counter"; // polish:E
+import { countUsageLap, useUsageCounter } from "@/lib/net/use-usage-counter"; // polish:E
 import { timeTrialRules } from "@/lib/sim/time-trial";
 import { challengeTarget, type ChallengeTarget } from "@/lib/net/challenge-target";
 import { isTouchDevice, resetTouchInput } from "@/lib/input/touch-input";
@@ -49,6 +48,7 @@ import { CAMERA_MODES, nextCameraMode } from "@/lib/render/camera-modes";
 import { saveTyreSetup } from "@/lib/sim/tyre-setup";
 import { LoadingScreen } from "@/components/menu/LoadingScreen";
 import { TitleMenu } from "@/components/menu/TitleMenu";
+import { carBoardTag } from "@/components/menu/menu-content-ui";
 import { FirstRunWizard, type WizardMode, type WizardStepId } from "@/components/menu/FirstRunWizard";
 import { SettingsScreen, type SettingsCategory } from "@/components/settings/SettingsScreen";
 import type { SettingsEnv } from "@/components/settings/env";
@@ -58,7 +58,8 @@ import { autoConfigureWheel, connectedPads } from "@/lib/input/device-input";
 import { dualSenseHid } from "@/lib/input/webhid-dualsense";
 import { webHidFfb, wheelFfb } from "@/lib/input/wheel-ffb";
 import { nameProblem } from "@/lib/net/name-filter";
-import { clampFov, codeFromName, DEFAULT_PLAYER_SETTINGS, loadCarChoice, loadOnboarded, loadPlayerSettings, loadRumble, pushLibraryRecent, saveCarChoice, saveOnboarded, toggleLibraryFavorite, type LibraryKind, sanitizeDriverName, savePlayerSettings, saveRumble, type PlayerSettings } from "@/lib/settings/player-settings";
+import { clampFov, codeFromName, DEFAULT_PLAYER_SETTINGS, loadCarChoice, loadOnboarded, loadPlayerSettings, loadRumble, pushLibraryRecent, saveCarChoice, saveOnboarded, toggleLibraryFavorite, type LibraryKind, sanitizeDriverName, savePlayerSettings, saveRumble, type BoardWidgetMode, type PlayerSettings } from "@/lib/settings/player-settings";
+import { signalBoardLap } from "@/components/hud/BoardWidget";
 import type { AeroSetupPreset, AssistPreset, CameraMode, LiveTunerPatch, LiveryConfig, TireCompound, TyreSetup, VehicleModelId } from "@/types/f1";
 import { aiFieldOf, autoCompoundFor, DEFAULT_AERO_PRESET, DriveSession, idleDriveSnapshot, mpRaceOf, type AppPhase, type SessionRace } from "@/lib/drive-session";
 import { startAiRace, type RaceSetup } from "@/lib/sim/race-setup";
@@ -110,6 +111,8 @@ const challengeTrackName = (id: string) => {
   const t = getTrackInfo(id);
   return TRACKS.some((o) => o.id !== t.id && o.name === t.name) ? `${t.name} · ${t.layout}` : t.name;
 };
+/** Every circuit for the online board's picker, by name (the panel puts the loaded one first) */
+const BOARD_CIRCUITS = TRACKS.map((t) => ({ id: t.id, label: challengeTrackName(t.id) })).sort((a, b) => a.label.localeCompare(b.label));
 /** The snapshot store before the session exists: nothing to subscribe to */
 const noSubscribe = () => () => {};
 // polish:B the podium shot's view before the drive exists
@@ -706,12 +709,6 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     setLocalLaps(local);
     setBoardVersion((v) => v + 1);
   }, [trackId]);
-  /** One online board for the Lap Times panel, with this player's place on it */
-  const loadRemoteBoard = useCallback(
-    (track: string, vehicle: VehicleModelId, filter: BoardFilter, physics: number) =>
-      fetchRemoteBoard(track, vehicle, { filter, physics, name: settingsRef.current.profile.name }).catch(() => null),
-    []
-  );
 
   /** Races the personal best of this car as the ghost, replacing whichever lap was chosen */
   const loadPbGhost = useCallback(async () => {
@@ -736,7 +733,11 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
         setSubmitRank(null);
         setSubmitError(null);
       }
+      // Every lap the player drove counts towards the circuit's laps driven, a cut one too
+      if (!summary.autopilot) countUsageLap();
       if (!summary.valid || summary.autopilot) return;
+      // The lap board opens at a lap's end (its setting allowing) and shows the new place once the upload answers
+      signalBoardLap({ kind: "lap" });
       // A ghost chosen (or another car's best requested) while this saves wins over it
       const ghostReq = ghostReqRef.current;
       // The upload this lap's card may show the result of (a later card, or a manual upload, takes over)
@@ -779,6 +780,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           uploadingRef.current = upload;
           return upload.then((res) => {
             if (res.ok) setBoardVersion((v) => v + 1);
+            if (res.ok && res.rank !== undefined) signalBoardLap({ kind: "result", rank: res.rank, total: res.total ?? null });
             if (res.taken) refusedNameRef.current = { name: profile.name, error: res.error ?? "This name is taken" };
             if (!shown()) return;
             // The board holding a faster lap of this driver's (from another device) is no failure: nothing to show
@@ -813,6 +815,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     uploadingRef.current = upload;
     const res = await upload;
     if (res.ok) setBoardVersion((v) => v + 1);
+    if (res.ok && res.rank !== undefined) signalBoardLap({ kind: "result", rank: res.rank, total: res.total ?? null });
     if (res.taken) refusedNameRef.current = { name: as.name, error: res.error ?? "This name is taken" };
     // The card was closed or replaced by another lap meanwhile: this answer is not about the one shown
     if (req !== submitReqRef.current) return;
@@ -1358,8 +1361,14 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       restart: first(k.restart),
       shiftUp: first(k.shiftUp),
       shiftDown: first(k.shiftDown),
+      board: first(k.board),
     };
   }, [settings.keys]);
+  /** The lap board's gear sets when it opens: the same HUD setting as in Settings */
+  const handleChangeBoardWidget = useCallback(
+    (mode: BoardWidgetMode) => handleChangeSettings((prev) => ({ ...prev, hud: { ...prev.hud, boardWidget: mode } })),
+    [handleChangeSettings]
+  );
 
   // With the touch pads up and no wheel or controller picked, the pads are what the player drives with
   const launchHintText =
@@ -1462,6 +1471,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     onAcceptManualAnswer: handleAcceptManualAnswer,
     onTogglePause: togglePause,
     keyNames,
+    // The lap board while driving, with an online board only
+    onChangeBoardWidget: boardOn ? handleChangeBoardWidget : undefined,
     lobby: roomLobby,
     localPeerId,
     isHost: isMpHost,
@@ -1503,11 +1514,12 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       trackName: getTrackInfo(trackId).name,
       trackId,
       trackNameOf,
+      circuits: BOARD_CIRCUITS,
       loadAllLocal: loadAllLocalLaps,
       vehicleLabel,
+      carTag: carBoardTag,
       local: localLaps,
       remoteEnabled: boardOn,
-      loadRemote: loadRemoteBoard,
       boardVersion,
       vehicle: vehicleModel,
       driverName: settings.profile.name,

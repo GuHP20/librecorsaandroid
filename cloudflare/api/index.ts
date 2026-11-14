@@ -10,10 +10,15 @@
  *   GET /api/admin/stats          the owner's numbers, with the X-Admin-Key header (admin.ts)
  *   GET /api/admin/cloudflare     Cloudflare's numbers for the site, the same way, once an analytics token is set (analytics.ts)
  *   GET /api/races/results, GET /api/drivers/record     the open races' results (results.ts)
+ *   GET /api/stats, GET /api/stats/circuit              tabs in view and drivers to date; a circuit's laps and drivers (stats.ts)
+ *   POST /api/live                a heartbeat from a tab with the game in view, for the live count (presence.ts)
  * Every feature is optional: with its binding missing or its switch off (wrangler.jsonc `vars`), the config says
  * so and the game falls back to what works without a server.
  *
- * Nothing here is kept at the edge: Workers caching is on for the site's large files, so every answer says no-store.
+ * Workers caching is on (for the site's large files), so every answer says no-store, except a few that are the same
+ * for everyone who asks and are read on every view of the home page or the title screen: a board's page without a
+ * driver's name, and the totals. Those are kept for half a minute or a minute (SHARED_ANSWER_S), at the edge and in
+ * the browser, so a crowd on the home page reads the database about once a minute, not once a visit.
  */
 import { DEFAULT_RACE_SLOT_S, nextRaceSlot, raceSlot } from "../../src/lib/net/race-schedule";
 import { challengeProblem } from "../../src/lib/net/weekly-challenge";
@@ -24,10 +29,12 @@ import { adminKeyMatches, adminStats } from "./admin";
 import { analyticsConfigured, cloudflareStats } from "./analytics";
 import { turnConfigured } from "./turn";
 import { recordUsage } from "./usage";
+import { circuitStats, driversToDate } from "./stats";
 import type { DurableObjectNamespace, Env } from "./types";
 
 export { RaceServer } from "./race";
 export { RoomServer } from "./room";
+export { PresenceCounter } from "./presence";
 
 const on = (value: string | undefined): boolean => value === "on";
 
@@ -38,7 +45,7 @@ export function raceSlotSeconds(env: Env): number {
 }
 
 /** What the game may use online, as the Worker is configured right now */
-export function onlineConfig(env: Env): { rooms: boolean; relay: boolean; races: boolean; board: boolean; raceSlotS: number; usage: boolean } {
+export function onlineConfig(env: Env): { rooms: boolean; relay: boolean; races: boolean; board: boolean; raceSlotS: number; usage: boolean; live: boolean } {
   return {
     rooms: on(env.ONLINE_ROOMS) && Boolean(env.ROOMS),
     relay: on(env.ONLINE_ROOMS) && Boolean(env.ROOMS) && turnConfigured(env),
@@ -46,7 +53,22 @@ export function onlineConfig(env: Env): { rooms: boolean; relay: boolean; races:
     board: on(env.ONLINE_BOARD) && Boolean(env.BOARD_DB) && Boolean(env.GHOSTS),
     raceSlotS: raceSlotSeconds(env),
     usage: on(env.ONLINE_USAGE) && Boolean(env.BOARD_DB),
+    live: on(env.ONLINE_LIVE) && Boolean(env.PRESENCE),
   };
+}
+
+/** The one object that counts the heartbeats (presence.ts) */
+const presenceOf = (ns: DurableObjectNamespace) => ns.get(ns.idFromName("live"));
+
+/** Tabs on /play in view now; null when the count can't be read */
+async function liveCount(ns: DurableObjectNamespace, url: URL): Promise<number | null> {
+  try {
+    const res = await presenceOf(ns).fetch(new Request(new URL("/api/live", url), { method: "GET" }));
+    const seen = (await res.json().catch(() => null)) as { live?: unknown } | null;
+    return typeof seen?.live === "number" && Number.isInteger(seen.live) && seen.live >= 0 ? seen.live : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The request's Origin when it may call the API: the site itself, or a development origin from DEV_ORIGINS */
@@ -58,8 +80,14 @@ function allowedOrigin(request: Request, url: URL, env: Env): string | null {
   return extra.includes(origin) ? origin : null;
 }
 
-function headersFor(origin: string | null): Record<string, string> {
-  const headers: Record<string, string> = { "Cache-Control": "no-store", Vary: "Origin" };
+/**
+ * How long the answers anyone may share are kept, in the browser and in Workers caching at the edge (seconds): the
+ * home page and the title screen read them on every view, and none of them is about the one asking
+ */
+export const SHARED_ANSWER_S = { board: 30, circuit: 60, stats: 30 } as const;
+
+function headersFor(origin: string | null, sharedForS = 0): Record<string, string> {
+  const headers: Record<string, string> = { "Cache-Control": sharedForS > 0 ? `public, max-age=${sharedForS}` : "no-store", Vary: "Origin" };
   if (origin) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
@@ -69,10 +97,11 @@ function headersFor(origin: string | null): Record<string, string> {
   return headers;
 }
 
-export function json(body: unknown, status: number, origin: string | null): Response {
+/** A JSON answer; `sharedForS` lets a successful one be kept for that long (an error never is) */
+export function json(body: unknown, status: number, origin: string | null, sharedForS = 0): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...headersFor(origin), "Content-Type": "application/json; charset=utf-8" },
+    headers: { ...headersFor(origin, status === 200 ? sharedForS : 0), "Content-Type": "application/json; charset=utf-8" },
   });
 }
 
@@ -150,6 +179,50 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     }
   }
 
+  // The boards' totals: a circuit's laps and drivers, and the drivers to date (stats.ts)
+  if (path === "/api/stats/circuit" && request.method === "GET") {
+    if (!config.board || !env.BOARD_DB) return json({ ok: false, error: "The lap boards are off" }, 404, origin);
+    try {
+      const answer = await circuitStats(env.BOARD_DB, url);
+      return json(answer.body, answer.status, origin, SHARED_ANSWER_S.circuit);
+    } catch (err) {
+      console.error("circuit stats", err);
+      return json({ ok: false, error: "The totals could not be read" }, 500, origin);
+    }
+  }
+  // The title screen's line: tabs in view now (presence.ts) and drivers to date; either may be off, never both
+  if (path === "/api/stats" && request.method === "GET") {
+    const boardOn = config.board && env.BOARD_DB;
+    const liveOn = config.live && env.PRESENCE;
+    if (!boardOn && !liveOn) return json({ ok: false, error: "The lap boards and the live count are off" }, 404, origin);
+    try {
+      const [drivers, live] = await Promise.all([
+        boardOn && env.BOARD_DB ? driversToDate(env.BOARD_DB) : null,
+        liveOn && env.PRESENCE ? liveCount(env.PRESENCE, url) : null,
+      ]);
+      return json({ ok: true, drivers, live }, 200, origin, SHARED_ANSWER_S.stats);
+    } catch (err) {
+      console.error("stats", err);
+      return json({ ok: false, error: "The totals could not be read" }, 500, origin);
+    }
+  }
+
+  // A heartbeat from a tab with the game in view (src/lib/net/live-heartbeat.ts): no body, nothing about who sent it
+  if (path === "/api/live" && request.method === "POST") {
+    if (!config.live || !env.PRESENCE) return json({ ok: false, error: "The live count is off" }, 404, origin);
+    if (env.LIVE_LIMIT) {
+      const { success } = await env.LIVE_LIMIT.limit({ key: request.headers.get("CF-Connecting-IP") ?? "unknown" });
+      if (!success) return json({ ok: false, error: "Too many heartbeats" }, 429, origin);
+    }
+    try {
+      await presenceOf(env.PRESENCE).fetch(new Request(new URL("/api/live", url), { method: "POST" }));
+      return new Response(null, { status: 204, headers: headersFor(origin) });
+    } catch (err) {
+      console.error("live", err);
+      return json({ ok: false, error: "Not counted" }, 500, origin);
+    }
+  }
+
   if (path === "/api/drivers/rename" && request.method === "POST") {
     const deps = config.board ? boardDeps(env, challengeProblem) : null;
     if (!deps) return json({ ok: false, error: "The lap boards are off" }, 404, origin);
@@ -173,7 +246,9 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
       }
       if (path === "/api/laps" && request.method === "GET") {
         const answer = await listLaps(deps, url);
-        return json(answer.body, answer.status, origin);
+        // A page without a name is the same for everyone (the home page's); one with a name says where that driver
+        // stands and must show their new lap at once
+        return json(answer.body, answer.status, origin, url.searchParams.has("name") ? 0 : SHARED_ANSWER_S.board);
       }
       if (request.method === "GET") {
         const ghost = await ghostOf(deps, path.slice("/api/laps/".length));

@@ -240,7 +240,15 @@ export interface HudSettings {
    * does, and turns it a little toward the corner; "static" bolts it to the car with no head motion or shake.
    */
   headMovement: "natural" | "static";
+  /**
+   * The lap board while driving (large screens, outside races): folded to one line and opened for a few seconds after
+   * each lap ("lapEnd"), always open, or always folded
+   */
+  boardWidget: BoardWidgetMode;
 }
+
+export type BoardWidgetMode = "lapEnd" | "open" | "closed";
+export const BOARD_WIDGET_MODES: readonly BoardWidgetMode[] = ["lapEnd", "open", "closed"];
 
 export type VirtualMirrorMode = "auto" | "always" | "off";
 
@@ -356,6 +364,7 @@ export const DEFAULT_HUD_SETTINGS: HudSettings = {
   drsBeep: true,
   shiftBeep: false,
   headMovement: "natural",
+  boardWidget: "lapEnd",
 };
 
 export const DEFAULT_CONTENT_LIBRARY: ContentLibrary = {
@@ -666,6 +675,7 @@ function parseHud(v: unknown): HudSettings {
     shiftBeep: bool(v.shiftBeep, d.shiftBeep),
     // Older saves: Neck FX switched off asked for a still camera
     headMovement: oneOf(v.headMovement, ["natural", "static"] as const, v.neckFx === false ? "static" : d.headMovement),
+    boardWidget: oneOf(v.boardWidget, BOARD_WIDGET_MODES, d.boardWidget),
   };
 }
 

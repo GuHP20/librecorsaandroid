@@ -513,6 +513,17 @@ export const mirror = choice("segmented", {
   ...hud("virtualMirror"),
 });
 export const radar = toggle({ id: "radar", label: "Radar", hint: "Fades in when a car is alongside or close behind", ...hud("radar") });
+export const boardWidget = choice("segmented", {
+  id: "boardWidget",
+  label: "Lap board",
+  hint: "Your place on the circuit's online board, on large screens outside races",
+  options: [
+    { id: "lapEnd", label: "Open at lap end" },
+    { id: "open", label: "Always open" },
+    { id: "closed", label: "Always closed" },
+  ],
+  ...hud("boardWidget"),
+});
 
 export const hudAdvanced: RowDef[] = [
   toggle({

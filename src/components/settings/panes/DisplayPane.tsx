@@ -7,6 +7,7 @@ import { isTouchDevice } from "@/lib/input/touch-input";
 import { keyLabel, padButtonLabel } from "@/lib/input/bindings";
 import type { HudPreset } from "@/lib/settings/player-settings";
 import {
+  boardWidget,
   deltaBar,
   defaultView,
   driverBody,
@@ -83,7 +84,7 @@ export function GraphicsTab() {
 
 export function HudTab() {
   return (
-    <SettingsCard title="What the HUD shows" rows={[hudLayout, hudSize, deltaBar, lapSummary, mirror, radar, ...hudAdvanced]} first />
+    <SettingsCard title="What the HUD shows" rows={[hudLayout, hudSize, deltaBar, lapSummary, mirror, radar, boardWidget, ...hudAdvanced]} first />
   );
 }
 

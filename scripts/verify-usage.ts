@@ -277,17 +277,22 @@ async function main() {
     t += 20_000;
     clock.set(null, false);
     check('game: a stretch under 30 seconds is not sent', sent.length === 0);
+    clock.lap();
     clock.set(at, true);
     t += 5 * MIN;
+    clock.lap();
+    clock.lap();
     clock.set(at, false);
     t += 30 * MIN;
     clock.set(at, true);
     t += 2 * MIN;
+    clock.lap();
     clock.set({ ...at, vehicle: 'amg-gt3' }, true);
     check('game: a change of car ends the stretch, paused time left out', sent.length === 1 && sent[0].minutes === 7 && sent[0].vehicle === 'lc26', JSON.stringify(sent));
+    check('game: the laps of a stretch go with it, a lap outside one with none', sent[0].laps === 3, String(sent[0].laps));
     t += MIN;
     clock.set({ ...at, vehicle: 'amg-gt3' }, true, 'flag');
-    check('game: taking the flag ends the stretch', sent.length === 2 && sent[1].minutes === 1 && sent[1].vehicle === 'amg-gt3');
+    check('game: taking the flag ends the stretch', sent.length === 2 && sent[1].minutes === 1 && sent[1].vehicle === 'amg-gt3' && sent[1].laps === 0);
     t += 300 * MIN;
     clock.end();
     check('game: a stretch is sent with at most 240 minutes', sent.length === 3 && sent[2].minutes === 240);
@@ -309,14 +314,14 @@ async function main() {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init: RequestInit) => (calls.push({ url, init }), new Response('{}'))) as typeof fetch;
     try {
-      sendUsage({ ...at, minutes: 3, input: 'wheel', device: 'desktop', weather: 'dry', assists: 'pro' }, 'https://librecorsa.test/api/usage');
-      sendUsage({ ...at, minutes: 3 }, null);
+      sendUsage({ ...at, minutes: 3, laps: 2, input: 'wheel', device: 'desktop', weather: 'dry', assists: 'pro' }, 'https://librecorsa.test/api/usage');
+      sendUsage({ ...at, minutes: 3, laps: 0 }, null);
     } finally {
       globalThis.fetch = realFetch;
     }
     const call = calls[0];
     check('game: one request, keepalive, no cookies, a string body', calls.length === 1 && call.init.keepalive === true && call.init.credentials === 'omit' && typeof call.init.body === 'string' && JSON.parse(call.init.body).minutes === 3, JSON.stringify(call));
-    check('game: nothing but circuit, car, mode, minutes and the extras', Object.keys(JSON.parse(String(call?.init.body))).sort().join() === 'assists,device,input,minutes,mode,trackId,vehicle,weather');
+    check('game: nothing but circuit, car, mode, minutes, laps and the extras', Object.keys(JSON.parse(String(call?.init.body))).sort().join() === 'assists,device,input,laps,minutes,mode,trackId,vehicle,weather');
     check('game: no online side, nothing sent', calls.length === 1);
   }
 

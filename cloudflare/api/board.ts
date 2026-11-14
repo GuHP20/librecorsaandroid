@@ -2,9 +2,15 @@
  * The online lap boards, on D1 (rows) and R2 (ghost samples):
  *   POST /api/laps        { rec: LapRecording, driverKey, event? }
  *                         -> { ok: true, rank, total, eventRank?, eventTotal?, eventError? } | { ok: false, error }
- *   GET  /api/laps?track=&vehicle=&physics=&assists=&realism=&surface=&event=&name=&limit=
- *                         -> { laps: [...], total, me: { rank, lap, aboveMs } | null, physics: [revisions with laps] }
- *                            (aboveMs: the best lap of the place above the driver's, null at the top)
+ *   GET  /api/laps?track=&vehicle=&physics=&assists=&realism=&surface=&event=&name=&limit=&offset=&near=
+ *                         -> { laps: [...], offset, total, me: { rank, pos, lap, aboveMs } | null, physics: [revisions with laps],
+ *                              near?: { pos, laps: [...] }, current?: { <car>: revision } }
+ *                            (limit 1 to 100, 20 by default; offset: places skipped, for the pages after the first.
+ *                            rank: 1 + the drivers faster, so a tie shares it; pos: the place in the board's order,
+ *                            which the pages follow. aboveMs: the best lap of the place above the driver's, null at the
+ *                            top. near=1..5: the places either side of the driver's, as `near`)
+ *                            vehicle=all: every driver once, with their fastest lap in any car, each car on the revision
+ *                            this build ships it on (`current`, worked out here; `physics` is not needed and is ignored)
  *   GET  /api/laps/<id>   -> the lap's LapRecording (its ghost), or 404
  *   POST /api/drivers/rename  { from, to, code?, driverKey }
  *                         -> { ok: true, moved } | { ok: false, error, taken? }
@@ -20,9 +26,9 @@
  * name takes their laps and race results with them (`renameDriver`), so a board never shows them twice. Names that
  * fail the name filter (src/lib/net/name-filter.ts) are refused on upload and on rename.
  */
-import { ASSIST_PRESETS, type LapConditions } from "../../src/lib/sim/lap-types";
+import { ASSIST_PRESETS, lapPhysicsVersion, type LapConditions } from "../../src/lib/sim/lap-types";
 import { SIM_REALISM_LEVELS } from "../../src/lib/sim/sim-realism";
-import { isVehicleModelId } from "../../src/types/f1";
+import { isVehicleModelId, VEHICLE_MODEL_IDS, type VehicleModelId } from "../../src/types/f1";
 import { nameProblem } from "../../src/lib/net/name-filter";
 import { checkLap, TRACK_ID_RE, type CheckedLap } from "./lap-check";
 import type { D1Database, D1PreparedStatement, Env, R2Bucket } from "./types";
@@ -36,6 +42,8 @@ const CLAIM_LAPSES_MS = 183 * 24 * 3600 * 1000;
 const DRIVER_KEY_RE = /^[A-Za-z0-9_-]{32,128}$/;
 const LAP_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const EVENT_ID_RE = /^\d{4}-W\d{2}$/;
+/** `vehicle` for the board of every car on a circuit */
+export const ALL_CARS = "all";
 
 /** Null when `rec` may go on `event`'s board right now, else why not */
 export type EventRule = (rec: CheckedLap, event: string, nowMs: number) => string | null;
@@ -59,6 +67,7 @@ interface LapRow {
   realism: string;
   surface: string;
   compound: string;
+  name_key: string;
   driver_name: string;
   driver_code: string;
   lap_time_ms: number;
@@ -240,22 +249,60 @@ export async function submitLap(deps: BoardDeps, request: Request): Promise<Answ
   return { status: 200, body: answer };
 }
 
+/**
+ * The physics revision each car's laps are ranked under now, as this build ships it: the revision `lapPhysicsVersion`
+ * gives a car without a browser's own choice of engine (the LC26's older engine is kept in the browser, so the Worker
+ * always reads the engine it ships on). The all-cars board takes every car at its own current revision.
+ */
+export function currentPhysicsByCar(): Record<VehicleModelId, number> {
+  return Object.fromEntries(VEHICLE_MODEL_IDS.map((v) => [v, lapPhysicsVersion(v)])) as Record<VehicleModelId, number>;
+}
+
+/** The rows of every car at its current revision on a circuit: a WHERE clause and its binds (after the circuit and event) */
+export function currentPhysicsWhere(): { sql: string; binds: unknown[] } {
+  const current = Object.entries(currentPhysicsByCar());
+  return {
+    sql: `vehicle IN (${current.map(() => "?").join(", ")}) AND physics = CASE vehicle ${current.map(() => "WHEN ? THEN ?").join(" ")} END`,
+    binds: [...current.map(([v]) => v), ...current.flat()],
+  };
+}
+
+/** The order of a board, the same everywhere a place is worked out: time, then who set it first, then the row */
+const BOARD_ORDER = "lap_time_ms, created_at, id";
+/** Rows a listing may skip: far past any board this game will have */
+const MAX_OFFSET = 1_000_000;
+/** Places listed either side of the driver's own (`near`) */
+const MAX_NEAR = 5;
+
 export async function listLaps(deps: BoardDeps, url: URL): Promise<Answer> {
   const q = url.searchParams;
   const track = q.get("track") ?? "";
   const vehicle = q.get("vehicle") ?? "";
+  const allCars = vehicle === ALL_CARS;
   const physics = Number(q.get("physics"));
   const event = q.get("event") ?? "";
-  if (!TRACK_ID_RE.test(track) || !isVehicleModelId(vehicle) || !Number.isInteger(physics) || physics < 1 || physics > 1000) {
+  if (!TRACK_ID_RE.test(track) || (!allCars && (!isVehicleModelId(vehicle) || !Number.isInteger(physics) || physics < 1 || physics > 1000))) {
     return fail("track, vehicle and physics are required");
   }
   if (event !== "" && !EVENT_ID_RE.test(event)) return fail("Unknown event");
   const limitRaw = Number(q.get("limit"));
   const limit = Number.isFinite(limitRaw) && limitRaw >= 1 ? Math.min(MAX_LIMIT, Math.floor(limitRaw)) : DEFAULT_LIMIT;
+  const offsetRaw = Number(q.get("offset"));
+  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.min(MAX_OFFSET, Math.floor(offsetRaw)) : 0;
+  const nearRaw = Number(q.get("near"));
+  const near = Number.isFinite(nearRaw) && nearRaw > 0 ? Math.min(MAX_NEAR, Math.floor(nearRaw)) : 0;
 
-  // Narrowing to a class: only known values are taken
-  let where = "track_id = ? AND vehicle = ? AND physics = ? AND event = ?";
-  const binds: unknown[] = [track, vehicle, physics, event];
+  // One car on one revision, or every car on its current one; narrowing to a class takes only known values
+  let where: string;
+  const binds: unknown[] = [];
+  if (allCars) {
+    const current = currentPhysicsWhere();
+    where = `track_id = ? AND event = ? AND ${current.sql}`;
+    binds.push(track, event, ...current.binds);
+  } else {
+    where = "track_id = ? AND vehicle = ? AND physics = ? AND event = ?";
+    binds.push(track, vehicle, physics, event);
+  }
   const narrow = (column: keyof LapConditions, allowed: readonly string[]) => {
     const value = q.get(column);
     if (value === null || value === "") return;
@@ -271,11 +318,16 @@ export async function listLaps(deps: BoardDeps, url: URL): Promise<Answer> {
     return fail("Unknown filter value");
   }
 
-  const best = `SELECT *, ROW_NUMBER() OVER (PARTITION BY name_key ORDER BY lap_time_ms, created_at) AS rn FROM laps WHERE ${where}`;
+  // Each driver's fastest row; `pos` is their place in the board's order (a tie on time goes to the earlier lap)
+  const best = `SELECT *, ROW_NUMBER() OVER (PARTITION BY name_key ORDER BY ${BOARD_ORDER}) AS rn FROM laps WHERE ${where}`;
+  const ordered = `SELECT *, ROW_NUMBER() OVER (ORDER BY ${BOARD_ORDER}) AS pos FROM (${best}) WHERE rn = 1`;
   const statements = [
-    deps.db.prepare(`SELECT * FROM (${best}) WHERE rn = 1 ORDER BY lap_time_ms, created_at LIMIT ?`).bind(...binds, limit),
+    deps.db.prepare(`SELECT * FROM (${best}) WHERE rn = 1 ORDER BY ${BOARD_ORDER} LIMIT ? OFFSET ?`).bind(...binds, limit, offset),
     deps.db.prepare(`SELECT COUNT(DISTINCT name_key) AS total FROM laps WHERE ${where}`).bind(...binds),
-    deps.db.prepare("SELECT DISTINCT physics FROM laps WHERE track_id = ? AND vehicle = ? AND event = ? ORDER BY physics DESC").bind(track, vehicle, event),
+    // The revisions this car has laps under (the all-cars board takes each car's current one only)
+    allCars
+      ? deps.db.prepare("SELECT 1 AS physics WHERE 0")
+      : deps.db.prepare("SELECT DISTINCT physics FROM laps WHERE track_id = ? AND vehicle = ? AND event = ? ORDER BY physics DESC").bind(track, vehicle, event),
   ];
   const name = q.get("name");
   const nameKey = name && name.length <= 64 ? driverNameKey(name) : "";
@@ -286,20 +338,28 @@ export async function listLaps(deps: BoardDeps, url: URL): Promise<Answer> {
         // The drivers ahead, and the slowest of them: the place just above (the board lists only the top places)
         .prepare(`SELECT COUNT(*) AS ahead, MAX(b) AS above FROM (SELECT MIN(lap_time_ms) AS b FROM laps WHERE ${where} GROUP BY name_key) WHERE b < (SELECT MIN(lap_time_ms) FROM laps WHERE ${where} AND name_key = ?)`)
         .bind(...binds, ...binds, nameKey),
+      // The driver's position in the board's order, and the places either side of it
+      deps.db
+        .prepare(`WITH o AS (${ordered}), me AS (SELECT pos FROM o WHERE name_key = ?) SELECT o.* FROM o, me WHERE o.pos BETWEEN me.pos - ? AND me.pos + ? ORDER BY o.pos`)
+        .bind(...binds, nameKey, near, near),
     );
   }
   const results = await deps.db.batch(statements);
   const mine = nameKey ? (results[3].results[0] as unknown as LapRow | undefined) : undefined;
   const ahead = nameKey ? (results[4].results[0] as { ahead: number; above: number | null } | undefined) : undefined;
-  return {
-    status: 200,
-    body: {
-      laps: (results[0].results as unknown as LapRow[]).map(entryOf),
-      total: (results[1].results[0] as { total: number } | undefined)?.total ?? 0,
-      physics: (results[2].results as { physics: number }[]).map((r) => r.physics),
-      me: mine ? { rank: 1 + (ahead?.ahead ?? 0), lap: entryOf(mine), aboveMs: ahead?.above ?? null } : null,
-    },
+  const around = nameKey ? (results[5].results as unknown as (LapRow & { pos: number })[]) : [];
+  const myPos = around.find((r) => r.name_key === nameKey)?.pos;
+  const body: Record<string, unknown> = {
+    laps: (results[0].results as unknown as LapRow[]).map(entryOf),
+    offset,
+    total: (results[1].results[0] as { total: number } | undefined)?.total ?? 0,
+    physics: (results[2].results as { physics: number }[]).map((r) => r.physics),
+    me: mine ? { rank: 1 + (ahead?.ahead ?? 0), pos: myPos ?? 1 + (ahead?.ahead ?? 0), lap: entryOf(mine), aboveMs: ahead?.above ?? null } : null,
   };
+  // Every car's current revision, so a client checks the rows against what this board took, not its own engine choice
+  if (allCars) body.current = currentPhysicsByCar();
+  if (near > 0 && mine && around.length > 0) body.near = { pos: around[0].pos, laps: around.map(entryOf) };
+  return { status: 200, body };
 }
 
 /** The lap's stored recording as JSON text, or null */
