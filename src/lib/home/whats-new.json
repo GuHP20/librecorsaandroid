@@ -1,0 +1,222 @@
+[
+  {
+    "date": "2026-11-14",
+    "title": "Wheel bridge stops holding the wheel when WebHID is active",
+    "items": [
+      "The force-feedback bridge now opens DirectInput only while the game sends it force and releases the wheel 3 seconds after force stops, avoiding busy-device conflicts with WebHID while telemetry keeps running."
+    ],
+    "commits": 1,
+    "lastSha": "2c3ab0e9c3cf461f0d2cfa69376b40874019f76b"
+  },
+  {
+    "date": "2026-11-13",
+    "title": "2026 Prototype LC26 physics, cockpit driver, and smarter AI lines",
+    "items": [
+      "Added an optional cockpit driver figure in a race suit whose hands and arms turn with the steering wheel, controlled by a Display setting (off by default).",
+      "Upgraded the 2026 Prototype (now LC26) with per-element aero drag, pressure-coupled tyre heating, temperature-dependent carbon brakes, fuel centre-of-gravity shift, Straight Mode flaps on every straight, and lift-off energy recovery in all gears.",
+      "AI opponents now ride flat kerbs on exits, respect puncture grip losses, and train racing lines against leaderboard ghosts on both layouts of RISE Motordrome.",
+      "Carried existing personal bests, saved setups, and leaderboard records seamlessly over to the LC26 identifier, and fixed iOS tilt steering motion permission prompts."
+    ],
+    "commits": 31,
+    "lastSha": "765cdcbe3c80f6a7625878fc20bf6bae6076f6d0"
+  },
+  {
+    "date": "2026-11-12",
+    "title": "Grobnik and Oschersleben, WebHID wheel expansion, and 60 Hz binary netcode",
+    "items": [
+      "Added Automotodrom Grobnik and Motorsport Arena Oschersleben, upgraded the Mercedes-AMG GT3 to the Evo body with live cockpit dashes and rear-view mirrors, and moved the 2026 Prototype onto Qvist Designs' 2026 concept chassis with articulated suspension and four liveries.",
+      "Added WebHID force feedback for Logitech G25, G27, Driving Force GT, G29, G920, G923, and Thrustmaster T300RS, T248, TX, TS-XW, and TS-PC bases, plus Logitech rev lights, a force curve tuning option, and cross-platform bridge telemetry.",
+      "Rebuilt multiplayer car sync around a 60 Hz binary protocol with graceful coasting and ghosting during stalls, updated race course-cut time penalties and rolling starts, and dropped the flashback rewind feature.",
+      "Added a new Dash view over the wheel with a per-car adjustable seat panel, moved Touch and Tilt to the front of mobile control setup, and added Source credits chips on car and circuit cards."
+    ],
+    "commits": 123,
+    "lastSha": "22c31fcc7a66429a94f4e03c1884171478f75819"
+  },
+  {
+    "date": "2026-11-11",
+    "title": "Home hub launch, Istanbul Park, and full LC26 clean-room architecture",
+    "items": [
+      "Launched the LibreCorsa home hub at the root URL with circuit lap maps, car cards, and Sim grade vs 3D model badges, moving the simulator into /play.",
+      "Added Istanbul Park, rebuilt RISE Motordrome with FIA-style 3D kerb blocks and scanned asphalt and gravel textures, and completed the clean-room 6-DOF LC26 chassis, active aero, hybrid powertrain, and 3-layer Pirelli C1-C5 tyre physics.",
+      "Added official race results with podium grid shots, automatic post-race AI cool-down laps, yellow and green multiplayer race flags, and time-trial rules for the Weekly challenge.",
+      "Added automatic personal-best posting to online leaderboards, a privacy page explaining local and online storage, and real-time tyre smoke and skid marks tied to tread slip and lock-ups."
+    ],
+    "commits": 134,
+    "lastSha": "29cdd6abe17298778531b7a08658c1c2965d6c70"
+  },
+  {
+    "date": "2026-11-10",
+    "title": "RISE Motordrome, scheduled online races, and brush tyre physics",
+    "items": [
+      "Added RISE Motordrome (Grand Prix and Short layouts) as the default circuit, alongside scheduled online races, a Weekly challenge rotation, and shared multiplayer room pairing.",
+      "Moved all cars onto brush-model tyres with load-dependent wear curves, carcass thermal grip, graining and blistering, and temperature-dependent brake pad friction.",
+      "Added car-specific downshift throttle blips, dog-box shift cut timing, altitude torque loss, brake-operated diff lock, and fixed-rate 250 Hz controller polling.",
+      "Updated the online lap boards so every circuit and car tracks its own clean board with automatic submissions and opt-out controls."
+    ],
+    "commits": 169,
+    "lastSha": "72bba6357eaf04becdb0af2f35796d1116123e85"
+  },
+  {
+    "date": "2026-11-09",
+    "title": "MTRacing 496R prototype, volumetric clouds, and contact-patch tyre drape",
+    "items": [
+      "Added the MTRacing 496R prototype class with its own physics, sound bank, live wheel screen, and ported livery choices, and renamed the Top Gear test track to Dunsfold Aerodrome.",
+      "Enabled physically based sky lighting and volumetric clouds by default on Medium and High graphics, plus wind-driven lake waves and sun glitter in Rwanda.",
+      "Added 3D tyre contact-patch deformation and tread subdivision so sidewalls shear and drape visibly over kerbs, paired with per-tyre contact shadows.",
+      "Added a press kit and coverage page, setup overwrite undo in the Engineer's Garage, and circuit and car thumbnails across the menu browsers."
+    ],
+    "commits": 101,
+    "lastSha": "3d08dc6e11d69d0d0b9c242803d13fed69e3a8f3"
+  },
+  {
+    "date": "2026-11-08",
+    "title": "Suzuki Liana, compliant suspension kinematics, and 2026 Pirelli sidewalls",
+    "items": [
+      "Added a Road Car class featuring the Suzuki Liana 1.6 with its own physics, AC sound bank, and Top Gear test track layout, alongside car class and year grouping in the car browser.",
+      "Overhauled mechanical simulation with solved link-geometry kinematics, compliant halfshafts, exhaust-energy turbo boost, spinning-wheel gyroscopic coupling, and multi-point tyre contact patches over road texture.",
+      "Added kingpin steering rack torque and parking tyre twist for force-feedback wheels, hydraulic power-steering assist, and Pirelli 2026 sidewall visuals for dry and rain compounds.",
+      "Added GT, F1, and Forza controller layout presets, race-start reaction times and defence tactics for the AI, and car physics-grade badges."
+    ],
+    "commits": 113,
+    "lastSha": "9a9f51bed99f6c7b566ee3fc63ca92054aa3460e"
+  },
+  {
+    "date": "2026-11-07",
+    "title": "AI racecraft, collision damage, and Chang, Okayama, Spielberg, and Monaco",
+    "items": [
+      "Added Chang, Okayama, Spielberg, and Monaco circuits with surface decals, semaphores, dynamic tyre grooves, and circuit quality filters.",
+      "Added a race setup screen allowing players to customize lap count, field size, grid order, damage, rolling or standing starts, and clean/normal/hard AI racing rules.",
+      "Introduced collision and barrier damage, yellow flags, race control incident feeds, and car-specific AI racecraft paths that overtake on the brakes and recover cleanly from knocks.",
+      "Built a full contact-acoustics audio engine, downforce-compensated wheel force feedback with collision slew limiting, multi-motor gamepad rumble cues, and era-appropriate DRS/Overtake rules."
+    ],
+    "commits": 176,
+    "lastSha": "401ab0ec9e12a92408f9fe224afd26b890d4d813"
+  },
+  {
+    "date": "2026-11-06",
+    "title": "Racing Line visual redesign, dynamic chase camera, and steering assists",
+    "items": [
+      "Introduced the Racing Line design system with Geist, Geist Mono, and Chakra Petch typography, searchable car and circuit browsers, and favourites/recents tracking.",
+      "Added a dynamic chase camera responding to G-forces and road banking, alongside UI scaling for 1440p/4K monitors, centred ultra-wide 32:9 HUD framing, and safe-area notch support for phones.",
+      "Added unified per-device steering and pedal assists with self-steer previews and trigger slip buzz, plus WebHID tactile road and surface FFB enabled by default for Logitech and PXN wheels.",
+      "Added an in-game feedback panel for bug reports and car/track requests, and improved frame pacing and reflection probe performance."
+    ],
+    "commits": 39,
+    "lastSha": "6650fe9da76ad653fb4611686514190da202290f"
+  },
+  {
+    "date": "2026-11-05",
+    "title": "librecorsa.org launch, live car reflections, and starting fuel loads",
+    "items": [
+      "Moved LibreCorsa to librecorsa.org with Cloudflare edge delivery, a migration bridge for saved browser data from GitHub Pages, and full static asset compression.",
+      "Added live environment reflections and soft contact shadows on every car, positional 3D audio for AI opponents and remote multiplayer cars, and meshopt-compressed trackside props.",
+      "Added fuel tank weight simulation and starting fuel sliders on the F1 and GT3 setup sheets, alongside realism-ranked online leaderboards that record assists, tyres, and physics versions.",
+      "Tightened multiplayer packet validation, dry-line syncing in wet sessions, ABS slip-angle behaviour, and WebHID 500 Hz force-feedback subframe playback."
+    ],
+    "commits": 139,
+    "lastSha": "6d491962a8ef3474f984f6f10b43c969dc747efe"
+  },
+  {
+    "date": "2026-11-04",
+    "title": "Seven F1 cars, two GT3s, five classic circuits, and native sound banks",
+    "items": [
+      "Added Silverstone, Spa-Francorchamps, Monza, Yas Marina, and Marina Bay Street Circuit with scanned road tarmac shaders and track kerbs.",
+      "Added seven F1 cars (SF-26, W17, RB22, SF71H, RB8, R25, F2004) and two GT3 cars (Mercedes-AMG GT3 Evo and BMW M4 GT3 Evo) with clearcoat PBR paint, livery repainting, and live GT3 cockpit dashes and mirrors.",
+      "Ported multi-layer engine audio banks for F1 and GT3 cars without FMOD, added a manual gearbox option, and introduced cockpit head stabilization and cold tyre pressure tuning.",
+      "Added per-car steering lock overrides for force-feedback wheels, two-lane AI standing starts, and softer fading tyre smoke and rain spray."
+    ],
+    "commits": 61,
+    "lastSha": "275b67e33c869a6011e3499f8f0c3c42e55b539d"
+  },
+  {
+    "date": "2026-11-03",
+    "title": "Sepang and Daytona, banked oval physics, and Rwanda trackside scenery",
+    "items": [
+      "Added Sepang International Circuit and Daytona (oval and road course), updating vehicle placement and AI corner speed planning to handle steep banking up to 34 degrees.",
+      "Generated open-licensed grandstands, media centres, barriers, fences, trackside props, and level-of-detail instanced trees for Rwanda.",
+      "Updated the AI autopilot to drive through each car's own TC and 4-channel ABS and steer clear of road-edge collider lips."
+    ],
+    "commits": 40,
+    "lastSha": "5f4f747280a58e52d52dc8859a95cb2edca4fbb4"
+  },
+  {
+    "date": "2026-11-02",
+    "title": "Cascaded shadows, damper tuning, and force-feedback wheel docs",
+    "items": [
+      "Improved track rendering with a reversed depth buffer, cascaded sun shadows, cockpit driver head shadows, and rough-diffuse grass, concrete, and scenery surfaces.",
+      "Exposed bump and rebound damper adjustments on the F1 setup sheet and refined GT3 aerodynamics, braking plans, and per-car TC/ABS tuning.",
+      "Added a supported-wheels list and bridge setup guidance in wheel settings, and fixed Logitech wheel startup and Fanatec CSL Elite belt-drive defaults."
+    ],
+    "commits": 25,
+    "lastSha": "e1651ca3d8d3792ba0e0856b9d1696eccc7cd9bc"
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Official cryptocurrency disclaimer",
+    "items": [
+      "Added an explicit disclaimer warning players about unauthorized cryptocurrency tokens claiming association with LibreCorsa."
+    ],
+    "commits": 1,
+    "lastSha": "ba7ba77583f7d8f638e8ccd59e08d6276b4ee573"
+  },
+  {
+    "date": "2026-10-22",
+    "title": "Dynamic weather, wet physics, puddles, and live race split gaps",
+    "items": [
+      "Added a 5-node dynamic weather forecast with regional rain grids, topographical road puddles, puddle yaw drag, and a drying racing line.",
+      "Added wet and slick tyre overhaul with hydroplaning trails, wet aero and throttle/ERS harvest maps, wet road reflections, rooster-tail spray plumes, and cockpit visor droplets.",
+      "Added aerodynamic wind effects, surface-table kerb serrations, rebuilt Suzuka, Motegi, and Shanghai kerbs, and an optional race split-gap HUD toggle."
+    ],
+    "commits": 18,
+    "lastSha": "b6bd7a419d5f4c12f34254a79e5aec05c74d7867"
+  },
+  {
+    "date": "2026-10-21",
+    "title": "Updated project credits",
+    "items": [
+      "Updated the in-game and documentation credits to recognize asset and physics contributors."
+    ],
+    "commits": 1,
+    "lastSha": "46f3eb4f7762f3e9855e9ce11093248373d05bef"
+  },
+  {
+    "date": "2026-10-20",
+    "title": "Unified car registry and class chooser",
+    "items": [
+      "Organized cars into a single registry with class tabs across the garage, pause menu, and setup wizard while keeping telemetry, setups, and lap records intact."
+    ],
+    "commits": 1,
+    "lastSha": "fb96f55e228d7c1e4127018279af2924fdacac7e"
+  },
+  {
+    "date": "2026-10-19",
+    "title": "Engineer's Garage, multi-page MFD, and race control penalties",
+    "items": [
+      "Released v0.2.0 with the Engineer's Garage setup sheets, a live multi-page MFD tuner, a proximity radar, a rear-view mirror, and a dedicated mobile HUD layout.",
+      "Added track-limit race control penalties, replay flashback rewind, wheel setup with gamepad button maps, and restyled title and loading screens.",
+      "Seeded every circuit's racing-line optimizer from minimum-time trajectories and tuned GT3 braking plans on measured tyre grip."
+    ],
+    "commits": 16,
+    "lastSha": "4a0566f09162b12a47abd0708c121d3540ce8b3a"
+  },
+  {
+    "date": "2026-10-18",
+    "title": "LibreCorsa rebrand, Broadcast HUDs, and online leaderboards",
+    "items": [
+      "Rebranded the project to LibreCorsa with Broadcast, Wheel Dash, and Telemetry HUD presets and an in-menu car and track request form.",
+      "Added online lap leaderboards with device-key driver name claiming and first-lap upload validation fixes.",
+      "Compressed circuit models, refined Suzuka's track geometry, and improved WebHID wheel pairing status feedback."
+    ],
+    "commits": 23,
+    "lastSha": "e85ffc90565f1ab65f90eade44fbf35056fb9461"
+  },
+  {
+    "date": "2026-10-17",
+    "title": "Initial release of the 500 Hz browser racing simulator",
+    "items": [
+      "Published the initial 500 Hz 6-DOF browser simulator featuring WebGL2 rendering, WebRTC multiplayer, and high-speed barrier collision handling."
+    ],
+    "commits": 2,
+    "lastSha": "22105d88ef1ea49ec63ac89f2d35259be27f8601"
+  }
+]

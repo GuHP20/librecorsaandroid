@@ -71,6 +71,19 @@ export interface HomeCoverage {
   date: string;
 }
 
+export interface WhatsNewDay {
+  /** Calendar date in Europe/Istanbul: YYYY-MM-DD */
+  date: string;
+  /** Short plain-English headline for the day (no trailing period, no emoji) */
+  title: string;
+  /** Player-facing patch-note bullets summarizing that day's work */
+  items: string[];
+  /** Number of non-merge commits on that day (excluding whats-new.json itself) */
+  commits: number;
+  /** Full 40-character SHA of the newest commit included in this day's summary */
+  lastSha: string;
+}
+
 export interface HomeData {
   defaultTrackId: string;
   defaultCarId: string;
