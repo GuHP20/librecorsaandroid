@@ -10,7 +10,8 @@
  *   GET /api/admin/stats          the owner's numbers, with the X-Admin-Key header (admin.ts)
  *   GET /api/admin/cloudflare     Cloudflare's numbers for the site, the same way, once an analytics token is set (analytics.ts)
  *   GET /api/races/results, GET /api/drivers/record     the open races' results (results.ts)
- *   GET /api/stats, GET /api/stats/circuit              drivers to date; a circuit's laps and drivers (stats.ts)
+ *   GET /api/stats, GET /api/stats/circuit              tabs in view and drivers to date; a circuit's laps and drivers (stats.ts)
+ *   POST /api/live                a heartbeat from a tab with the game in view, for the live count (presence.ts)
  * Every feature is optional: with its binding missing or its switch off (wrangler.jsonc `vars`), the config says
  * so and the game falls back to what works without a server.
  *
@@ -33,6 +34,7 @@ import type { DurableObjectNamespace, Env } from "./types";
 
 export { RaceServer } from "./race";
 export { RoomServer } from "./room";
+export { PresenceCounter } from "./presence";
 
 const on = (value: string | undefined): boolean => value === "on";
 
@@ -43,7 +45,7 @@ export function raceSlotSeconds(env: Env): number {
 }
 
 /** What the game may use online, as the Worker is configured right now */
-export function onlineConfig(env: Env): { rooms: boolean; relay: boolean; races: boolean; board: boolean; raceSlotS: number; usage: boolean } {
+export function onlineConfig(env: Env): { rooms: boolean; relay: boolean; races: boolean; board: boolean; raceSlotS: number; usage: boolean; live: boolean } {
   return {
     rooms: on(env.ONLINE_ROOMS) && Boolean(env.ROOMS),
     relay: on(env.ONLINE_ROOMS) && Boolean(env.ROOMS) && turnConfigured(env),
@@ -51,7 +53,22 @@ export function onlineConfig(env: Env): { rooms: boolean; relay: boolean; races:
     board: on(env.ONLINE_BOARD) && Boolean(env.BOARD_DB) && Boolean(env.GHOSTS),
     raceSlotS: raceSlotSeconds(env),
     usage: on(env.ONLINE_USAGE) && Boolean(env.BOARD_DB),
+    live: on(env.ONLINE_LIVE) && Boolean(env.PRESENCE),
   };
+}
+
+/** The one object that counts the heartbeats (presence.ts) */
+const presenceOf = (ns: DurableObjectNamespace) => ns.get(ns.idFromName("live"));
+
+/** Tabs on /play in view now; null when the count can't be read */
+async function liveCount(ns: DurableObjectNamespace, url: URL): Promise<number | null> {
+  try {
+    const res = await presenceOf(ns).fetch(new Request(new URL("/api/live", url), { method: "GET" }));
+    const seen = (await res.json().catch(() => null)) as { live?: unknown } | null;
+    return typeof seen?.live === "number" && Number.isInteger(seen.live) && seen.live >= 0 ? seen.live : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The request's Origin when it may call the API: the site itself, or a development origin from DEV_ORIGINS */
@@ -173,14 +190,36 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
       return json({ ok: false, error: "The totals could not be read" }, 500, origin);
     }
   }
+  // The title screen's line: tabs in view now (presence.ts) and drivers to date; either may be off, never both
   if (path === "/api/stats" && request.method === "GET") {
-    if (!config.board || !env.BOARD_DB) return json({ ok: false, error: "The lap boards are off" }, 404, origin);
+    const boardOn = config.board && env.BOARD_DB;
+    const liveOn = config.live && env.PRESENCE;
+    if (!boardOn && !liveOn) return json({ ok: false, error: "The lap boards and the live count are off" }, 404, origin);
     try {
-      const drivers = await driversToDate(env.BOARD_DB);
-      return json({ ok: true, drivers, live: null }, 200, origin, SHARED_ANSWER_S.stats);
+      const [drivers, live] = await Promise.all([
+        boardOn && env.BOARD_DB ? driversToDate(env.BOARD_DB) : null,
+        liveOn && env.PRESENCE ? liveCount(env.PRESENCE, url) : null,
+      ]);
+      return json({ ok: true, drivers, live }, 200, origin, SHARED_ANSWER_S.stats);
     } catch (err) {
       console.error("stats", err);
       return json({ ok: false, error: "The totals could not be read" }, 500, origin);
+    }
+  }
+
+  // A heartbeat from a tab with the game in view (src/lib/net/live-heartbeat.ts): no body, nothing about who sent it
+  if (path === "/api/live" && request.method === "POST") {
+    if (!config.live || !env.PRESENCE) return json({ ok: false, error: "The live count is off" }, 404, origin);
+    if (env.LIVE_LIMIT) {
+      const { success } = await env.LIVE_LIMIT.limit({ key: request.headers.get("CF-Connecting-IP") ?? "unknown" });
+      if (!success) return json({ ok: false, error: "Too many heartbeats" }, 429, origin);
+    }
+    try {
+      await presenceOf(env.PRESENCE).fetch(new Request(new URL("/api/live", url), { method: "POST" }));
+      return new Response(null, { status: 204, headers: headersFor(origin) });
+    } catch (err) {
+      console.error("live", err);
+      return json({ ok: false, error: "Not counted" }, 500, origin);
     }
   }
 

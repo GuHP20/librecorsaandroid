@@ -9,6 +9,7 @@ game's online side (`cloudflare/api`). Every part of it is optional and has its 
 | Lap boards (`api/board.ts`) | The online leaderboard and the weekly challenge's board | D1 (`librecorsa-board`) and R2 (`librecorsa-ghosts`) | `ONLINE_BOARD` |
 | Race server (`api/race.ts`) | Scheduled races | A Durable Object per race, which passes every car's state on while it runs | `ONLINE_RACES` |
 | Usage counter (`api/usage.ts`) | Nothing they see: minutes driven per day, circuit, car, mode and country, and on their own input, screen, weather, assists and build, for the owner | D1 (`librecorsa-board`, tables `usage_daily` and `usage_extra`) | `ONLINE_USAGE` |
+| Live count (`api/presence.ts`) | "LIVE · 23 driving now" on the title screen | One Durable Object that counts the last minute's heartbeats in memory | `ONLINE_LIVE` |
 
 The game asks `GET /api/config` at run time, so a switch set to `"off"` (then `npx wrangler deploy`, or a push to
 main) takes effect without a new build of the game, which falls back by itself: room codes go through the public
@@ -21,6 +22,13 @@ PeerJS broker, lap times stay in the browser, the Races card goes away.
   plan allows 10 ms per request).
 - **Relay (TURN)**: billed per GB relayed, only for players who can't connect directly (roughly a cent or two per
   relayed player per hour of racing). Remove the two TURN secrets to stop it: rooms then connect directly only.
+- **Live count**: a Worker request and a Durable Object request per tab in view per minute, and the object's time in
+  memory while anyone has the game open (about 0.125 GB-s a second). One tab open around the clock is about 43,000
+  requests and 324,000 GB-s a month, inside the Workers Paid plan's monthly 1 million object requests and 400,000
+  GB-s (shared with the room and race servers); past those, $0.15 per million requests and $12.50 per million GB-s.
+  Each further tab adds requests, not memory time: 100 tabs around the clock are about 4.3 million object requests a
+  month, roughly $0.50 past the allowance, and as many Worker requests against the plan's 10 million a month ($0.30
+  per million past them).
 - **Race server**: the one part that works the whole time a race runs (about a cent per 8-car race hour). Set
   `ONLINE_RACES` to `"off"` to stop it: the Open races card leaves the Multiplayer panel, and rooms, the boards and
   the weekly challenge carry on. (The Weekly challenge panel needs `ONLINE_BOARD`; the races run without it, with the
@@ -110,5 +118,13 @@ admin numbers (`verify-usage.ts`).
   `GET /api/drivers/record`) only when its driver key owns the name it raced under; the key reaches the server once
   per race socket and only its SHA-256 is kept. Room results are not stored. The deploy workflow applies the
   migration (`wrangler d1 migrations apply`), as for the boards.
+- The live count: while a `/play` tab is in view, the game sends an empty `POST /api/live` once a minute, and none
+  while it is hidden. The Worker limits one address to 6 a minute (`LIVE_LIMIT`) and passes the beat to one Durable
+  Object (`PresenceCounter`, migration tag `v2`), which keeps only the arrival times of the last minute's beats, in
+  memory: each tab in view beats once a minute, so they are the count. Nothing is written to storage and nothing about
+  the sender is kept. A pending timer keeps the object awake while a beat is still within the minute (an idle object
+  can be put to sleep after about ten seconds, and its memory with it); with nobody left it may sleep. `GET /api/stats`
+  reads it, with the drivers to date. Set `ONLINE_LIVE` to `"off"` to stop it: no heartbeats are sent, and the title
+  screen shows the drivers to date alone.
 - The weekly challenge and the race times follow from the clock (`src/lib/net/weekly-challenge.ts`,
   `race-schedule.ts`): change the rotation there.

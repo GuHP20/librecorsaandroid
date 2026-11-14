@@ -3,21 +3,23 @@
  * SQLite, through the API as the Worker serves it): a board read a page at a time lists every driver once and in one
  * order; the all-cars board takes each driver's fastest lap in any car, each car on its current physics; a driver finds
  * their place and the places round it; the totals count laps and drivers as the panel and the title screen say them;
- * the answers anyone may share are kept a little while, and the rest never.
+ * the answers anyone may share are kept a little while, and the rest never. The live count (cloudflare/api/presence.ts)
+ * counts each tab in view once from the last minute's heartbeats, and keeps nothing else.
  *
  *   npx tsx scripts/verify-board-stats.ts
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { handleApi, SHARED_ANSWER_S } from '../cloudflare/api/index';
+import { handleApi, onlineConfig, SHARED_ANSWER_S } from '../cloudflare/api/index';
+import { PresenceCounter } from '../cloudflare/api/presence';
 import { ALL_CARS, currentPhysicsByCar, driverNameKey, listLaps, renameDriver, sha256Hex, type BoardDeps } from '../cloudflare/api/board';
 import { circuitTotals, driversToDate } from '../cloudflare/api/stats';
 import { recordUsage } from '../cloudflare/api/usage';
 import { usageLapsOf, MAX_LAPS_PER_MINUTE } from '../src/lib/net/usage-modes';
 import { lapPhysicsVersion, PHYSICS_VERSION } from '../src/lib/sim/lap-types';
 import { VEHICLE_MODEL_IDS, type VehicleModelId } from '../src/types/f1';
-import type { D1Database, Env } from '../cloudflare/api/types';
-import { fakeD1, fakeR2 } from './lib/fake-cloudflare';
+import type { D1Database, DurableObjectNamespace, Env, RateLimit } from '../cloudflare/api/types';
+import { fakeD1, fakeR2, fakeState } from './lib/fake-cloudflare';
 
 const failures: string[] = [];
 const check = (name: string, ok: boolean, detail = '') => {
@@ -264,11 +266,58 @@ async function main(): Promise<void> {
     check('index: a circuit\'s counted laps without reading every day', /usage_daily_track/.test(usage), usage);
   }
 
+  // 9. The live count ---------------------------------------------------------------------------------------------------
+  {
+    let t = NOW;
+    const counter = new PresenceCounter(fakeState(), {} as Env, () => t);
+    // Three tabs out of phase, each beating once a minute; a fourth joins in the sixth minute
+    const beatAt = (ms: number) => {
+      t = ms;
+      counter.beat();
+    };
+    for (let minute = 0; minute < 5; minute++) for (const phase of [0, 17_000, 41_000]) beatAt(NOW + minute * 60_000 + phase);
+    t = NOW + 4 * 60_000 + 50_000;
+    check('live: tabs that beat once a minute count once each', counter.count() === 3, String(counter.count()));
+    for (const phase of [0, 17_000, 30_000, 41_000]) beatAt(NOW + 5 * 60_000 + phase);
+    t = NOW + 5 * 60_000 + 45_000;
+    check('live: a new tab counts from its first beat', counter.count() === 4, String(counter.count()));
+    t = NOW + 7 * 60_000;
+    check('live: tabs that stopped beating leave within the minute', counter.count() === 0, String(counter.count()));
+    const res = await counter.fetch(new Request('https://librecorsa.org/api/live', { method: 'POST' }));
+    const read = (await (await counter.fetch(new Request('https://librecorsa.org/api/live'))).json()) as { live: number };
+    check('live: the object takes a beat and says the count', res.status === 204 && read.live === 1);
+    counter.dispose();
+
+    // Through the API, with the object behind a stand-in namespace
+    const one = new PresenceCounter(fakeState(), {} as Env);
+    const ns: DurableObjectNamespace = { idFromName: (name: string) => ({ toString: () => name }), get: (id) => ({ fetch: (r: Request) => (id.toString() === 'live' ? one.fetch(r) : Promise.resolve(new Response(null, { status: 500 }))) }) };
+    const seen: string[] = [];
+    const limit: RateLimit = { limit: async ({ key }) => (seen.push(key), { success: seen.filter((k) => k === key).length <= 6 }) };
+    const liveEnv = { ...env, ONLINE_LIVE: 'on', PRESENCE: ns, LIVE_LIMIT: limit } as Env;
+    const beat = (ip: string, e: Env = liveEnv) => api('/api/live', e, { method: 'POST', headers: { 'CF-Connecting-IP': ip } });
+    const statuses: number[] = [];
+    for (let i = 0; i < 7; i++) statuses.push((await beat('10.7.7.7')).status);
+    statuses.push((await beat('10.8.8.8')).status);
+    check('api: POST /api/live counts a beat, the seventh in a minute from one address is 429', statuses.join() === '204,204,204,204,204,204,429,204', statuses.join());
+    const stats = await api('/api/stats', liveEnv);
+    const body = (await stats.json()) as { ok: boolean; live: number | null; drivers: number | null };
+    check('api: GET /api/stats says the live count beside the drivers', stats.status === 200 && body.live === 7 && typeof body.drivers === 'number', JSON.stringify(body));
+    check('config: the live count on with its switch and its object', onlineConfig(liveEnv).live && !onlineConfig(env).live && !onlineConfig({ ...liveEnv, ONLINE_LIVE: 'off' }).live);
+    const liveOnly = { ONLINE_LIVE: 'on', PRESENCE: ns } as unknown as Env;
+    const alone = (await (await api('/api/stats', liveOnly)).json()) as { live: number | null; drivers: number | null };
+    check('api: with the boards off, the live count alone', alone.live === 7 && alone.drivers === null);
+    check('api: with the live count off, no heartbeats taken', (await beat('10.9.9.9', env)).status === 404);
+    const broken = { ...liveEnv, PRESENCE: { idFromName: ns.idFromName, get: () => ({ fetch: () => Promise.reject(new Error('down')) }) } } as Env;
+    const down = (await (await api('/api/stats', broken)).json()) as { live: number | null; drivers: number | null };
+    check('api: an object that can\'t be reached says no count, not a made-up one', down.live === null && typeof down.drivers === 'number');
+    one.dispose();
+  }
+
   if (failures.length > 0) {
     console.error(`\n${failures.length} check(s) failed`);
     process.exit(1);
   }
-  console.log('\nAll board page and total checks passed.');
+  console.log('\nAll board page, total and live count checks passed.');
 }
 
 void main();
