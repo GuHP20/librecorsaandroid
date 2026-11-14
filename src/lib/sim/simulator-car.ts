@@ -258,6 +258,13 @@ const START_SURFACES: ReadonlySet<TrackSurfaceKind> = new Set(['road', 'kerb']);
 const START_RUN_STEP_M = 2;
 /** Spacing of the spots `startPose` tries across the road (m) */
 const START_LATERAL_STEP_M = 0.25;
+/**
+ * Furthest `startPose` turns a car off the road's heading (rad) or moves it off its line (m) to keep its tyres on.
+ * A start that needs more is in a corner (VIR Patriot's: 100 m radius at 185 km/h, where only a car turned 24° and
+ * moved 7 m across the road kept them on for a second), and stays on its line along the road
+ */
+const START_MAX_TURN_RAD = (10 * Math.PI) / 180;
+const START_MAX_SHIFT_M = 2;
 
 /** A car's tyres for `startPose`: their outer edges either side of its centre, its axles ahead of and behind it (m) */
 export interface StartFootprint {
@@ -324,9 +331,10 @@ function straightRunOnAsphaltM(
  * as on a straight. Where they would not (a short final straight starts on the last corner's exit: at Sachsenring the
  * road still bends left there and its right edge closes in, and the right-hand tyres were on the run-off 0.3 s after
  * a flying start), it points at its line `runM` ahead (`aimLateral` there), from `lateral` or from the spot nearest it
- * within `lo`..`hi` that keeps them on; failing every one, from the spot and heading that keep them on longest. The
- * circuit's ground (its colliders) decides what is asphalt, not the track data's width. With no `ground` (the track
- * samples' stand-in) the car goes on its line, along the road
+ * within `lo`..`hi` that keeps them on, turned and moved no further than `START_MAX_TURN_RAD` / `START_MAX_SHIFT_M`;
+ * failing every one, it stays on its line along the road. The circuit's ground (its colliders) decides what is
+ * asphalt, not the track data's width. With no `ground` (the track samples' stand-in) the car goes on its line, along
+ * the road
  */
 export function startPose(
   track: StartTrack,
@@ -345,28 +353,22 @@ export function startPose(
   if (!ground || !(runM > 0)) return alongRoad;
   const hit = createGroundHit();
   const run = (pose: StartPose) => straightRunOnAsphaltM(track, ground, hit, s, pose, footprint, runM);
-  let best = alongRoad;
-  let bestRun = run(alongRoad);
-  if (bestRun >= runM) return alongRoad;
+  if (run(alongRoad) >= runM) return alongRoad;
   const [ax, az] = pointAcross(track, s + runM, aimLateral(s + runM));
   // Nearest the line first, and of two as near, the one nearer the centre
   const toCentre = lateral > 0 ? -1 : 1;
-  const steps = Math.ceil(Math.max(hi - lateral, lateral - lo, 0) / START_LATERAL_STEP_M);
-  for (let k = 0; k <= steps; k++) {
+  for (let k = 0; k * START_LATERAL_STEP_M <= START_MAX_SHIFT_M + 1e-9; k++) {
     for (const side of k === 0 ? [0] : [toCentre, -toCentre]) {
       const lat = lateral + side * k * START_LATERAL_STEP_M;
       if (k > 0 && (lat < lo || lat > hi)) continue;
       const [x, z] = pointAcross(track, s, lat);
       const pose: StartPose = { x, z, yawRad: Math.atan2(ax - x, az - z), lateral: lat };
-      const r = run(pose);
-      if (r >= runM) return pose;
-      if (r > bestRun) {
-        best = pose;
-        bestRun = r;
-      }
+      const turn = pose.yawRad - alongRoad.yawRad;
+      if (Math.abs(Math.atan2(Math.sin(turn), Math.cos(turn))) > START_MAX_TURN_RAD) continue;
+      if (run(pose) >= runM) return pose;
     }
   }
-  return best;
+  return alongRoad;
 }
 
 /** Gap between grid slots in a flying start's queue (m); the slots alternate sides */
