@@ -78,6 +78,10 @@ async function fromBucket(request, env, url) {
   // deploy (a new Worker version starts an empty cache); Cloudflare reads this header and strips it
   headers.set("Cache-Control", "public, max-age=0, must-revalidate");
   headers.set("Cloudflare-CDN-Cache-Control", "public, max-age=31536000");
+  // The file's full size for the loading screen's progress (three's FileLoader reads this before Content-Length).
+  // A compression rule sends the GLBs brotli-encoded with no Content-Length, and the bytes the game counts are the
+  // decoded ones, which add up to this
+  headers.set("X-File-Size", String(object.size));
 
   if (request.method === "HEAD") {
     headers.set("Content-Length", String(object.size));
