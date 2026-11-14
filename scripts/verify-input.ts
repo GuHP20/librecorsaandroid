@@ -828,6 +828,43 @@ check('bridge socket: replaced is final until FFB goes off and on; a retry after
   }
 });
 
+check('forces go to the bridge only while force feedback is on, and never while WebHID drives the wheel', () => {
+  const sent: string[] = [];
+  class FakeSocket {
+    static OPEN = 1;
+    readyState = 1;
+    onopen: (() => void) | null = null;
+    onmessage: ((e: { data: unknown }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    constructor(readonly url: string) {}
+    send(m: string) {
+      sent.push(m);
+    }
+    close() {
+      this.readyState = 3;
+    }
+  }
+  const g = globalThis as unknown as { WebSocket?: unknown };
+  const prevWs = g.WebSocket;
+  g.WebSocket = FakeSocket;
+  try {
+    const c = new WheelFfbClient();
+    const forces = () => sent.filter((m) => JSON.parse(m).t === 'f').length;
+    const t = { speedKmh: 0, ffbTorqueNorm: 0 } as never;
+    const telemetry = { ...DEFAULT_WHEEL_SETTINGS, ffbEnabled: false, telemetryOut: true, hidFfb: false };
+    c.update(t, telemetry, [], 1000, false);
+    c.update(t, telemetry, [], 1016, false);
+    assert.equal(forces(), 0, 'a bridge kept for telemetry is sent no force, so it never opens the wheel');
+    c.update(t, { ...telemetry, ffbEnabled: true }, [], 1032, false);
+    assert.equal(forces(), 1, 'force feedback on, through the bridge: it gets the force');
+    c.hidSink = () => {};
+    c.update(t, { ...telemetry, ffbEnabled: true, hidFfb: true }, [], 1048, false);
+    assert.equal(forces(), 1, 'WebHID drives the wheel: nothing for the bridge');
+  } finally {
+    g.WebSocket = prevWs;
+  }
+});
+
 console.log('Install app');
 check('an install is the Home Screen app or an app display mode; fullscreen counts only without a fullscreen element', () => {
   const facts = (modes: string[], extra: { standalone?: boolean; elementFullscreen?: boolean } = {}) => ({

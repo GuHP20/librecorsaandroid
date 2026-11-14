@@ -413,6 +413,9 @@ export class WheelFfbClient {
       return;
     }
     this.hidStopPlayer();
+    // Forces go to the bridge only while force feedback is on: the bridge opens the wheel when they arrive and lets it
+    // go once they stop, so a bridge kept for telemetry, or a wheel WebHID drives, is never held twice
+    if (!wheelSettings.ffbEnabled) return;
     this.send(
       subframes && subframes.length > 0
         ? { t: "f", f: Math.round(force * 1e4) / 1e4, k: kerb, a: abs, s: subframes }
