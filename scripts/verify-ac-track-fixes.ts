@@ -16,7 +16,7 @@ import { createGroundHit, TrackWallQuery } from '../src/lib/sim/f12026-car/Track
 import { trackColliders } from '../src/lib/sim/track-colliders';
 import { createAmgGt3Sim } from '../src/lib/sim/gt3/AmgGt3Sim';
 import { getActiveTrackData, type RawTrackJson, setActiveTrack } from '../src/lib/track-data';
-import { loadGlbGeometry } from './lib/glb-geometry';
+import { loadGlbGeometry, readTrackGltfJson, trackModelFiles } from './lib/glb-geometry';
 import { skipSuiteWithout } from './lib/hosted-files';
 
 skipSuiteWithout('public/tracks/okayama/track_data.json', 'public/tracks/monaco/track_data.json', 'public/tracks/dunsfold/track_data.json', 'public/tracks/istanbul_park/track_data.json', 'public/tracks/grobnik/track_data.json', 'public/tracks/oschersleben/track_data.json', 'public/tracks/barbagallo/track_data.json', 'public/tracks/vir/track_data.json', 'public/tracks/sachsenring/track_data.json', 'public/tracks/sachsenring_short/track_data.json', 'public/tracks/norisring/track_data.json', 'public/tracks/le_mans_82/track_data.json', 'public/tracks/goodwood/track_data.json', 'public/tracks/borgloh/track_data.json');
@@ -31,22 +31,22 @@ function loadTrack(id: string) {
   };
   setActiveTrack(id, raw);
   const track = getActiveTrackData();
-  const glbPath = path.join(dir, `${id}.glb`);
-  const root = loadGlbGeometry(glbPath);
-  return { raw, track, glbPath, root };
+  // What the game loads: a venue's split pair (src/lib/venue-models.ts) when this copy has it, else the circuit's GLB
+  const files = trackModelFiles(track);
+  const root = loadGlbGeometry(files.path, files.shared);
+  return { raw, track, files, root };
 }
 
-function readGlbJson(glbPath: string) {
-  const buf = fs.readFileSync(glbPath);
-  const jsonLen = buf.readUInt32LE(12);
-  return JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf8'));
+/** The circuit's glTF JSON as one document (a split pair merged as the full GLB would have it) */
+function readGlbJson(files: { path: string; shared?: string }) {
+  return readTrackGltfJson(files.path, files.shared) as { nodes: any[]; meshes: any[]; materials: any[] };
 }
 
 async function verifyOkayamaMaterialsAndDecalIsolation() {
   console.log('\n=== 1. Verifying Okayama & AC Track Road Material depthWrite & Decal Isolation ===');
   for (const tid of ['okayama', 'okayama_piper', 'okayama_drift', 'chang', 'spielberg', 'spielberg_south', 'spielberg_inner', 'monaco', 'dunsfold', 'istanbul_park', 'grobnik', 'oschersleben', 'barbagallo', 'vir', 'sachsenring', 'sachsenring_short', 'norisring', 'le_mans_82', 'goodwood', 'borgloh']) {
-    const { raw, glbPath } = loadTrack(tid);
-    const gltf = readGlbJson(glbPath);
+    const { raw, files } = loadTrack(tid);
+    const gltf = readGlbJson(files);
     const roadMats = new Set((raw.metadata?.mesh?.roadMaterials ?? []).map((s) => s.toLowerCase()));
 
     let roadMeshes = 0;

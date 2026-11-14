@@ -10,11 +10,15 @@
  * (scripts/compress-car-glb.mjs, run on a temporary copy so the raw file the car tools edit stays as it is). Circuit
  * GLBs go up as they are: they are committed compressed (`npm run compress-tracks`).
  *
+ * A venue's split model (src/lib/venue-models.ts) is one shared file and one file per layout. Uploading a layout file
+ * brings its shared file along when it is here; each file goes up once however many targets name it, and shared files
+ * go first, so R2 never holds a layout file without its shared file.
+ *
  * Needs `wrangler login` (or CLOUDFLARE_API_TOKEN). Cloudflare keeps these files at the edge until the next deploy,
  * so push to main (or re-run the deploy) after replacing a file the site already served.
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdtempSync, openSync, readSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,10 +36,10 @@ if (!targets.length) {
   process.exit(1);
 }
 
-const files = [];
+const found = new Set();
 const walk = (p) => {
   if (statSync(p).isDirectory()) for (const e of readdirSync(p)) walk(path.join(p, e));
-  else if (!path.basename(p).startsWith(".")) files.push(p);
+  else if (!path.basename(p).startsWith(".")) found.add(p);
 };
 for (const t of targets) {
   const abs = path.resolve(t);
@@ -45,6 +49,33 @@ for (const t of targets) {
   }
   walk(abs);
 }
+
+/** A GLB's JSON chunk (the first chunk, read without loading the whole file) */
+function glbJson(file) {
+  const fd = openSync(file, "r");
+  try {
+    const head = Buffer.alloc(20);
+    readSync(fd, head, 0, 20, 0);
+    const json = Buffer.alloc(head.readUInt32LE(12));
+    readSync(fd, json, 0, json.length, 20);
+    return JSON.parse(json.toString("utf8"));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+// A venue layout file names its shared file (scripts/split-venue-model.mjs): bring it along, once
+const VENUE_LAYOUT = /\.layout\.[0-9a-f]{8}\.glb$/;
+for (const file of [...found]) {
+  if (!VENUE_LAYOUT.test(file)) continue;
+  const venue = glbJson(file).extras?.lcVenueLayout;
+  if (!venue) continue;
+  const shared = path.join(PUBLIC, "tracks", venue.venue, `${venue.venue}.shared.${venue.shared}.glb`);
+  if (existsSync(shared)) found.add(shared);
+  else console.warn(`note: ${path.relative(PUBLIC, file)} needs ${path.relative(PUBLIC, shared)}, which is not in this copy: make sure R2 has it`);
+}
+const isShared = (f) => /\.shared\.[0-9a-f]{8}\.glb$/.test(f);
+const files = [...[...found].filter(isShared), ...[...found].filter((f) => !isShared(f))];
 
 const work = mkdtempSync(path.join(tmpdir(), "lc-upload-"));
 let failed = 0;

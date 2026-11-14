@@ -3,23 +3,32 @@
  * position / index geometry (and the first UV set, which the kerb serration ripple reads) only, plus each primitive's
  * material name in `userData.materialName`. No materials, textures or DOM, so it runs headless. Reads quantized
  * (KHR_mesh_quantization) positions, and meshopt-compressed circuits via a decoded copy in the temp dir.
+ *
+ * A layout of a venue with a shared model (src/lib/venue-models.ts) is two files: `loadTrackGeometry` reads the pair
+ * the way the game does (src/lib/render/venue-model.ts), the shared scenery under the layout's own `Track_Model`.
  */
 import * as THREE from 'three';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { venueModelFiles } from '../../src/lib/venue-models';
 
+type Extensions = Record<string, { material?: number; texture?: number } | undefined>;
 
 interface GltfJson {
   extensionsUsed?: string[];
+  extras?: { lcVenueLayout?: { venue: string; shared: string; order: number[] } };
   scenes: { nodes: number[] }[];
   nodes: { name?: string; mesh?: number; children?: number[]; translation?: number[]; rotation?: number[]; scale?: number[]; matrix?: number[]; extras?: Record<string, unknown> }[];
   meshes: { primitives: { attributes: { POSITION: number; TEXCOORD_0?: number }; indices?: number; material?: number }[] }[];
-  materials?: { name?: string }[];
+  materials?: { name?: string; alphaMode?: string; doubleSided?: boolean; extensions?: Extensions; [key: string]: unknown }[];
   accessors: { bufferView: number; byteOffset?: number; componentType: number; normalized?: boolean; count: number; type: string }[];
   bufferViews: { byteOffset?: number; byteLength: number; byteStride?: number }[];
 }
+
+/** The glTF extension a venue layout file uses to point at the shared file's materials and textures */
+const VENUE_EXTENSION = 'LC_venue_shared';
 
 const parseJson = (buf: Buffer): GltfJson => JSON.parse(buf.subarray(20, 20 + buf.readUInt32LE(12)).toString('utf8')) as GltfJson;
 
@@ -46,7 +55,88 @@ const COMPONENTS: Record<number, { size: number; read: (b: Buffer, o: number) =>
   5126: { size: 4, read: (b, o) => b.readFloatLE(o), norm: 1 },
 };
 
-export function loadGlbGeometry(path: string): THREE.Group {
+/**
+ * A GLB's node graph. With `sharedPath`, `path` is a venue layout file and the shared file's scenery goes under its
+ * `Track_Model`, in the layout's original order (src/lib/render/venue-model.ts does the same in the game).
+ */
+export function loadGlbGeometry(path: string, sharedPath?: string): THREE.Group {
+  const layout = buildGlbGeometry(path);
+  if (sharedPath) {
+    const order = layout.json.extras?.lcVenueLayout?.order;
+    if (!order) throw new Error(`${path}: not a venue layout file`);
+    const shared = buildGlbGeometry(sharedPath);
+    const tm = layout.root.children.find((o) => o.name === 'Track_Model');
+    const sharedTm = shared.root.children.find((o) => o.name === 'Track_Model');
+    if (!tm || !sharedTm) throw new Error(`${path}: Track_Model missing`);
+    const own = [...tm.children];
+    const common = [...sharedTm.children];
+    for (const k of order) {
+      const child = k >= 0 ? common[k] : own[~k];
+      if (!child) throw new Error(`${path}: its order does not fit ${sharedPath}`);
+      tm.add(child);
+    }
+    if (tm.children.length !== own.length + common.length) throw new Error(`${path}: its order leaves children out`);
+    layout.root.updateMatrixWorld(true);
+  }
+  return layout.root;
+}
+
+/** The files the game loads for a circuit: its venue's split pair when this copy has both, else its own GLB */
+export function trackModelFiles(track: { id?: string; meshUrl?: string }): { path: string; shared?: string } {
+  const split = venueModelFiles(track.id);
+  if (split && existsSync(`public${split.layoutUrl}`) && existsSync(`public${split.sharedUrl}`)) {
+    return { path: `public${split.layoutUrl}`, shared: `public${split.sharedUrl}` };
+  }
+  if (!track.meshUrl) throw new Error(`circuit ${track.id ?? '?'} has no mesh url`);
+  return { path: `public${track.meshUrl}` };
+}
+
+/** A circuit's model as the game loads it (`trackModelFiles`); paths are relative to the repository root */
+export function loadTrackGeometry(track: { id?: string; meshUrl?: string }): THREE.Group {
+  const files = trackModelFiles(track);
+  return loadGlbGeometry(files.path, files.shared);
+}
+
+/**
+ * A GLB's JSON (nodes, meshes, materials) for checks that read it directly. For a venue layout file with its shared
+ * file, one document as the full GLB would have it: the shared file's nodes, meshes and materials appended, its
+ * scenery listed under `Track_Model` in the original order, and every material reference resolved to the shared
+ * material's definition. Accessors and textures are not merged.
+ */
+export function readTrackGltfJson(path: string, sharedPath?: string): Pick<GltfJson, 'scenes' | 'nodes' | 'meshes' | 'materials'> {
+  const json = parseJson(readFileSync(path));
+  if (!sharedPath) return json;
+  const shared = parseJson(readFileSync(sharedPath));
+  const order = json.extras?.lcVenueLayout?.order;
+  if (!order) throw new Error(`${path}: not a venue layout file`);
+  const nodeBase = json.nodes.length;
+  const meshBase = json.meshes.length;
+  const ownMaterials = json.materials ?? [];
+  const sharedMaterials = shared.materials ?? [];
+  const materials = [
+    ...ownMaterials.map((m) => {
+      const ref = m.extensions?.[VENUE_EXTENSION]?.material;
+      return ref === undefined ? m : sharedMaterials[ref];
+    }),
+    ...sharedMaterials,
+  ];
+  const meshes = [
+    ...json.meshes,
+    ...shared.meshes.map((m) => ({ ...m, primitives: m.primitives.map((p) => ({ ...p, ...(p.material !== undefined ? { material: p.material + ownMaterials.length } : {}) })) })),
+  ];
+  const nodes = [
+    ...json.nodes.map((n) => ({ ...n })),
+    ...shared.nodes.map((n) => ({ ...n, ...(n.mesh !== undefined ? { mesh: n.mesh + meshBase } : {}), ...(n.children ? { children: n.children.map((c) => c + nodeBase) } : {}) })),
+  ];
+  const tm = json.nodes.findIndex((n) => n.name === 'Track_Model');
+  const sharedTm = shared.scenes[0].nodes[0];
+  const sharedKids = (shared.nodes[sharedTm].children ?? []).map((c) => c + nodeBase);
+  const ownKids = json.nodes[tm].children ?? [];
+  nodes[tm].children = order.map((k) => (k >= 0 ? sharedKids[k] : ownKids[~k]));
+  return { scenes: json.scenes, nodes, meshes, materials };
+}
+
+function buildGlbGeometry(path: string): { root: THREE.Group; json: GltfJson } {
   const buf = readGlb(path);
   const jsonLen = buf.readUInt32LE(12);
   const gltf = parseJson(buf);
@@ -105,5 +195,5 @@ export function loadGlbGeometry(path: string): THREE.Group {
   const root = new THREE.Group();
   for (const ni of gltf.scenes[0].nodes) root.add(build(ni));
   root.updateMatrixWorld(true);
-  return root;
+  return { root, json: gltf };
 }

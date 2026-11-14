@@ -23,14 +23,18 @@ const OVERLAY_LIFT_M = 0.002;
  * colliders across crests and compressions and the wheels sit on what the player sees. Grass is left as modelled.
  */
 export function fitVisualRoad(root: THREE.Object3D, ground: GroundQuery): void {
-  const tm = root.getObjectByName("Track_Model");
-  if (!tm) return;
+  // Every `Track_Model` there is (a venue's split model puts its shared scenery under the layout's own)
+  const models: THREE.Object3D[] = [];
+  root.traverse((o) => {
+    if (o.name === "Track_Model") models.push(o);
+  });
+  if (!models.length) return;
   root.updateMatrixWorld(true);
   const hit = createGroundHit();
   const inv = new THREE.Matrix4();
   const v = new THREE.Vector3();
   const seen = new Set<THREE.BufferGeometry>();
-  tm.traverse((o) => {
+  for (const tm of models) tm.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !o.geometry || seen.has(o.geometry)) return;
     seen.add(o.geometry);
     const pos = o.geometry.getAttribute("position");

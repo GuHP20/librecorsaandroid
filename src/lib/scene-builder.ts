@@ -21,6 +21,8 @@ import { createGroundHit, type GroundQuery } from "@/lib/sim/f12026-car/TrackCol
 import { OVERLAY_LAYER } from "@/lib/render/layers";
 import { cutSceneryBoxes, isCutMaterialMesh, type SceneryCutBox } from "@/lib/scenery-cuts";
 import { freezeStaticTransforms, singlePassTransparency } from "@/lib/render/static-scene";
+import { loadVenueLayout } from "@/lib/render/venue-model";
+import { venueModelFiles, type VenueModelFiles } from "@/lib/venue-models";
 
 /** Height of a racing-line dash over the driving surface: clear of its ripple, low enough to read as paint */
 const DASH_SEAT_LIFT_M = 0.035;
@@ -169,7 +171,9 @@ function loadTrackGlb(
   /** World boxes of the scan to leave out (track data `mesh.cutBoxes`) */
   cutBoxes: readonly SceneryCutBox[] = [],
   /** Scan materials whose meshes are left out (track data `mesh.cutMaterials`) */
-  cutMaterials: readonly string[] = []
+  cutMaterials: readonly string[] = [],
+  /** The layout's split model (venue-models.ts): loaded in place of `url`, which stays the fallback */
+  split?: VenueModelFiles
 ): void {
   const cutMaterialNames = new Set(cutMaterials);
   const roadMaterialNames = new Set(roadMaterials);
@@ -188,15 +192,27 @@ function loadTrackGlb(
   /** Each source material's decal clones, by polygon offset and decal flag: meshes that share a material share them */
   const decalClones = new WeakMap<THREE.Material, Map<string, THREE.Material>>();
   assetProgress.begin("track");
+  // A superseded download keeps running: its bytes must not move the newer load's progress bar
+  const onProgress = (event: { loaded: number; total: number; lengthComputable?: boolean }) => {
+    if (current()) assetProgress.progress("track", event);
+  };
   // Circuit scans are meshopt-compressed (scripts/compress-track-glb.mjs)
-  new GLTFLoader()
-    .setMeshoptDecoder(MeshoptDecoder)
-    // A superseded download keeps running: its bytes must not move the newer load's progress bar
-    .loadAsync(withBasePath(url), (event) => {
-      if (current()) assetProgress.progress("track", event);
-    })
-    .then((gltf) => {
-      const root = gltf.scene;
+  const ownUrl = url;
+  const loadOwnGlb = () =>
+    new GLTFLoader()
+      .setMeshoptDecoder(MeshoptDecoder)
+      .loadAsync(withBasePath(ownUrl), onProgress)
+      .then((gltf) => gltf.scene);
+  // A layout of a venue with a shared model loads that pair (the same scene); its own GLB if the pair can't load
+  const loaded = split
+    ? loadVenueLayout(withBasePath(split.layoutUrl), withBasePath(split.sharedUrl), onProgress).catch((err) => {
+        if (!current()) throw new SupersededLoad();
+        console.warn(`Venue model ${split.venue} ${split.build} not available, loading ${url}:`, err);
+        return loadOwnGlb();
+      })
+    : loadOwnGlb();
+  loaded
+    .then((root) => {
       root.name = "CircuitTrack";
       const box = new THREE.Box3();
       const size = new THREE.Vector3();
@@ -1108,7 +1124,8 @@ export function buildCircuitScene(
     track.sceneryUrls ?? [],
     track.roadMaterials ?? [],
     track.sceneryCuts ?? [],
-    track.sceneryCutMaterials ?? []
+    track.sceneryCutMaterials ?? [],
+    venueModelFiles(track.id)
   );
 
   // The procedural stand-in is placed once
