@@ -10,6 +10,12 @@
  * names, so the old files can stay on R2 for an older deploy. The full GLBs and track_data.json don't change, so code
  * that predates this keeps loading them. Upload a build's files before deploying code that names it. When the pair
  * can't load (a local copy without them), the game loads the layout's own GLB instead.
+ *
+ * This list is the pointer: which hosted files the game loads for these layouts is decided here, in code, and never
+ * in track_data.json on R2 (`metadata.mesh.url` stays the full GLB, the fallback and what an older deploy loads).
+ * scene-builder.ts reads it through `venueModelFiles(track.id)`; scripts read it through glb-geometry.ts
+ * (`trackModelFiles`). A re-split (other inputs, other texture formats) is a new build: run the splitter, upload its
+ * files, then change `build` here.
  */
 
 export interface VenueModel {
