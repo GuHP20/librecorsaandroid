@@ -1353,24 +1353,41 @@ export class VehiclePhysics {
     };
     this.wheels = [mkWheel(0), mkWheel(1), mkWheel(2), mkWheel(3)];
 
-    // Barrier probes: nose, front wheels, sidepods, rear wheels, tail (body frame, x left, z forward)
+    // Barrier probes (body frame, x left, z forward): the body's measured plan and the tyres' corners round it; without
+    // a plan, nose, front wheels, sidepods, rear wheels, tail
     const geo = this.tyres[0].data;
     const halfF = tf + 0.5 * geo.front.width;
     const halfR = tr + 0.5 * geo.rear.width;
-    const wingZ = cfg.aero.wings.map((wg) => wg.positionZ);
-    const noseZ = Math.max(a, ...wingZ) + 0.3;
-    const tailZ = Math.min(-b, ...wingZ) - 0.3;
     const py = cfg.aero.floorOffsetY + 0.2;
     this.wallProbePoints = [];
-    for (const side of [1, -1]) {
-      for (const [x, z] of [
-        [halfF, noseZ],
-        [halfF, a],
-        [0.85, 0],
-        [halfR, -b],
-        [0.5, tailZ],
-      ] as const) {
-        this.wallProbePoints.push(new THREE.Vector3(side * x, py, z));
+    const plan = ch.bodyPlan;
+    if (plan?.length) {
+      // The plan's z is from the axles' midpoint, which is 0.5 (a - b) ahead of the CG
+      const mid = 0.5 * (a - b);
+      const pts: { x: number; z: number }[] = [];
+      for (const [x, z] of plan) {
+        pts.push({ x, z: z + mid });
+        if (x > 0) pts.push({ x: -x, z: z + mid });
+      }
+      for (const side of [1, -1]) {
+        pts.push({ x: side * halfF, z: a + geo.front.radius }, { x: side * halfF, z: a - geo.front.radius });
+        pts.push({ x: side * halfR, z: -b + geo.rear.radius }, { x: side * halfR, z: -b - geo.rear.radius });
+      }
+      for (const i of convexHullIndices(pts)) this.wallProbePoints.push(new THREE.Vector3(pts[i].x, py, pts[i].z));
+    } else {
+      const wingZ = cfg.aero.wings.map((wg) => wg.positionZ);
+      const noseZ = Math.max(a, ...wingZ) + 0.3;
+      const tailZ = Math.min(-b, ...wingZ) - 0.3;
+      for (const side of [1, -1]) {
+        for (const [x, z] of [
+          [halfF, noseZ],
+          [halfF, a],
+          [0.85, 0],
+          [halfR, -b],
+          [0.5, tailZ],
+        ] as const) {
+          this.wallProbePoints.push(new THREE.Vector3(side * x, py, z));
+        }
       }
     }
     this.wallOutlineRadius = Math.max(...this.wallProbePoints.map((p) => Math.hypot(p.x, p.z)));

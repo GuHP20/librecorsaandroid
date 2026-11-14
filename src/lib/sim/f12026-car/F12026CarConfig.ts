@@ -96,6 +96,13 @@ export interface ChassisData {
   steerComplianceDegPerKN?: number;
   /** Hydraulic power steering; none = an unassisted rack */
   powerSteering?: PowerSteeringData;
+  /**
+   * The body's plan for barrier contact: points round its right half, [half width, z from the axles' midpoint] (m, z
+   * forward), mirrored to the left. Measured from the car's model where its rig fits it on this chassis (axle midpoint on
+   * the physics'), the body from 8 cm to 0.8 m off its floor; the tyres are added to it. Absent: an outline built from
+   * the axles, tyres and wings (an open-wheel car's)
+   */
+  bodyPlan?: readonly (readonly [number, number])[];
 }
 
 /**
