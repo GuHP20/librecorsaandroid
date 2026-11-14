@@ -35,7 +35,7 @@ import {
 } from "@/lib/net/leaderboard";
 import { exportDriverKeyFile, importDriverKeyFile } from "@/lib/net/driver-key";
 import { challengeAt, fitsChallenge } from "@/lib/net/weekly-challenge";
-import { useUsageCounter } from "@/lib/net/use-usage-counter"; // polish:E
+import { countUsageLap, useUsageCounter } from "@/lib/net/use-usage-counter"; // polish:E
 import { timeTrialRules } from "@/lib/sim/time-trial";
 import { challengeTarget, type ChallengeTarget } from "@/lib/net/challenge-target";
 import { isTouchDevice, resetTouchInput } from "@/lib/input/touch-input";
@@ -736,6 +736,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
         setSubmitRank(null);
         setSubmitError(null);
       }
+      // Every lap the player drove counts towards the circuit's laps driven, a cut one too
+      if (!summary.autopilot) countUsageLap();
       if (!summary.valid || summary.autopilot) return;
       // A ghost chosen (or another car's best requested) while this saves wins over it
       const ghostReq = ghostReqRef.current;

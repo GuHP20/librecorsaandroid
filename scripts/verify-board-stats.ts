@@ -12,6 +12,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { handleApi, onlineConfig, SHARED_ANSWER_S } from '../cloudflare/api/index';
 import { PresenceCounter } from '../cloudflare/api/presence';
+import { formatCount, parseBoardPage } from '../src/lib/net/board-client';
+import { HEARTBEAT_MS, nextHeartbeatInMs } from '../src/lib/net/live-heartbeat';
 import { ALL_CARS, currentPhysicsByCar, driverNameKey, listLaps, renameDriver, sha256Hex, type BoardDeps } from '../cloudflare/api/board';
 import { circuitTotals, driversToDate } from '../cloudflare/api/stats';
 import { recordUsage } from '../cloudflare/api/usage';
@@ -311,6 +313,33 @@ async function main(): Promise<void> {
     const down = (await (await api('/api/stats', broken)).json()) as { live: number | null; drivers: number | null };
     check('api: an object that can\'t be reached says no count, not a made-up one', down.live === null && typeof down.drivers === 'number');
     one.dispose();
+  }
+
+  // 10. The game's side: reading the answers, and when a tab beats -----------------------------------------------------
+  {
+    const raw = (await listLaps(deps, new URL(`https://librecorsa.org/api/laps?track=${TRACK}&vehicle=all&limit=20&offset=20&name=Driver%2030&near=2`))).body;
+    const page = parseBoardPage(raw, TRACK, ALL_CARS, 0, {}, 20);
+    check('client: an all-cars page reads every car\'s rows, its offset and the driver\'s place', page !== null && page.entries.length === 20 && page.offset === 20 && page.total === 58 && page.me?.pos !== undefined && page.near?.entries.length === 5, `${page?.entries.length} rows, offset ${page?.offset}`);
+    check('client: the rows carry their cars', new Set(page?.entries.map((e) => e.vehicle)).size >= 1 && page!.entries.every((e) => e.source === 'remote'));
+    // A browser on the LC26's older engine works out another revision for it: the server's list decides
+    const g = globalThis as { window?: unknown; localStorage?: unknown };
+    g.window = { location: { search: '' } };
+    g.localStorage = { getItem: (k: string) => (k === 'librecorsa.lc26Engine' ? 'classic' : null), setItem: () => {} };
+    const classic = parseBoardPage(raw, TRACK, ALL_CARS, 0, {}, 20);
+    const ownRevision = lapPhysicsVersion('lc26');
+    delete g.window;
+    delete g.localStorage;
+    check('client: a browser on the LC26\'s older engine still reads the all-cars board', ownRevision !== LC26 && classic?.entries.length === 20, `own p${ownRevision}, ${classic?.entries.length} rows`);
+    const forged = parseBoardPage({ ...(raw as object), current: { ...(raw as { current: object }).current, lc26: 1 } }, TRACK, ALL_CARS, 0, {}, 20);
+    check('client: rows on a revision the answer does not name are dropped', (forged?.entries.length ?? 0) < 20);
+    const one = parseBoardPage((await listLaps(deps, new URL(`https://librecorsa.org/api/laps?track=${TRACK}&vehicle=lc26&physics=${LC26}`))).body, TRACK, 'amg-gt3', lapPhysicsVersion('amg-gt3'), {}, 20);
+    check('client: one car\'s rows never show on another car\'s board', one !== null && one.entries.length === 0);
+    check('client: junk is no page', parseBoardPage({ laps: 'x' }, TRACK, ALL_CARS, 0, {}) === null && parseBoardPage(null, TRACK, 'lc26', LC26, {}) === null);
+    check(
+      'heartbeat: at once when shown, then a minute after the last, none while hidden',
+      nextHeartbeatInMs(true, 1_000_000, Number.NEGATIVE_INFINITY) === 0 && nextHeartbeatInMs(true, 1_000_000, 1_000_000 - 20_000) === HEARTBEAT_MS - 20_000 && nextHeartbeatInMs(false, 1_000_000, 0) === null,
+    );
+    check('count: thousands grouped as the panels say them', formatCount(1204) === '1,204' && formatCount(0) === '0');
   }
 
   if (failures.length > 0) {
