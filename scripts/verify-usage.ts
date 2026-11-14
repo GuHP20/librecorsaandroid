@@ -179,7 +179,7 @@ async function main() {
     const env = { ONLINE_USAGE: 'on', BOARD_DB: db, ADMIN_KEY: KEY } as unknown as Env;
     const stats = (e: Env, key?: string, query = '') => {
       const url = new URL(`https://librecorsa.org/api/admin/stats${query}`);
-      return handleApi(new Request(url, { headers: key === undefined ? {} : { 'X-Admin-Key': key } }), e, url);
+      return handleApi(new Request(url, { headers: key === undefined ? {} : { Authorization: `Bearer ${key}` } }), e, url);
     };
     const notFound = await (await handleApi(new Request('https://librecorsa.org/api/nothing'), env, new URL('https://librecorsa.org/api/nothing'))).text();
     const hidden = async (what: string, res: Promise<Response>) => {
@@ -192,6 +192,9 @@ async function main() {
     await hidden('no secret set', stats({ ...env, ADMIN_KEY: undefined }, KEY));
     await hidden('an empty secret and an empty key', stats({ ...env, ADMIN_KEY: '' }, ''));
     await hidden('the key in the URL instead of the header', stats(env, undefined, `?key=${KEY}`));
+    const url = new URL('https://librecorsa.org/api/admin/stats');
+    await hidden('the key in the old X-Admin-Key header', handleApi(new Request(url, { headers: { 'X-Admin-Key': KEY } }), env, url));
+    await hidden('the key without "Bearer"', handleApi(new Request(url, { headers: { Authorization: KEY } }), env, url));
     check('admin: equal keys match, others do not', (await adminKeyMatches(KEY, KEY)) && !(await adminKeyMatches(`${KEY} `, KEY)) && !(await adminKeyMatches(null, KEY)));
     check('admin: days 1 to 90, else 30', statsDays('7') === 7 && statsDays('90') === 90 && statsDays('91') === 30 && statsDays('0') === 30 && statsDays('2.5') === 30 && statsDays(null) === 30);
 
@@ -201,7 +204,8 @@ async function main() {
       { ...env, DEV_ORIGINS: 'http://127.0.0.1:3315' } as Env,
       new URL('https://librecorsa.org/api/admin/stats'),
     );
-    check('admin: the preflight allows the X-Admin-Key header', preflight.status === 204 && /X-Admin-Key/.test(preflight.headers.get('Access-Control-Allow-Headers') ?? ''));
+    const allowed = preflight.headers.get('Access-Control-Allow-Headers') ?? '';
+    check('admin: the preflight allows the Authorization header and names no admin key', preflight.status === 204 && /Authorization/.test(allowed) && !/admin/i.test(allowed), allowed);
 
     // Some board rows to count
     // 'a' claimed long ago and seen in the range (returning), 'b' long ago and not seen, 'c' new in the range
@@ -366,7 +370,7 @@ async function main() {
     try {
       const route = (e: Env, key?: string) => {
         const url = new URL('https://librecorsa.org/api/admin/cloudflare');
-        return handleApi(new Request(url, { headers: key === undefined ? {} : { 'X-Admin-Key': key } }), e, url);
+        return handleApi(new Request(url, { headers: key === undefined ? {} : { Authorization: `Bearer ${key}` } }), e, url);
       };
       const notFound = await (await handleApi(new Request('https://librecorsa.org/api/nothing'), env, new URL('https://librecorsa.org/api/nothing'))).text();
       for (const [what, res] of [['no key', route(env)], ['a wrong key', route(env, 'nope')], ['no token set', route({ ...env, CF_ANALYTICS_TOKEN: undefined } as Env, KEY)]] as const) {

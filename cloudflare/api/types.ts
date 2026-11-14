@@ -106,6 +106,8 @@ export interface Env {
   LIVE_LIMIT?: RateLimit;
   /** Key of the private admin numbers (admin.ts), a secret; without it the route does not answer */
   ADMIN_KEY?: string;
+  /** How often one address may call an admin route or a path the API doesn't serve (both answer alike) */
+  ADMIN_LIMIT?: RateLimit;
   /** Cloudflare's own numbers on the admin page (analytics.ts): a read-only analytics token (a secret), the account,
    * and optionally the boards' database and the site's zone */
   CF_ANALYTICS_TOKEN?: string;
