@@ -11,6 +11,7 @@
  * 4. The game's colliders (trackColliders) from both: byte-identical buffers, identical ground and wall queries.
  * 5. The visual road fit (fitVisualRoad) and scene-builder's shadow rule for Track_Model meshes: the same fitted
  *    vertices and the same casters.
+ * 6. The TV director's occlusion pass (camera-rig.ts): the same stations moved to the same dollies.
  * A control run swaps two of a layout's children and must be caught by 2.
  *
  * Layouts whose files this copy doesn't have (hosted on librecorsa.org only) are skipped.
@@ -29,7 +30,8 @@ import { createGroundHit } from '../src/lib/sim/f12026-car/TrackColliderQuery';
 import { trackColliders } from '../src/lib/sim/track-colliders';
 import { getActiveTrackData, setActiveTrack, type RawTrackJson } from '../src/lib/track-data';
 import { VENUE_MODELS, venueModelFiles } from '../src/lib/venue-models';
-import { loadGlbGeometry } from './lib/glb-geometry';
+import { TracksideBroadcastDirector } from '../src/lib/render/camera-rig';
+import { loadGlbGeometry, readTrackGltfJson } from './lib/glb-geometry';
 import { noteSkip } from './lib/hosted-files';
 
 const only = new Set(process.argv.slice(2));
@@ -273,6 +275,29 @@ async function verifyLayout(id: string, build: string) {
   const ca = shadowCasters(rootA);
   const cb = shadowCasters(rootB);
   check('shadow rule: same casters', firstDifference(ca, cb) === '', `${ca.filter((c) => c.endsWith('true')).length} of ${ca.length} Track_Model meshes cast`);
+
+  // 6. The TV director's occlusion pass (camera-rig.ts) on both, physics hidden as scene-builder hides it
+  const tvA = tvStations(track, rootA, readTrackGltfJson(fullPath));
+  const tvB = tvStations(track, rootB, readTrackGltfJson(layoutPath, sharedPath));
+  check('TV director: same stations moved, same dollies', tvA.moved === tvB.moved && firstDifference(tvA.points, tvB.points) === '', `${tvA.moved} moved, ${tvA.points.length} dollies`);
+}
+
+/** The TV director's dollies after its occlusion pass, with each mesh's side from its glTF material */
+function tvStations(track: ReturnType<typeof getActiveTrackData>, root: THREE.Object3D, json: ReturnType<typeof readTrackGltfJson>) {
+  const doubleSided = new Map((json.materials ?? []).map((m) => [m.name ?? '', Boolean(m.doubleSided)]));
+  root.traverse((o) => {
+    let hidden = false;
+    for (let p: THREE.Object3D | null = o; p && p !== root; p = p.parent) if (p.userData?.collider || p.userData?.hidden) hidden = true;
+    if (hidden) o.visible = false;
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) mesh.material = new THREE.MeshBasicMaterial({ side: doubleSided.get(mesh.userData.materialName) ? THREE.DoubleSide : THREE.FrontSide });
+  });
+  root.updateMatrixWorld(true);
+  const director = new TracksideBroadcastDirector(track);
+  let moved = 0;
+  for (const m of director.occlusionSteps(root)) moved = m;
+  const curves = (director as unknown as { curves: THREE.CatmullRomCurve3[] }).curves;
+  return { moved, points: curves.map((c) => c.points.map((p) => p.toArray().join(',')).join(';')) };
 }
 
 async function main() {
