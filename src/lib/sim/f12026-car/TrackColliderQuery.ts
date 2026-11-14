@@ -1685,6 +1685,8 @@ export function wallCornerContact(
   out: WallHit
 ): number {
   const seg = walls.segments;
+  // The face normals are left unnormalized (|n| = the face's length): every test below is a sign or a ratio, so only the
+  // face picked needs a square root
   let firstEntry = Infinity;
   let entryDepth = 0;
   let entryNx = 0;
@@ -1703,11 +1705,11 @@ export function wallCornerContact(
     const dz = seg[o + 3] - az;
     const len2 = dx * dx + dz * dz;
     if (len2 < 1e-6) continue;
-    const inv = 1 / Math.sqrt(len2);
-    let nx = -dz * inv;
-    let nz = dx * inv;
+    let nx = -dz;
+    let nz = dx;
     let sc = (cgX - ax) * nx + (cgZ - az) * nz;
-    if (Math.abs(sc) < 1e-4) continue;
+    // The centre within 0.1 mm of the face's line: no side to take
+    if (sc * sc < 1e-8 * len2) continue;
     if (sc < 0) {
       nx = -nx;
       nz = -nz;
@@ -1722,10 +1724,11 @@ export function wallCornerContact(
       const t = ((fromX + (px - fromX) * g - ax) * dx + (fromZ + (pz - fromZ) * g - az) * dz) / len2;
       if (t >= 0 && t <= 1) {
         if (g < firstEntry) {
+          const inv = 1 / Math.sqrt(len2);
           firstEntry = g;
-          entryDepth = -sp;
-          entryNx = nx;
-          entryNz = nz;
+          entryDepth = -sp * inv;
+          entryNx = nx * inv;
+          entryNz = nz * inv;
         }
         continue;
       }
@@ -1734,12 +1737,13 @@ export function wallCornerContact(
     const f = sc / (sc - sp);
     const t = ((cgX + (px - cgX) * f - ax) * dx + (cgZ + (pz - cgZ) * f - az) * dz) / len2;
     if (t < 0 || t > 1 || f >= firstOnRay) continue;
+    const inv = 1 / Math.sqrt(len2);
     firstOnRay = f;
     const tq = ((px - ax) * dx + (pz - az) * dz) / len2;
     rayBehind = tq >= 0 && tq <= 1;
-    rayDepth = -sp;
-    rayNx = nx;
-    rayNz = nz;
+    rayDepth = -sp * inv;
+    rayNx = nx * inv;
+    rayNz = nz * inv;
   }
   if (firstEntry !== Infinity) {
     out.depth = entryDepth;
