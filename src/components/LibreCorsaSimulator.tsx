@@ -58,7 +58,8 @@ import { autoConfigureWheel, connectedPads } from "@/lib/input/device-input";
 import { dualSenseHid } from "@/lib/input/webhid-dualsense";
 import { webHidFfb, wheelFfb } from "@/lib/input/wheel-ffb";
 import { nameProblem } from "@/lib/net/name-filter";
-import { clampFov, codeFromName, DEFAULT_PLAYER_SETTINGS, loadCarChoice, loadOnboarded, loadPlayerSettings, loadRumble, pushLibraryRecent, saveCarChoice, saveOnboarded, toggleLibraryFavorite, type LibraryKind, sanitizeDriverName, savePlayerSettings, saveRumble, type PlayerSettings } from "@/lib/settings/player-settings";
+import { clampFov, codeFromName, DEFAULT_PLAYER_SETTINGS, loadCarChoice, loadOnboarded, loadPlayerSettings, loadRumble, pushLibraryRecent, saveCarChoice, saveOnboarded, toggleLibraryFavorite, type LibraryKind, sanitizeDriverName, savePlayerSettings, saveRumble, type BoardWidgetMode, type PlayerSettings } from "@/lib/settings/player-settings";
+import { signalBoardLap } from "@/components/hud/BoardWidget";
 import type { AeroSetupPreset, AssistPreset, CameraMode, LiveTunerPatch, LiveryConfig, TireCompound, TyreSetup, VehicleModelId } from "@/types/f1";
 import { aiFieldOf, autoCompoundFor, DEFAULT_AERO_PRESET, DriveSession, idleDriveSnapshot, mpRaceOf, type AppPhase, type SessionRace } from "@/lib/drive-session";
 import { startAiRace, type RaceSetup } from "@/lib/sim/race-setup";
@@ -735,6 +736,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       // Every lap the player drove counts towards the circuit's laps driven, a cut one too
       if (!summary.autopilot) countUsageLap();
       if (!summary.valid || summary.autopilot) return;
+      // The lap board opens at a lap's end (its setting allowing) and shows the new place once the upload answers
+      signalBoardLap({ kind: "lap" });
       // A ghost chosen (or another car's best requested) while this saves wins over it
       const ghostReq = ghostReqRef.current;
       // The upload this lap's card may show the result of (a later card, or a manual upload, takes over)
@@ -777,6 +780,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           uploadingRef.current = upload;
           return upload.then((res) => {
             if (res.ok) setBoardVersion((v) => v + 1);
+            if (res.ok && res.rank !== undefined) signalBoardLap({ kind: "result", rank: res.rank, total: res.total ?? null });
             if (res.taken) refusedNameRef.current = { name: profile.name, error: res.error ?? "This name is taken" };
             if (!shown()) return;
             // The board holding a faster lap of this driver's (from another device) is no failure: nothing to show
@@ -811,6 +815,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     uploadingRef.current = upload;
     const res = await upload;
     if (res.ok) setBoardVersion((v) => v + 1);
+    if (res.ok && res.rank !== undefined) signalBoardLap({ kind: "result", rank: res.rank, total: res.total ?? null });
     if (res.taken) refusedNameRef.current = { name: as.name, error: res.error ?? "This name is taken" };
     // The card was closed or replaced by another lap meanwhile: this answer is not about the one shown
     if (req !== submitReqRef.current) return;
@@ -1356,8 +1361,14 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       restart: first(k.restart),
       shiftUp: first(k.shiftUp),
       shiftDown: first(k.shiftDown),
+      board: first(k.board),
     };
   }, [settings.keys]);
+  /** The lap board's gear sets when it opens: the same HUD setting as in Settings */
+  const handleChangeBoardWidget = useCallback(
+    (mode: BoardWidgetMode) => handleChangeSettings((prev) => ({ ...prev, hud: { ...prev.hud, boardWidget: mode } })),
+    [handleChangeSettings]
+  );
 
   // With the touch pads up and no wheel or controller picked, the pads are what the player drives with
   const launchHintText =
@@ -1460,6 +1471,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     onAcceptManualAnswer: handleAcceptManualAnswer,
     onTogglePause: togglePause,
     keyNames,
+    // The lap board while driving, with an online board only
+    onChangeBoardWidget: boardOn ? handleChangeBoardWidget : undefined,
     lobby: roomLobby,
     localPeerId,
     isHost: isMpHost,

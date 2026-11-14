@@ -62,7 +62,8 @@ import { TelemetryHud } from "./hud/styles/TelemetryHud";
 import { PhoneHud, usePhoneLayout } from "./hud/styles/PhoneHud";
 import { useUiZoom } from "@/lib/ui-zoom";
 import { buildHudMap, revRangeOf, useLapInvalid, type HudDesignProps } from "./hud/styles/hud-style-parts";
-import type { HudPreset } from "@/lib/settings/player-settings";
+import type { BoardWidgetMode, HudPreset } from "@/lib/settings/player-settings";
+import { BoardWidget } from "./hud/BoardWidget";
 import { PodiumOverlay } from "./hud/PodiumOverlay";
 import type { NextRaceProps } from "./hud/RaceResults";
 import type { PodiumUi } from "@/lib/render/podium-shot";
@@ -152,7 +153,9 @@ interface F1TelemetryHudProps extends MultiplayerPanelProps {
   /** Weather, time of day and the track's grip, for the pause menu's Conditions tab */
   conditionsPanel?: ConditionsPanelProps;
   onExitToTitle?: () => void;
-  keyNames?: Partial<Record<"camera" | "racingLine" | "mute" | "mouseSteer" | "autopilot" | "restart" | "shiftUp" | "shiftDown", string>>;
+  keyNames?: Partial<Record<"camera" | "racingLine" | "mute" | "mouseSteer" | "autopilot" | "restart" | "shiftUp" | "shiftDown" | "board", string>>;
+  /** The lap board's gear: when it opens (the HUD setting), changed from the board itself; without it, no lap board */
+  onChangeBoardWidget?: (mode: BoardWidgetMode) => void;
   /** HUD layout preset, size and optional widgets */
   hud?: HudSettings;
   /** The sim draws the virtual rear-view mirror at the top centre: the notifications there move under it */
@@ -313,8 +316,34 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
       </>
     ) : null;
   const weatherNode = props.weather && !phone && !minimal && !lightsPhase ? <WeatherBadge weather={props.weather} variant="panel" /> : null;
-  // polish:A — the time trial's target sits where a race's split gaps would
-  const leftNode = gapsNode ?? (props.challengeTarget && !race && !phone ? <ChallengeTargetPanel target={props.challengeTarget} /> : null);
+  const trackInfo = getTrackInfo(ACTIVE_TRACK_ID);
+  // The lap board: large screens only (never with the touch pads or the phone layout), outside races, where the race's
+  // own tower and split gaps sit. A leaf with plain props, so this frame's render passes it by
+  const boardKeyName = props.keyNames?.board;
+  const boardNode =
+    props.onChangeBoardWidget && !phone && !race ? (
+      <div className="compact:hidden">
+        <BoardWidget
+          trackId={ACTIVE_TRACK_ID}
+          trackName={trackInfo.name}
+          vehicle={props.vehicleModel}
+          driverName={props.displayPanel?.settings.profile.name ?? ""}
+          mode={hud?.boardWidget ?? "lapEnd"}
+          onChangeMode={props.onChangeBoardWidget}
+          keyName={boardKeyName && boardKeyName !== "—" ? boardKeyName : undefined}
+        />
+      </div>
+    ) : null;
+  // polish:A — the time trial's target sits where a race's split gaps would, the lap board under it
+  const targetNode = props.challengeTarget && !race && !phone ? <ChallengeTargetPanel target={props.challengeTarget} /> : null;
+  const leftNode =
+    gapsNode ??
+    (targetNode || boardNode ? (
+      <>
+        {targetNode}
+        {boardNode}
+      </>
+    ) : null);
 
   const showTyres = classic;
   const showMap = classic;
@@ -324,7 +353,6 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   const showTrace = !phone && preset !== "telemetry" && hud?.inputTrace === true;
   const showFfb = Boolean(props.ffbMeter) && classic;
   const scale = (hud?.scale ?? 1) * uiZoom;
-  const trackInfo = getTrackInfo(ACTIVE_TRACK_ID);
   // Touch screens have no Esc key: a Menu button opens the pause menu
   const menuButton = (
     <span className="pointer-events-auto hidden pointer-coarse:block">
@@ -503,7 +531,8 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
       ) : null}
 
       {/* Bottom-left: 4-corner tyre matrix, LibreCorsa badge, and key hints */}
-      <div className="absolute bottom-3 left-3 flex flex-col items-start gap-2 sm:bottom-4 sm:left-4" style={corner("bottom left")}>
+      {/* data-hud-floor: the lap board above this corner keeps clear of it */}
+      <div data-hud-floor className="absolute bottom-3 left-3 flex flex-col items-start gap-2 sm:bottom-4 sm:left-4" style={corner("bottom left")}>
         {showFfb && props.ffbMeter ? <FfbMeter {...props.ffbMeter} /> : null}
         {/* Classic's centred speed cluster spans a phone's width, so the tyre matrix waits for tablet width */}
         {showTyres ? (
@@ -526,6 +555,8 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
             [props.keyNames?.camera ?? "C", "Camera"],
             [props.keyNames?.racingLine ?? "R", "Line"],
             [props.keyNames?.restart ?? "Bksp", "Restart"],
+            // The lap board's key, while there is one on screen
+            ...(boardNode && boardKeyName && boardKeyName !== "—" ? [[boardKeyName, "Board"]] : []),
           ]).map(([k, label]) => (
             <span key={k} className="inline-flex items-center gap-1.5">
               <KeyCap>{k}</KeyCap>

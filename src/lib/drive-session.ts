@@ -1286,6 +1286,7 @@ export class DriveSession {
         case "mfd":
         case "mfdPage":
         case "hud":
+        case "board":
           window.dispatchEvent(new Event(HUD_TOGGLE_EVENT[action]));
           break;
       }

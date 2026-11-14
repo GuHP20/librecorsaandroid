@@ -14,6 +14,7 @@ import { handleApi, onlineConfig, SHARED_ANSWER_S } from '../cloudflare/api/inde
 import { PresenceCounter } from '../cloudflare/api/presence';
 import { formatCount, parseBoardPage } from '../src/lib/net/board-client';
 import { HEARTBEAT_MS, nextHeartbeatInMs } from '../src/lib/net/live-heartbeat';
+import { towerLines } from '../src/components/hud/BoardWidget';
 import { ALL_CARS, currentPhysicsByCar, driverNameKey, listLaps, renameDriver, sha256Hex, type BoardDeps } from '../cloudflare/api/board';
 import { circuitTotals, driversToDate } from '../cloudflare/api/stats';
 import { recordUsage } from '../cloudflare/api/usage';
@@ -340,6 +341,18 @@ async function main(): Promise<void> {
       nextHeartbeatInMs(true, 1_000_000, Number.NEGATIVE_INFINITY) === 0 && nextHeartbeatInMs(true, 1_000_000, 1_000_000 - 20_000) === HEARTBEAT_MS - 20_000 && nextHeartbeatInMs(false, 1_000_000, 0) === null,
     );
     check('count: thousands grouped as the panels say them', formatCount(1204) === '1,204' && formatCount(0) === '0');
+
+    // The HUD's lap board: the top three, a gap, two either side of the player's; less where the screen has no room
+    const tower = async (who: string, room?: number) => {
+      const body = (await listLaps(deps, new URL(`https://librecorsa.org/api/laps?track=${TRACK}&vehicle=lc26&physics=${LC26}&limit=7&near=2&name=${encodeURIComponent(who)}`))).body;
+      const p = parseBoardPage(body, TRACK, 'lc26', LC26, {}, 7)!;
+      return towerLines(p, who.toLowerCase(), room).map((l) => ('gap' in l ? '...' : `${l.pos}${l.mine ? '*' : ''}`)).join(' ');
+    };
+    check('tower: top three, a gap, the two places either side', (await tower('Driver 30')) === '1 2 3 ... 29 30 31* 32 33', await tower('Driver 30'));
+    check('tower: in the top five, a plain top', (await tower('Driver 03')) === '1 2 3 4* 5 6' && (await tower('Driver 05')) === '1* 2 3 4 5', await tower('Driver 03'));
+    check('tower: short of room, the player and the places next to them first', (await tower('Driver 30', 3)) === '30 31* 32' && (await tower('Driver 30', 5)) === '1 ... 30 31* 32', `${await tower('Driver 30', 3)} | ${await tower('Driver 30', 5)}`);
+    check('tower: no room at all still shows the player', (await tower('Driver 30', 0)) === '31*');
+    check('tower: no lap yet, the top five', (await tower('Nobody')) === '1 2 3 4 5');
   }
 
   if (failures.length > 0) {

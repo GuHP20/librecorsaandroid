@@ -143,7 +143,7 @@ export const TelemetryHud: React.FC<HudDesignProps> = ({ t, deltaS, map, compoun
       </div>
     </div>
 
-    <div className="absolute bottom-5 left-5 flex w-[252px] flex-col items-start gap-2 compact:hidden" style={anchor(scale, "bottom left")}>
+    <div data-hud-floor className="absolute bottom-5 left-5 flex w-[252px] flex-col items-start gap-2 compact:hidden" style={anchor(scale, "bottom left")}>
       {(() => {
         const p = pedalLayers(t);
         return (
