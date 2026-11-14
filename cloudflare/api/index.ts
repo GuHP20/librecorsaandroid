@@ -244,6 +244,8 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
   if (path === "/api/drivers/rename" && request.method === "POST") {
     const deps = config.board ? boardDeps(env, challengeProblem) : null;
     if (!deps) return json({ ok: false, error: "The lap boards are off" }, 404, origin);
+    // A flood is turned away here, before the hourly count on the database (board.ts) is written to
+    if (await overLimit(env.BOARD_LIMIT, request)) return json({ ok: false, error: "Too many changes, try again later" }, 429, origin);
     try {
       const answer = await renameDriver(deps, request);
       return json(answer.body, answer.status, origin);
@@ -259,6 +261,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     if (!deps) return json({ ok: false, error: "The lap boards are off" }, 404, origin);
     try {
       if (path === "/api/laps" && request.method === "POST") {
+        if (await overLimit(env.BOARD_LIMIT, request)) return json({ ok: false, error: "Too many uploads, try again later" }, 429, origin);
         const answer = await submitLap(deps, request);
         return json(answer.body, answer.status, origin);
       }

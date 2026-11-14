@@ -69,12 +69,13 @@
   // Room connections one address may open per minute; usage reports one address may send per minute; heartbeats one
   // address may send per minute (a tab sends one: a few tabs or players behind one address still count); admin
   // requests, right key or not, and requests to paths the API doesn't serve (a page load of /admin makes two, a
-  // change of range one more)
+  // change of range one more); lap uploads and name changes, before the hourly count on the database
   "ratelimits": [
     { "name": "ROOM_LIMIT", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } },
     { "name": "USAGE_LIMIT", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } },
     { "name": "LIVE_LIMIT", "namespace_id": "1003", "simple": { "limit": 6, "period": 60 } },
-    { "name": "ADMIN_LIMIT", "namespace_id": "1004", "simple": { "limit": 20, "period": 60 } }
+    { "name": "ADMIN_LIMIT", "namespace_id": "1004", "simple": { "limit": 20, "period": 60 } },
+    { "name": "BOARD_LIMIT", "namespace_id": "1005", "simple": { "limit": 20, "period": 60 } }
   ],
   // Workers caching: the circuit GLBs from R2 are kept at the edge, tiered, with byte ranges served from the cache
   "cache": { "enabled": true },
