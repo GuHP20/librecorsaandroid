@@ -1599,6 +1599,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           onToggleBoostLatch={handleToggleBoostLatch}
           onChangeLiveTuner={handleChangeLiveTuner}
           paused={paused}
+          pauseMenuCovered={settingsOpen?.from === "pause"}
           onOpenControls={() =>
             // A wheel whose pedals are not set up yet opens on its calibration (the HUD's "pedals not set up" too)
             settings.device === "wheel" && (!settings.wheel.throttle || !settings.wheel.brake)

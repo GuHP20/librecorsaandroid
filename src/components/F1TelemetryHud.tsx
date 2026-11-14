@@ -145,6 +145,8 @@ interface F1TelemetryHudProps extends MultiplayerPanelProps {
   onAcceptManualOffer?: (offerToken: string) => Promise<string>;
   onAcceptManualAnswer?: (answerToken: string) => Promise<boolean>;
   paused: boolean;
+  /** Settings is open over the pause menu: the menu keeps its state but is not drawn under it */
+  pauseMenuCovered?: boolean;
   onTogglePause: () => void;
   onOpenControls?: () => void;
   /** Opens Settings over the pause menu on a category (the pause menu's links from Conditions and the Garage) */
@@ -667,6 +669,7 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
         initialRoomCode={inviteRoom ?? ""}
         openMultiplayer={!inviteUsed && Boolean(inviteRoom) && (props.p2pStatus?.connectedWebRtcPeers ?? 0) === 0}
         onCycleCamera={onCycleCamera}
+        covered={props.pauseMenuCovered}
       />
     ) : null}
     </HudModeContext.Provider>
