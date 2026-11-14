@@ -1659,56 +1659,6 @@ export function createWallHit(): WallHit {
 }
 
 /**
- * How far the point (px, py, pz) is past the wall segments `ids[0..count)`, seen from the reference point (refX, refZ)
- * on the near side (the car's CG): the deepest segment the point lies alongside (within its length, and within `ySlack`
- * of its height range; a NaN `py` skips the height test) and behind, up to `maxDepth` (anything deeper is another
- * stretch of wall). The normal points back toward the reference side. Returns the depth, 0 when clear.
- */
-export function wallPenetration(
-  walls: WallQuery,
-  ids: Int32Array,
-  count: number,
-  px: number,
-  py: number,
-  pz: number,
-  refX: number,
-  refZ: number,
-  maxDepth: number,
-  ySlack: number,
-  out: WallHit
-): number {
-  const seg = walls.segments;
-  out.depth = 0;
-  for (let k = 0; k < count; k++) {
-    const o = ids[k] * WALL_SEGMENT_STRIDE;
-    if (py < seg[o + 4] - ySlack || py > seg[o + 5] + ySlack) continue;
-    const ax = seg[o];
-    const az = seg[o + 1];
-    const dx = seg[o + 2] - ax;
-    const dz = seg[o + 3] - az;
-    const len2 = dx * dx + dz * dz;
-    if (len2 < 1e-6) continue;
-    const t = ((px - ax) * dx + (pz - az) * dz) / len2;
-    if (t < 0 || t > 1) continue;
-    const len = Math.sqrt(len2);
-    let nx = -dz / len;
-    let nz = dx / len;
-    const sr = (refX - ax) * nx + (refZ - az) * nz;
-    if (Math.abs(sr) < 1e-4) continue;
-    if (sr < 0) {
-      nx = -nx;
-      nz = -nz;
-    }
-    const depth = -((px - ax) * nx + (pz - az) * nz);
-    if (depth <= 0 || depth > maxDepth || depth <= out.depth) continue;
-    out.depth = depth;
-    out.nx = nx;
-    out.nz = nz;
-  }
-  return out.depth;
-}
-
-/**
  * A corner of a car's barrier outline at (px, py, pz) against the wall segments `ids[0..count)`, the car's centre at
  * (cgX, cgZ) and the corner at (fromX, fromZ) at the start of the sub-step. A face counts when the corner's path this
  * sub-step entered it from the centre's side; of several, the first it entered (a post's front, not its back; the side

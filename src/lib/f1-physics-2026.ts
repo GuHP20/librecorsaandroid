@@ -68,12 +68,17 @@ import {
   type Lc26AxleSuspension,
 } from './sim/lc26-data';
 import {
+  convexHullIndices,
   createGroundHit,
+  createWallEndHit,
   createWallHit,
   type GroundQuery,
-  wallPenetration,
+  OUTLINE_EDGE_STRIDE,
+  wallCornerContact,
+  wallEndInOutline,
   type WallQuery,
   wallSweep,
+  writeOutlineEdges,
 } from './sim/f12026-car/TrackColliderQuery';
 import { trackColliders } from './sim/track-colliders';
 import { createWingRuntimes, LC26_CG_HEIGHT_M, type WingRuntime, wingAngleDeg } from './sim/lc26-aero';
@@ -214,9 +219,16 @@ const FLOOR_STALL_DRAG_RISE = 0.05;
 const WALL_RESTITUTION = 0.25;
 const WALL_MAX_REBOUND_MS = 5;
 const WALL_FRICTION = 0.5;
-/** Deepest believable penetration past a wall segment, and the clearance a contact is resolved to (m) */
-const WALL_MAX_DEPTH_M = 1.2;
+/** The clearance a barrier contact is resolved to (m) */
 const WALL_SKIN_M = 0.001;
+/**
+ * The most the barrier contacts move the car in a step (m/s × the step): more than the outline can go into a wall in
+ * one. A deeper contact (a wall the car has just come into the height band of, a placement on it) is let out over a
+ * few steps, not in a jump
+ */
+const WALL_MAX_PUSH_MS = 100;
+/** Wall ends and corners inside the outline resolved per step (two posts met at once, one each) */
+const WALL_END_PASSES = 2;
 /** Height above the centreline road at which barrier segments are tested (m), and the tolerance either side */
 const WALL_CAR_Y_M = 0.4;
 const WALL_Y_SLACK_M = 2.0;
@@ -227,6 +239,13 @@ const WALL_LINE_DEFAULT_RUNOFF_M = 5.8;
 type TrackProjection = ReturnType<BuiltTrackData['projectWorldToTrack']>;
 
 const _wallHit = createWallHit();
+const _wallEndHit = createWallEndHit();
+/**
+ * The barrier outline's corners relative to the CG, in order round it (x, z pairs), and its edges
+ * (`OUTLINE_EDGE_STRIDE` floats each): scratch, filled before every read
+ */
+const _outlineCorners = new Float64Array(64);
+const _outlineEdges = new Float64Array(32 * OUTLINE_EDGE_STRIDE);
 /**
  * A mesh kerb's crown above the road for the LC26, which takes its road height from the track samples rather than the
  * mesh (the converted circuits were driven with this)
@@ -386,7 +405,11 @@ export class F1Physics2026 {
    */
   private meshKerbs = false;
   private readonly wallIds = new Int32Array(256);
-  private readonly wallQueryRadius = Math.max(...this.wallProbePoints.map(([x, z]) => Math.hypot(x, z))) + 0.5;
+  /** The farthest outline point from the CG (m), and the wall search radius around the CG */
+  private readonly wallOutlineRadius = Math.max(...this.wallProbePoints.map(([x, z]) => Math.hypot(x, z)));
+  private readonly wallQueryRadius = this.wallOutlineRadius + 0.5;
+  /** The probes on the outline's convex hull, in order round it */
+  private readonly wallOutline = convexHullIndices(this.wallProbePoints.map(([x, z]) => ({ x, z })));
 
   public aeroPreset: AeroSetupPreset = 'balanced';
   private _assistPreset: DriverAssistPreset = 'semi_pro';
@@ -1921,6 +1944,7 @@ export class F1Physics2026 {
     const prevS = this.sMeters;
     const prevX = this.worldX;
     const prevZ = this.worldZ;
+    const prevYaw = this.worldYawRad;
     let sumAx = 0;
     let sumAy = 0;
     for (let k = 0; k < SUBSTEPS; k++) {
@@ -1972,7 +1996,7 @@ export class F1Physics2026 {
     this.totalMassKg = LC26_CHASSIS.totalMassKg + drv.fuelKg;
 
     // ---- 9. Barriers, project onto the track, timing ------------------------------
-    this.postIntegrate(prevS, prevX, prevZ, dt);
+    this.postIntegrate(prevS, prevX, prevZ, prevYaw, dt);
 
     // ---- 10. Outputs & True 3D Steering Rack FFB ----------------------------------
     this.rpm = drv.engineOmega * RADS2RPM;
@@ -2865,7 +2889,7 @@ export class F1Physics2026 {
   // Track projection, barriers, timing
   // ---------------------------------------------------------------------------
 
-  private postIntegrate(prevS: number, prevX: number, prevZ: number, dtS: number): void {
+  private postIntegrate(prevS: number, prevX: number, prevZ: number, prevYaw: number, dtS: number): void {
     let projected = this.track.projectWorldToTrack(this.worldX, this.worldZ, prevS);
     // Barrier height test against the road under the car, so a bridge's parapets (Suzuka's crossover) or the
     // barriers of a road passing below are not hit. The window spans both the centreline and the ground under the
@@ -2874,7 +2898,7 @@ export class F1Physics2026 {
     const groundY = evaluateSampleLateralHeightM(projected.sample, projected.lateralOffset);
     const carY = 0.5 * (roadY + groundY) + WALL_CAR_Y_M;
     const ySlack = WALL_Y_SLACK_M + 0.5 * Math.abs(groundY - roadY);
-    if (this.walls ? this.applyWallSegments(prevX, prevZ, carY, ySlack) : this.applyWallLines(projected)) {
+    if (this.walls ? this.applyWallSegments(prevX, prevZ, prevYaw, carY, ySlack, dtS) : this.applyWallLines(projected)) {
       projected = this.track.projectWorldToTrack(this.worldX, this.worldZ, prevS);
     }
     const nextSample = projected.sample;
@@ -2940,33 +2964,72 @@ export class F1Physics2026 {
   }
 
   /**
-   * Barriers on the track GLB's wall segments: the CG's path is swept so it never ends up behind a wall, then every
-   * outline point past one is pushed back out. Only segments spanning `carY` (± `ySlack`) count. Returns
-   * whether the car was moved.
+   * Barriers on the track GLB's wall segments, from the pose at the start of the step (prevX, prevZ, prevYaw) to now:
+   * the CG's path is swept so it never ends up behind a wall, then every outline point that went through a face (or is
+   * past one lying between it and the CG) is pushed back out of it, and a wall end or corner inside the outline (a post
+   * between the points) is pushed back out through the outline's nearest edge (`wallCornerContact`,
+   * `wallEndInOutline`). Only segments spanning `carY` (± `ySlack`) count. Returns whether the car was moved.
    */
-  private applyWallSegments(prevX: number, prevZ: number, carY: number, ySlack: number): boolean {
+  private applyWallSegments(prevX: number, prevZ: number, prevYaw: number, carY: number, ySlack: number, dtS: number): boolean {
     const walls = this.walls!;
     const ids = this.wallIds;
     const n = walls.near(this.worldX, this.worldZ, this.wallQueryRadius + Math.hypot(this.worldX - prevX, this.worldZ - prevZ), ids);
     if (n === 0) return false;
     let moved = false;
+    let budget = WALL_MAX_PUSH_MS * dtS;
     if (wallSweep(walls, ids, n, prevX, prevZ, this.worldX, this.worldZ, carY, ySlack, _wallHit) >= 0) {
       this.worldX += _wallHit.nx * (_wallHit.depth + WALL_SKIN_M);
       this.worldZ += _wallHit.nz * (_wallHit.depth + WALL_SKIN_M);
       this.wallImpulse(0, 0, _wallHit.nx, _wallHit.nz);
       moved = true;
     }
+    // World offset of a point [left, forward]: left = (cos ψ, −sin ψ), forward = (sin ψ, cos ψ)
     const sinYaw = Math.sin(this.worldYawRad);
     const cosYaw = Math.cos(this.worldYawRad);
+    const sinPrev = Math.sin(prevYaw);
+    const cosPrev = Math.cos(prevYaw);
     for (const [left, fwd] of this.wallProbePoints) {
-      // World offset of the point: left = (cos ψ, −sin ψ), forward = (sin ψ, cos ψ)
       const rx = cosYaw * left + sinYaw * fwd;
       const rz = -sinYaw * left + cosYaw * fwd;
-      const depth = wallPenetration(walls, ids, n, this.worldX + rx, carY, this.worldZ + rz, this.worldX, this.worldZ, WALL_MAX_DEPTH_M, ySlack, _wallHit);
+      const fromX = prevX + cosPrev * left + sinPrev * fwd;
+      const fromZ = prevZ - sinPrev * left + cosPrev * fwd;
+      const depth = wallCornerContact(walls, ids, n, this.worldX + rx, carY, this.worldZ + rz, fromX, fromZ, this.worldX, this.worldZ, ySlack, _wallHit);
       if (depth <= 0) continue;
       this.wallImpulse(rx, rz, _wallHit.nx, _wallHit.nz);
-      this.worldX += _wallHit.nx * (depth + WALL_SKIN_M);
-      this.worldZ += _wallHit.nz * (depth + WALL_SKIN_M);
+      const push = Math.min(depth, budget);
+      budget -= push;
+      this.worldX += _wallHit.nx * (push + WALL_SKIN_M);
+      this.worldZ += _wallHit.nz * (push + WALL_SKIN_M);
+      moved = true;
+    }
+    // Wall ends and corners between the points
+    const hull = this.wallOutline;
+    for (let i = 0; i < hull.length; i++) {
+      const [left, fwd] = this.wallProbePoints[hull[i]];
+      _outlineCorners[2 * i] = cosYaw * left + sinYaw * fwd;
+      _outlineCorners[2 * i + 1] = -sinYaw * left + cosYaw * fwd;
+    }
+    writeOutlineEdges(_outlineCorners, hull.length, _outlineEdges);
+    for (let pass = 0; pass < WALL_END_PASSES; pass++) {
+      const depth = wallEndInOutline(
+        walls,
+        ids,
+        n,
+        this.worldX,
+        this.worldZ,
+        carY,
+        _outlineEdges,
+        hull.length,
+        this.wallOutlineRadius,
+        ySlack,
+        _wallEndHit
+      );
+      if (depth <= 0) break;
+      this.wallImpulse(_wallEndHit.x - this.worldX, _wallEndHit.z - this.worldZ, _wallEndHit.nx, _wallEndHit.nz);
+      const push = Math.min(depth, budget);
+      budget -= push;
+      this.worldX += _wallEndHit.nx * (push + WALL_SKIN_M);
+      this.worldZ += _wallEndHit.nz * (push + WALL_SKIN_M);
       moved = true;
     }
     return moved;
