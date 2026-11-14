@@ -103,6 +103,28 @@ export function useBackHandler(handler: () => boolean, enabled = true): void {
   }, [enabled]);
 }
 
+/**
+ * Page turns owned by a list that comes in pages (a board of lap times): LT / RT on a pad, Z / C or Page Up / Page Down
+ * on the keys. LB / RB and Q / E stay the screen's tabs. Asked newest first, and only by the screen whose root holds
+ * the list (an open drop-down's own navigation never turns the page under it); true = handled.
+ */
+const pageHandlers: { el: () => HTMLElement | null; turn: (step: 1 | -1) => boolean }[] = [];
+
+/** Registers a page turn (see `pageHandlers`) for the list in `ref` while mounted and `enabled` */
+export function usePageHandler(ref: React.RefObject<HTMLElement | null>, handler: (step: 1 | -1) => boolean, enabled = true): void {
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+  useEffect(() => {
+    if (!enabled) return;
+    const entry = { el: () => ref.current, turn: (step: 1 | -1) => handlerRef.current(step) };
+    pageHandlers.push(entry);
+    return () => {
+      const i = pageHandlers.lastIndexOf(entry);
+      if (i >= 0) pageHandlers.splice(i, 1);
+    };
+  }, [enabled, ref]);
+}
+
 const isTextEntry = (el: Element | null): el is HTMLInputElement | HTMLTextAreaElement =>
   el instanceof HTMLTextAreaElement ||
   (el instanceof HTMLInputElement && !["range", "checkbox", "radio", "button", "submit", "color"].includes(el.type));
@@ -446,6 +468,17 @@ export function useFocusNav(rootRef: React.RefObject<HTMLElement | null>, option
       if (!interceptBack()) ref.current.onBack?.();
     };
 
+    /** A page turn for a paged list inside this screen; false when there is none */
+    const turnPage = (step: 1 | -1): boolean => {
+      const r = root();
+      if (!r) return false;
+      for (let i = pageHandlers.length - 1; i >= 0; i--) {
+        const el = pageHandlers[i].el();
+        if (el && r.contains(el) && pageHandlers[i].turn(step)) return true;
+      }
+      return false;
+    };
+
     const onKey = (e: KeyboardEvent) => {
       if (isMenuNavSuspended() || e.defaultPrevented || !owns()) return;
       // Alt / Cmd + ← is the browser's Back, Ctrl + Q its own shortcut: none of them are menu keys (Shift is: big steps)
@@ -504,6 +537,13 @@ export function useFocusNav(rootRef: React.RefObject<HTMLElement | null>, option
         case "KeyY":
           if (typing || e.repeat) return;
           return call(o.onAlt);
+        case "KeyZ":
+        case "KeyC":
+        case "PageUp":
+        case "PageDown":
+          if (typing || e.repeat) return;
+          if (turnPage(e.code === "KeyZ" || e.code === "PageUp" ? -1 : 1)) e.preventDefault();
+          return;
       }
     };
     window.addEventListener("keydown", onKey);
@@ -529,7 +569,8 @@ export function useFocusNav(rootRef: React.RefObject<HTMLElement | null>, option
       }
       const ax = pad.axes;
       const down = (i: number) => Boolean(pad.buttons[i]?.pressed);
-      // up, down, left, right, A, B, Menu, LB, RB, X, Y; LT/RT held: bigger slider steps
+      // up, down, left, right, A, B, Menu, LB, RB, X, Y, LT, RT; LT/RT held: bigger slider steps, pressed: a paged
+      // list's page (only where one is mounted, so a held trigger still just steps a slider elsewhere)
       const now = [
         down(12) || (ax[1] ?? 0) < -STICK_THRESHOLD,
         down(13) || (ax[1] ?? 0) > STICK_THRESHOLD,
@@ -542,6 +583,8 @@ export function useFocusNav(rootRef: React.RefObject<HTMLElement | null>, option
         down(5),
         down(2),
         down(3),
+        down(6),
+        down(7),
       ];
       // Not the screen on top: keep the baseline current, so a button held as it takes over does not fire
       if (prev === null || isMenuNavSuspended() || !owns()) {
@@ -572,6 +615,8 @@ export function useFocusNav(rootRef: React.RefObject<HTMLElement | null>, option
         () => o.onNextTab?.(),
         () => void (o.rowReset && resetRow()),
         () => o.onAlt?.(),
+        () => void turnPage(-1),
+        () => void turnPage(1),
       ];
       now.forEach((isDown, i) => {
         if (isDown && !prev![i]) {

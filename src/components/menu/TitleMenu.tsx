@@ -632,6 +632,8 @@ export const TitleMenu: React.FC<TitleMenuProps> = (props) => {
     ...(rowResettable ? [RESET_ROW_PROMPT] : []),
     ...(panel ? [{ action: "back" as const, label: panelTitle ? `Close ${panelTitle}` : "Back" }] : []),
     { action: "tabs", label: "Switch panel" },
+    // The online board turns its pages with the triggers (Z / C), the shoulders stay the panels
+    ...(panel === "leaderboard" && props.leaderboardPanel?.remoteEnabled ? [{ action: "pages" as const, label: "Page" }] : []),
     // A controller's Menu button has no key: shown with a pad only
     ...(mode === "pad" && (raceOpen || !panel) ? [{ action: "start" as const, label: raceOpen ? "Start race" : "Drive" }] : []),
   ];

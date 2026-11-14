@@ -290,6 +290,7 @@ export const PauseMenu: React.FC<PauseMenuProps> = (props) => {
     { action: "select", label: panel === "corners" ? "Jump there" : "Select" },
     ...(rowResettable ? [RESET_ROW_PROMPT] : []),
     { action: "tabs", label: "Tabs" },
+    ...(panel === "leaderboard" && leaderboardPanel?.remoteEnabled ? [{ action: "pages" as const, label: "Page" }] : []),
     { action: "back", label: "Back", key: "Bksp" },
     { action: "start", label: "Resume", key: "Esc" },
   ];

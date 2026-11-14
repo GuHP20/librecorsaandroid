@@ -30,7 +30,6 @@ import {
   saveBoardBest,
   saveChallengeBest,
   submitLap,
-  type BoardFilter,
   type SubmitResult,
 } from "@/lib/net/leaderboard";
 import { exportDriverKeyFile, importDriverKeyFile } from "@/lib/net/driver-key";
@@ -49,6 +48,7 @@ import { CAMERA_MODES, nextCameraMode } from "@/lib/render/camera-modes";
 import { saveTyreSetup } from "@/lib/sim/tyre-setup";
 import { LoadingScreen } from "@/components/menu/LoadingScreen";
 import { TitleMenu } from "@/components/menu/TitleMenu";
+import { carBoardTag } from "@/components/menu/menu-content-ui";
 import { FirstRunWizard, type WizardMode, type WizardStepId } from "@/components/menu/FirstRunWizard";
 import { SettingsScreen, type SettingsCategory } from "@/components/settings/SettingsScreen";
 import type { SettingsEnv } from "@/components/settings/env";
@@ -110,6 +110,8 @@ const challengeTrackName = (id: string) => {
   const t = getTrackInfo(id);
   return TRACKS.some((o) => o.id !== t.id && o.name === t.name) ? `${t.name} · ${t.layout}` : t.name;
 };
+/** Every circuit for the online board's picker, by name (the panel puts the loaded one first) */
+const BOARD_CIRCUITS = TRACKS.map((t) => ({ id: t.id, label: challengeTrackName(t.id) })).sort((a, b) => a.label.localeCompare(b.label));
 /** The snapshot store before the session exists: nothing to subscribe to */
 const noSubscribe = () => () => {};
 // polish:B the podium shot's view before the drive exists
@@ -706,12 +708,6 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     setLocalLaps(local);
     setBoardVersion((v) => v + 1);
   }, [trackId]);
-  /** One online board for the Lap Times panel, with this player's place on it */
-  const loadRemoteBoard = useCallback(
-    (track: string, vehicle: VehicleModelId, filter: BoardFilter, physics: number) =>
-      fetchRemoteBoard(track, vehicle, { filter, physics, name: settingsRef.current.profile.name }).catch(() => null),
-    []
-  );
 
   /** Races the personal best of this car as the ghost, replacing whichever lap was chosen */
   const loadPbGhost = useCallback(async () => {
@@ -1505,11 +1501,12 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       trackName: getTrackInfo(trackId).name,
       trackId,
       trackNameOf,
+      circuits: BOARD_CIRCUITS,
       loadAllLocal: loadAllLocalLaps,
       vehicleLabel,
+      carTag: carBoardTag,
       local: localLaps,
       remoteEnabled: boardOn,
-      loadRemote: loadRemoteBoard,
       boardVersion,
       vehicle: vehicleModel,
       driverName: settings.profile.name,

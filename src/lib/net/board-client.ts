@@ -273,6 +273,14 @@ export async function fetchSiteStats(): Promise<SiteStats | null> {
   return stats.live === null && stats.drivers === null ? null : stats;
 }
 
+const ASSIST_LABEL: Record<AssistPreset, string> = { pro: "No assists", semi_pro: "Some assists", assisted: "Assisted" };
+const REALISM_LABEL: Record<SimRealism, string> = { casual: "Casual", standard: "Standard", full: "Full" };
+
+/** "No assists · Full · Dry": what a lap was driven with */
+export function boardLabel(c: { assists: AssistPreset; realism: SimRealism; surface: "dry" | "wet" }): string {
+  return `${ASSIST_LABEL[c.assists]} · ${REALISM_LABEL[c.realism]} · ${c.surface === "wet" ? "Wet" : "Dry"}`;
+}
+
 /** "1,204": a count as the panels say it, grouped by thousands */
 export const formatCount = (n: number): string => n.toLocaleString("en-US");
 

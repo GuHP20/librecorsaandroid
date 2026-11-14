@@ -5,7 +5,7 @@ import { useInputMode } from "@/components/menu/input-mode";
 import { ArrowKeys, KeyCap, KeysFromString } from "./KeyCap";
 import { PadGlyph, type PadButtonName, type PadGlyphFamily } from "./PadGlyph";
 
-export type PromptAction = "move" | "select" | "back" | "tabs" | "start" | "adjust";
+export type PromptAction = "move" | "select" | "back" | "tabs" | "start" | "adjust" | "pages";
 
 /** One prompt: what it does (a verb: "Select", "Back", "Change", "Next tab") and, if not the action's own, its inputs */
 export interface Prompt {
@@ -27,6 +27,8 @@ const PAD_FOR: Record<PromptAction, PadButtonName[]> = {
   tabs: ["lb", "rb"],
   start: ["menu"],
   adjust: ["dpad-horizontal"],
+  // A paged list (the lap boards): the triggers, so the shoulders stay the tabs
+  pages: ["lt", "rt"],
 };
 
 const KeysFor: React.FC<{ action: PromptAction }> = ({ action }) => {
@@ -40,6 +42,13 @@ const KeysFor: React.FC<{ action: PromptAction }> = ({ action }) => {
         <span className="inline-flex items-center gap-1">
           <KeyCap>Q</KeyCap>
           <KeyCap>E</KeyCap>
+        </span>
+      );
+    case "pages":
+      return (
+        <span className="inline-flex items-center gap-1">
+          <KeyCap>Z</KeyCap>
+          <KeyCap>C</KeyCap>
         </span>
       );
     case "back":

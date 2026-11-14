@@ -16,7 +16,7 @@ import { getOrCreateDriverKey } from "./driver-key";
 import { getOnlineConfig, onlineUrl } from "./online-config";
 import { cappedString, clampLimit, fetchBoardPage, finiteNumber, parseBoardPage, requestJson, type BoardFilter } from "./board-client";
 
-export { driverNameKey, type BoardFilter } from "./board-client";
+export { boardLabel, driverNameKey, type BoardFilter } from "./board-client";
 
 const DEFAULT_LIMIT = 50;
 const MAX_ID_LENGTH = 64;
@@ -149,13 +149,6 @@ export function lapToEntry(rec: LapRecording, source: "local" | "remote", id?: s
   return entry;
 }
 
-const ASSIST_LABEL: Record<LapConditions["assists"], string> = { pro: "No assists", semi_pro: "Some assists", assisted: "Assisted" };
-const REALISM_LABEL: Record<LapConditions["realism"], string> = { casual: "Casual", standard: "Standard", full: "Full" };
-
-/** "No assists · Full · Dry": what a lap was driven with */
-export function boardLabel(c: Pick<LapConditions, "assists" | "realism" | "surface">): string {
-  return `${ASSIST_LABEL[c.assists]} · ${REALISM_LABEL[c.realism]} · ${c.surface === "wet" ? "Wet" : "Dry"}`;
-}
 
 /** Local personal bests for this circuit (all cars, or one car), every class, fastest first */
 export async function localLeaderboard(trackId: string, vehicle?: VehicleModelId): Promise<LeaderboardEntry[]> {
