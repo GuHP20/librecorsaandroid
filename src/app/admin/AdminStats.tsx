@@ -43,10 +43,10 @@ function Gate({ onOpen }: { onOpen: (key: string, stats: StatsBody) => void }) {
     const key = draft.trim();
     if (!key || checking) return;
     setState("checking");
-    // The dashboard's code comes down while the key is checked
-    void loadDashboard().catch(() => {});
     const read = await readAdmin<StatsBody>(`/admin/stats?days=${FIRST_DAYS}`, key);
     if (read.state === "ok") {
+      // The dashboard's code comes down only for a key that opened the numbers, never for a guess
+      await loadDashboard().catch(() => {});
       setDraft("");
       onOpen(key, read.body);
       return;

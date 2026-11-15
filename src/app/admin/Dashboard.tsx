@@ -517,7 +517,7 @@ function Numbers({
                 <b className="text-lc-chalk">{perSession(desktop.minutes, desktop.sessions)}</b>.
               </>
             ) : null}
-            {extras ? <> Screen, input, assists and weather come from builds since 12 Nov: {percent(extrasSessions, totals.sessions)} of the sessions.</> : null}
+            {extras ? <> Screen, input, assists and weather come from newer builds only: {percent(extrasSessions, totals.sessions)} of the sessions.</> : null}
           </>
         }
       >
