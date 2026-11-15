@@ -64,8 +64,8 @@ minutes instead of twenty.
 
 The checks run without Cloudflare: `npm run verify` covers the room server, the race server (both sides) and the
 boards on an in-memory database (`scripts/verify-room-server.ts`, `verify-race-server.ts`, `verify-race-client.ts`,
-`verify-leaderboard.ts`), the boards' pages and totals (`verify-board-stats.ts`), and the usage counter and the
-admin numbers (`verify-usage.ts`).
+`verify-leaderboard.ts`), the boards' pages and totals (`verify-board-stats.ts`), the usage counter
+(`verify-usage.ts`), and the admin numbers with the limits that guard them (`verify-admin.ts`).
 
 ## Rules worth knowing
 
@@ -87,7 +87,10 @@ admin numbers (`verify-usage.ts`).
   official result, final when everyone is in or 90 s after the first finish (`src/lib/net/official-result.ts`). A
   finish faster than the race allows, or from a car that never raced, is refused.
 - The boards check laps for plausibility (`api/lap-check.ts`) but can't prove them: friendly, not a referee.
-- Driver names are claimed with a driver key kept in the browser; the board stores only its SHA-256.
+- Lap uploads and name changes: 20 a minute per address (`BOARD_LIMIT`, before anything reaches the database), then
+  30 an hour (counted in D1, `lap_posts`).
+- Driver names are claimed with a driver key kept in the browser; the board stores only its SHA-256. A name the
+  filter refuses (`src/lib/net/name-filter.ts`) can't be claimed, and races as "Driver" on the race server.
 - The usage counter: when a stretch of driving of half a minute or more ends (back to the menu, another circuit, car
   or kind of session, the flag, the page hidden or closed), the game sends `POST /api/usage` with the circuit, the car
   model, the mode (`practice`, `time_trial`, `ai_race`, `open_race`, `room_race`) and the minutes. The Worker checks
@@ -99,14 +102,21 @@ admin numbers (`verify-usage.ts`).
   (the commit: `NEXT_PUBLIC_BUILD` in the deploy, put in a `lc-build` meta tag so the game's script stays the same). Each is added up on its own in `usage_extra` (migration
   `0004_admin_numbers.sql`), one row per day, field and value, never crossed with another field, the circuit or the
   country. An unknown value is left out and the rest of the report still counts.
-- The owner's numbers: `GET /api/admin/stats?days=30` (1 to 90 days) with the header `X-Admin-Key`, read by the page
-  `/admin` (not linked, not indexed; it asks for the key and keeps it for the tab). Set the key once with
-  `npx wrangler secret put ADMIN_KEY`, and locally in `.dev.vars`. Without the secret, or with any other key, the route
-  answers 404 like any unknown path. The page reads, for the range: hours and sessions against the days before, per day
-  and per weekday, circuits split by mode, cars, countries, the extras above, driver names (new and returning), board
-  times per day and what they were set with, the busiest boards, the weekly challenges, the open races (grid size,
-  finishes, wins and podiums by name) and who is waiting for the next one. A part whose table is not there yet reads
-  as null and the rest still answers.
+- The owner's numbers: `GET /api/admin/stats?days=30` (1 to 90 days) with the key as `Authorization: Bearer <key>`
+  (a header Cloudflare's logs redact), read by the page `/admin`. The page is not linked, not in the sitemap and not
+  indexed, and until the key opens it it shows one password field and nothing else; the key stays in the tab's memory.
+  Set the key once with `npx wrangler secret put ADMIN_KEY`, and locally in `.dev.vars`. Every request to
+  `/api/admin/*` counts against `ADMIN_LIMIT` (20 a minute per address) before the key is compared, a right key too, and
+  so does every path the API doesn't serve: without the secret, with any other key, or with a fault while reading, an
+  admin route answers the same 404 as an unknown path, and past the limit the same 429. The page reads, for the range:
+  hours and sessions against the days before; sessions, hours, countries, board times, new names and laps driven per
+  day; circuits split by mode, and the circuits the game no longer has (ids not in `public/tracks/index.json`, still
+  driven on old builds); minutes a session by screen, input, mode, assists, weather, circuit and car; each day's share
+  of sessions on an older build, with the day each build was first seen; cars and countries; names new, seen and
+  back a day or more after their claim; board times per day and by class; the busiest boards and the weekly
+  challenges; the open races per day (grid sizes, finishes, proven names, wins and podiums by name) and who is waiting
+  for the next one. The live count at the top comes from `GET /api/stats`. A part whose table or column is not there
+  yet reads as null or zero and the rest still answers.
 - Cloudflare's numbers: `GET /api/admin/cloudflare` (same key), from Cloudflare's GraphQL Analytics API with the
   secret `CF_ANALYTICS_TOKEN`, for the last 7 days: the Worker's requests, errors and CPU time, the database's rows
   and size, each R2 bucket, the Durable Objects' requests, and with `ANALYTICS_ZONE_ID` set the site's visitors and
