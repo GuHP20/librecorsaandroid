@@ -68,13 +68,16 @@ function shortName(e: Pick<RaceStandingEntry, "name" | "driverCode">): string {
 }
 
 /** True for 8 s after `key` changes to a new value (the source's pulse on a new lap time); never on mount */
-function usePulse(key: number | null | undefined, ms = 8000): boolean {
+function usePulse(key: number | string | null | undefined, ms = 8000): boolean {
   const [on, setOn] = useState(false);
   const prev = useRef(key);
   useEffect(() => {
     if (prev.current === key) return;
     prev.current = key;
-    if (key === null || key === undefined || key <= 0) return;
+    if (key === null || key === undefined || (typeof key === "number" && key <= 0)) {
+      setOn(false);
+      return;
+    }
     setOn(true);
     const id = window.setTimeout(() => setOn(false), ms);
     return () => window.clearTimeout(id);
@@ -132,7 +135,7 @@ const DriverInfo: React.FC<{ name: string; place: string; bestMs: number | null 
 
 /** The gap to a neighbour (under the best lap) and the last-lap delta to it (under the last lap) */
 const GapRow: React.FC<{ gapS: number | null; deltaS: number | null; lapS: number }> = ({ gapS, deltaS, lapS }) => {
-  const deltaPulse = usePulse(deltaS === null ? null : Math.round(deltaS * 1000) || 1);
+  const deltaPulse = usePulse(deltaS === null ? null : Math.round(deltaS * 1000) || "0");
   return (
     <div className={`grid h-full ${COLS}`}>
       <span />
@@ -176,23 +179,25 @@ const RaceStack: React.FC<{ t: CarTelemetry }> = ({ t }) => {
     me && ahead ? (splits?.ahead?.driverCode === ahead.driverCode ? splits.ahead.gapS : me.gapToLeaderS - ahead.gapToLeaderS) : null;
   const gapBehind =
     me && behind ? (splits?.behind?.driverCode === behind.driverCode ? splits.behind.gapS : behind.gapToLeaderS - me.gapToLeaderS) : null;
+  const aheadKey = ahead ? ahead.driverCode + (ahead.name ?? "") : "none";
+  const behindKey = behind ? behind.driverCode + (behind.name ?? "") : "none";
   return (
     <>
       <div className={`${CARD} border-b`}>
         {ahead ? (
-          <DriverInfo name={shortName(ahead)} place={`P${i}`} bestMs={ahead.bestLapMs} lastMs={ahead.lastLapMs} />
+          <DriverInfo key={aheadKey} name={shortName(ahead)} place={`P${i}`} bestMs={ahead.bestLapMs} lastMs={ahead.lastLapMs} />
         ) : (
           <Placeholder>Race leader</Placeholder>
         )}
       </div>
       <div className="grid h-28 grid-rows-[1fr_2fr_1fr] xl:h-34 border-y border-(--tp-border-player) bg-(--tp-player-a) py-1">
-        <GapRow gapS={gapAhead} deltaS={ahead ? lapDelta(myLast, ahead.lastLapMs) : null} lapS={lapS} />
+        <GapRow key={aheadKey} gapS={gapAhead} deltaS={ahead ? lapDelta(myLast, ahead.lastLapMs) : null} lapS={lapS} />
         <DriverInfo name={me ? shortName(me) : "You"} place={`P${t.race?.position ?? i + 1}`} bestMs={myBest} lastMs={myLast} />
-        <GapRow gapS={gapBehind} deltaS={behind ? lapDelta(myLast, behind.lastLapMs) : null} lapS={lapS} />
+        <GapRow key={behindKey} gapS={gapBehind} deltaS={behind ? lapDelta(myLast, behind.lastLapMs) : null} lapS={lapS} />
       </div>
       <div className={`${CARD} border-t`}>
         {behind ? (
-          <DriverInfo name={shortName(behind)} place={`P${i + 2}`} bestMs={behind.bestLapMs} lastMs={behind.lastLapMs} />
+          <DriverInfo key={behindKey} name={shortName(behind)} place={`P${i + 2}`} bestMs={behind.bestLapMs} lastMs={behind.lastLapMs} />
         ) : (
           <Placeholder>Last place</Placeholder>
         )}

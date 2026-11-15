@@ -169,7 +169,7 @@ const Standings: React.FC<{ t: CarTelemetry; lengthM: number; gaps: "interval" |
       <div className="mt-1.5 flex flex-col overflow-hidden rounded-sm">
         {rows.map((e) => (
           <StandingsRow
-            key={e.driverCode}
+            key={e.driverCode + (e.name ?? "")}
             e={e}
             pos={race.standings.indexOf(e) + 1}
             me={me}
@@ -369,7 +369,7 @@ const Inputs: React.FC<{ t: CarTelemetry; deltaS: number | null; trace: boolean 
   const p = pedalLayers(t);
   const tuner = t.liveTuner;
   const aids = aidsActive(t);
-  const hasErs = t.f12026?.hasErs ?? false;
+  const hasErs = t.f12026?.hasErs ?? t.liveTuner?.hasErs ?? false;
   const aero = aeroReadout(t);
   const flaps = aero.open || t.f12026?.hasDrs === true;
   const chips: React.ReactNode[] = [];

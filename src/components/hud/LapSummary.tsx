@@ -157,16 +157,7 @@ export const LapSummary: React.FC<LapSummaryProps> = (props) => {
   // The box is zoomed on big screens; the lift is in window pixels
   const zoom = useUiZoom();
 
-  // Routine post-lap toasts duplicate the native lap / session panels on third-party HUDs; keep them when board
-  // upload needs attention, and keep an already-expanded card up after a retry or rename succeeds
-  const suppressed =
-    skin !== null &&
-    !expanded &&
-    !props.onSubmit &&
-    !props.submitError &&
-    submitState !== "error" &&
-    submitState !== "waiting";
-  if (suppressed || typeof document === "undefined") return null;
+  if (typeof document === "undefined") return null;
   return createPortal(
     <div
       key={s.lapNumber}

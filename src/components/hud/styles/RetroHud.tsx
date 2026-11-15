@@ -158,7 +158,7 @@ function dialCells(t: CarTelemetry): DialCell[] {
     cells.push({ label: "TC", value: tuner.tcLevel > 0 ? String(tuner.tcLevel) : "OFF", tone: aids.tc ? HUD_CAUTION : undefined });
     cells.push({ label: "ABS", value: tuner.absLevel > 0 ? String(tuner.absLevel) : "OFF", tone: aids.abs ? HUD_CAUTION : undefined });
   }
-  const hasErs = t.f12026?.hasErs ?? false;
+  const hasErs = t.f12026?.hasErs ?? t.liveTuner?.hasErs ?? false;
   if (hasErs) {
     cells.push({ label: "ERS", value: String(Math.round(t.ersBatteryPercent)), tone: t.mgukPowerKw > 0 ? HUD_INFO : undefined });
   } else if (t.fuelKg > 0) {
@@ -395,7 +395,7 @@ const RelativePanel: React.FC<{ t: CarTelemetry; map: HudMap }> = ({ t, map }) =
           const k = Math.abs(i - me);
           const pos = standings.indexOf(r.entry) + 1;
           const player = r.entry.isPlayer;
-          const gap = player ? "0.0" : `${r.gapS > 0 ? "−" : "+"}${formatGap(r.gapS)}`;
+          const gap = player ? "0.0" : `${r.gapS > 0 ? "−" : "+"}${formatGap(Math.abs(r.gapS))}`;
           return (
             <div
               key={r.entry.driverCode + (r.entry.name ?? "")}
@@ -433,8 +433,7 @@ const LAP_PROGRESS_STEPS = 16;
 /** The laps instrument: the running lap's timer, its number and progress round the lap, and the laps completed */
 const LapsPanel: React.FC<{ t: CarTelemetry; lapInvalid: boolean }> = ({ t, lapInvalid }) => {
   const laps = useLapHistory(6);
-  const valid = laps.filter((l) => l.valid);
-  const bestMs = valid.length ? Math.min(...valid.map((l) => l.ms)) : null;
+  const bestMs = t.bestLapTimeMs;
   const done = Math.floor(Math.max(0, Math.min(1, t.trackProgress)) * LAP_PROGRESS_STEPS);
   const box = "flex h-full w-10 items-center justify-center text-[15px]";
   return (
@@ -465,7 +464,7 @@ const LapsPanel: React.FC<{ t: CarTelemetry; lapInvalid: boolean }> = ({ t, lapI
         </Frame>
       ) : (
         laps.map((l, i) => {
-          const best = l.valid && l.ms === bestMs;
+          const best = bestMs !== null && l.valid && Math.abs(l.ms - bestMs) < 0.5;
           return (
             <div key={l.lap} className={cx("flex h-8 gap-1.5", i >= 3 && "compact:hidden")}>
               <Frame edge="soft" face="void" size="small" faceClassName={box}>

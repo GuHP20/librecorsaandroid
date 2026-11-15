@@ -20,7 +20,7 @@
  *   speed row (no pit lane here), turn indicators, the settings window and the updater.
  */
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import type { CarTelemetry, RaceStandingEntry } from "@/types/f1";
 import { useUnits } from "@/lib/settings/ui-prefs";
 import {
@@ -47,7 +47,7 @@ import { pedalLayers } from "../PedalBars";
 import { cornerData } from "../TyreBrakeWidget";
 import { type WeatherHudState } from "../WeatherBadge";
 import { anchor, gearLabel, type HudDesignProps } from "./hud-style-parts";
-import { REV_BAND_COLOR, revLights, useFuelPerLap, useLapHistory, useSessionClock } from "./third-party-parts";
+import { REV_BAND_COLOR, revLights, useFuelPerLap, useLapHistory, useSessionClock, useStartFuel } from "./third-party-parts";
 import {
   dayClock,
   driverLabel,
@@ -138,7 +138,7 @@ const Leaderboard: React.FC<{ t: CarTelemetry; gaps: "interval" | "leader" }> = 
         const pos = standings.indexOf(e) + 1;
         const fastest = best !== null && e.bestLapMs === best;
         return (
-          <div key={e.driverCode + pos} className={`relative flex h-5 items-center pr-2 pl-2.5 ${i >= 9 ? "compact:hidden" : ""}`}>
+          <div key={e.driverCode + (e.name ?? "") + pos} className={`relative flex h-5 items-center pr-2 pl-2.5 ${i >= 9 ? "compact:hidden" : ""}`}>
             {e.isPlayer ? <span aria-hidden className="absolute inset-y-0 left-0 w-1.5 bg-(--blk-player)" /> : null}
             <span className="w-6.5 shrink-0">{pos}</span>
             <span className="flex w-[66px] shrink-0 items-center gap-1.5">
@@ -354,7 +354,7 @@ const Essentials: React.FC<{ t: CarTelemetry; revRange: [number, number] }> = ({
       ? REV_BAND_COLOR[revLedBand(lights.lit - 1, 20)]
       : "var(--blk-fill)";
   const aero = aeroReadout(t);
-  const hasErs = t.f12026?.hasErs ?? true;
+  const hasErs = t.f12026?.hasErs ?? t.liveTuner?.hasErs ?? false;
   const strip = hasErs || t.overtakingRules === "drs-rear" || t.overtakingRules === "straight-mode-2026";
   return (
     <section aria-label="Speed, gear and rpm" className={`w-[325px] ${BLOCK}`}>
@@ -423,7 +423,7 @@ const Inputs: React.FC<{ t: CarTelemetry; ffb: boolean }> = ({ t, ffb }) => {
   const aids = aidsActive(t);
   const tuner = t.liveTuner;
   const level = (n: number | undefined) => (n === undefined ? "--" : n === 0 ? "OFF" : `${n}/12`);
-  const hasErs = t.f12026?.hasErs ?? true;
+  const hasErs = t.f12026?.hasErs ?? tuner?.hasErs ?? false;
   // A hybrid's battery where the source shows the turbo's boost (gauge, over the atmosphere's 1 bar: 0.00 without a turbo)
   const fourth: [string, string] = hasErs
     ? ["ERS", `${Math.round(t.ersBatteryPercent)}%`]
@@ -460,19 +460,9 @@ const Inputs: React.FC<{ t: CarTelemetry; ffb: boolean }> = ({ t, ffb }) => {
   );
 };
 
-/** The fuel on board when this run started (or at the last refuel): the fuel bar's full length */
-function useStartFuel(t: CarTelemetry): number {
-  const runId = t.runId ?? 0;
-  const [start, setStart] = useState({ runId, kg: t.fuelKg });
-  useEffect(() => {
-    if (start.runId !== runId || t.fuelKg > start.kg) setStart({ runId, kg: t.fuelKg });
-  }, [runId, t.fuelKg, start]);
-  return Math.max(start.kg, t.fuelKg);
-}
-
 const Fuel: React.FC<{ t: CarTelemetry }> = ({ t }) => {
   const perLap = useFuelPerLap();
-  const startKg = useStartFuel(t);
+  const startKg = Math.max(useStartFuel(), t.fuelKg);
   const fraction = startKg > 0 ? t.fuelKg / startKg : 0;
   const laps = fuelLapsLeft(t.fuelKg, perLap);
   return (

@@ -573,9 +573,11 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
       <div
         className={`absolute left-1/2 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 ${phone ? "top-[96px] portrait:top-[208px]" : "top-4"}`}
         style={
-          mirrorTop !== null || topClearance
-            ? { top: `calc(${(mirrorTop ?? 16) + Math.round(topClearance * scale)}px - env(safe-area-inset-top, 0px))` }
-            : undefined
+          mirrorTop !== null
+            ? { top: `calc(${mirrorTop + Math.round(topClearance * scale)}px - env(safe-area-inset-top, 0px))` }
+            : topClearance
+              ? { top: `${16 + Math.round(topClearance * scale)}px` }
+              : undefined
         }
       >
       <div className="flex flex-col items-center gap-2" style={corner("top center")}>

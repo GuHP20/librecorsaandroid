@@ -121,13 +121,24 @@ function useRunClock(t: CarTelemetry): number {
   return seconds;
 }
 
+/** Fuel on board when this run started (or at the last refuel) */
+function useRunStartFuel(t: CarTelemetry): number {
+  const runId = t.runId ?? 0;
+  const [start, setStart] = useState({ runId, kg: t.fuelKg });
+  useEffect(() => {
+    if (start.runId !== runId || t.fuelKg > start.kg) setStart({ runId, kg: t.fuelKg });
+  }, [runId, t.fuelKg, start]);
+  return start.runId === runId ? Math.max(start.kg, t.fuelKg) : t.fuelKg;
+}
+
 interface HudRun {
   laps: readonly LapRecord[];
   fuelPerLapKg: number | null;
+  startFuelKg: number;
   sessionS: number;
 }
 
-const HudRunContext = createContext<HudRun>({ laps: [], fuelPerLapKg: null, sessionS: 0 });
+const HudRunContext = createContext<HudRun>({ laps: [], fuelPerLapKg: null, startFuelKg: 0, sessionS: 0 });
 
 /**
  * Keeps the run's laps, fuel use and clock for the layouts that show them. Mounted by the HUD above every style and
@@ -136,8 +147,12 @@ const HudRunContext = createContext<HudRun>({ laps: [], fuelPerLapKg: null, sess
 export function HudRunProvider({ t, children }: { t: CarTelemetry; children: React.ReactNode }) {
   const laps = useLapRecords(t);
   const fuelPerLapKg = useFuelUse(t);
+  const startFuelKg = useRunStartFuel(t);
   const sessionS = useRunClock(t);
-  const value = useMemo(() => ({ laps, fuelPerLapKg, sessionS }), [laps, fuelPerLapKg, sessionS]);
+  const value = useMemo(
+    () => ({ laps, fuelPerLapKg, startFuelKg, sessionS }),
+    [laps, fuelPerLapKg, startFuelKg, sessionS],
+  );
   return <HudRunContext.Provider value={value}>{children}</HudRunContext.Provider>;
 }
 
@@ -150,6 +165,11 @@ export function useLapHistory(max = LAPS_KEPT): LapRecord[] {
 /** Fuel used per lap (kg) over the last full laps; null until one has been measured, or on a car without fuel */
 export function useFuelPerLap(): number | null {
   return useContext(HudRunContext).fuelPerLapKg;
+}
+
+/** Fuel on board when this run started (or at the last refuel) */
+export function useStartFuel(): number {
+  return useContext(HudRunContext).startFuelKg;
 }
 
 /** Seconds on track this run, paused with the game */
