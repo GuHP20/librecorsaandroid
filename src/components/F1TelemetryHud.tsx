@@ -36,7 +36,7 @@ import { Button } from "./ui/Button";
 import { Icon } from "./ui/icons/Icon";
 import { KeyCap, PadGlyph } from "./ui/prompts";
 import { HudModeContext, type HudMode } from "./hud/hud-mode";
-import { aeroReadout } from "./hud/aero-label";
+import { type AeroNotice, aeroNotice, aeroReadout, latestAeroEvent } from "./hud/aero-label";
 import { LibreCorsaLogo } from "./ui/LibreCorsaLogo";
 import { InputTrace } from "./hud/InputTrace";
 import { PedalBars, pedalLayers } from "./hud/PedalBars";
@@ -196,21 +196,23 @@ const keepFocusOffHover = (e: React.PointerEvent<HTMLElement>) => {
   if (document.activeElement === e.currentTarget) e.currentTarget.blur();
 };
 
-/** The last DRS detection crossed (f12026-car), shown for 2.5 s after it happens */
-function useDrsDetectionNotice(
-  detection: { zone: string; eligible: boolean; atMs: number } | null
-): { zone: string; eligible: boolean } | null {
-  const [notice, setNotice] = useState<{ zone: string; eligible: boolean } | null>(null);
-  const key = detection ? `${detection.zone}@${detection.atMs}` : "";
+/**
+ * The flaps' notice in the car's era's words (f12026-car): the last DRS detection crossed, or for a 2026 car the last
+ * straight coming up or Overtake verdict, each shown for 2.5 s after it happens; and while a press of the flap button
+ * waits for the zone, that it will open there
+ */
+function useAeroNotice(t: CarTelemetry): AeroNotice | null {
+  const event = latestAeroEvent(t);
+  const key = event ? `${event.kind}@${event.atMs}` : "";
+  const [shownKey, setShownKey] = useState("");
   useEffect(() => {
-    if (!detection) return;
-    setNotice({ zone: detection.zone, eligible: detection.eligible });
-    const id = window.setTimeout(() => setNotice(null), 2500);
+    if (!key) return;
+    setShownKey(key);
+    const id = window.setTimeout(() => setShownKey(""), 2500);
     return () => window.clearTimeout(id);
-    // Re-arm only when a new detection point is crossed
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return notice;
+  if (t.f12026?.drsQueued && t.activeAeroMode !== "X_MODE") return aeroNotice(t.overtakingRules, { kind: "queued" });
+  return event && key === shownKey ? aeroNotice(t.overtakingRules, event) : null;
 }
 
 /** Which touch driving buttons the car uses and how lit they are, read the way the speed cluster reads them */
@@ -262,7 +264,7 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   const { tracker: lapTracker, deltaS } = useLapDeltaTracker(telemetry, track.totalLengthM);
   const race = telemetry.race;
   const f12026 = telemetry.f12026;
-  const drsNotice = useDrsDetectionNotice(f12026?.drsDetection ?? null);
+  const aeroNoticeNow = useAeroNotice(telemetry);
   const hudMap = useMemo(() => buildHudMap(track), [track]);
   // The touch pads take both bottom corners and the top-left, where every other preset puts its panels:
   // with them up, the Phone HUD (laid out round them) is the layout at any screen size
@@ -461,17 +463,12 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           <RaceControlBanner status={telemetry.trackLimits} offTrack={telemetry.offTrack} race={Boolean(race)} />
         ) : null}
         {!lightsPhase && race ? <RaceIncidentFeed messages={race.raceControl} yellow={race.yellow} /> : null}
-        {drsNotice ? (
+        {aeroNoticeNow ? (
           <div role="status" className={`inline-flex h-10 items-center gap-2.5 rounded-full pr-5 pl-2 text-lc-chalk ${HUD_GLASS}`}>
-            <Badge
-              tone={drsNotice.eligible ? "info" : "neutral"}
-              variant={drsNotice.eligible ? "solid" : "soft"}
-              size="lg"
-              icon={drsNotice.eligible ? "drsOpen" : "drsClosed"}
-            >
-              {drsNotice.zone}
+            <Badge tone={aeroNoticeNow.tone} variant={aeroNoticeNow.variant} size="lg" icon={aeroNoticeNow.icon}>
+              {aeroNoticeNow.badge}
             </Badge>
-            <span className="lc-disp text-[16px]">{drsNotice.eligible ? "DRS enabled" : "DRS not enabled"}</span>
+            <span className="lc-disp text-[16px]">{aeroNoticeNow.text}</span>
           </div>
         ) : null}
         {showLaunchHint && !race ? (

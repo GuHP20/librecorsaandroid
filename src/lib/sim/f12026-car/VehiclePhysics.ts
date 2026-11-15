@@ -152,6 +152,14 @@ import {
   type BrushTyre,
 } from './brush-tyre';
 import { roadTextureHeightM } from '../road-texture';
+import {
+  FLAP_PRESS_MAX_WAIT_S,
+  FLAP_PRESS_REACH_M,
+  type LapWindow,
+  lapWindowFor,
+  mergeLapWindows,
+  STRAIGHT_NOTICE_M,
+} from '../straight-mode-zones';
 import { beginSettle } from './settle-memo';
 
 const G = 9.81;
@@ -311,6 +319,11 @@ export type VehicleEvent =
   | { type: 'GEAR'; gear: number }
   /** Crossed a `ZoneData_DRSZone` detection point; `eligible` = DRS may open in that zone */
   | { type: 'DRS_DETECTION'; zone: string; eligible: boolean }
+  /**
+   * A car whose flaps open on every straight (2026 Straight Mode, no detection) came within `STRAIGHT_NOTICE_M` of
+   * one, or left the one before it when that ends nearer
+   */
+  | { type: 'STRAIGHT_MODE_AHEAD' }
   /** Started touching a barrier at `speedMs` into the wall */
   | {
       type: 'WALL_IMPACT';
@@ -340,6 +353,12 @@ export interface VehiclePhysicsOptions {
    * zone's detection point; without it DRS is allowed anywhere and lap energy never resets.
    */
   locateProgress?: (x: number, z: number) => number;
+  /**
+   * The lap's length (m) `locateProgress` measures: with it a press of the flap button before a zone is kept for it
+   * (`FLAP_PRESS_REACH_M`) and a 2026 car is told of each straight ahead. Without it a press only acts where the
+   * flaps may open at once
+   */
+  lapLengthM?: number;
   /** Asked at each detection point whether DRS is earned (e.g. within 1 s of the car ahead); default yes */
   drsEligibleAtDetection?: (zone: ZoneData_DRSZone) => boolean;
   /** Barrier walls (`Track_Collider_Wall_*`); none = no barriers */
@@ -534,6 +553,8 @@ export interface VehicleTelemetry {
   drsZone: boolean;
   /** Inside a zone whose detection point was crossed eligibly: the DRS button will open the flap */
   drsAvailable: boolean;
+  /** A press of the button waits for the zone the car is on or coming to (`FLAP_PRESS_REACH_M`) */
+  drsQueued: boolean;
   /** Body touching a barrier this step, and the highest speed into it (m/s) */
   wallContact: boolean;
   wallImpactMs: number;
@@ -1080,7 +1101,19 @@ export class VehiclePhysics {
   private readonly drsZones: ZoneData_DRSZone[];
   private readonly straightZones: readonly { start: number; end: number }[];
   private readonly locateProgress?: (x: number, z: number) => number;
+  private readonly lapLengthM: number;
   private readonly drsEligibleAtDetection?: (zone: ZoneData_DRSZone) => boolean;
+  /**
+   * Where the flaps may open as one list (`flapStretches`), for the rules it was made for, with the lap fraction at
+   * which a 2026 car is told of each (`STRAIGHT_MODE_AHEAD`)
+   */
+  private flapStretchCache: { gated: boolean; list: readonly LapWindow[]; noticeAt: readonly number[] } | null = null;
+  /**
+   * A press of the flap button the flaps could not answer yet, kept for one stretch: it opens them there once they
+   * may open, and lapses on leaving that stretch, on the brake inside it, on a second press or after
+   * `FLAP_PRESS_MAX_WAIT_S`
+   */
+  private drsQueue: { window: LapWindow; reached: boolean; waitedS: number } | null = null;
   private onEvent?: (event: VehicleEvent) => void;
   private walls?: WallQuery;
   private readonly wallIds = new Int32Array(256);
@@ -1162,6 +1195,7 @@ export class VehiclePhysics {
     this.drsZones = options.drsZones ?? [];
     this.straightZones = options.straightZones ?? [];
     this.locateProgress = options.locateProgress;
+    this.lapLengthM = options.lapLengthM ?? 0;
     this.drsEligibleAtDetection = options.drsEligibleAtDetection;
     this.walls = options.walls;
     this.onEvent = options.onEvent;
@@ -1543,6 +1577,7 @@ export class VehiclePhysics {
     this.drsOpen = false;
     this.drsBlend = 0;
     this.drsRequested = false;
+    this.drsQueue = null;
     this.drsArmedZone = null;
     this.lastDrsZoneId = null;
     this.trackProgress = Number.NaN;
@@ -2034,7 +2069,16 @@ export class VehiclePhysics {
   private handleEdges(inp: VehicleInputs): void {
     if (inp.shiftUp && !this.prevInputs.shiftUp) this.paddleShift(1);
     if (inp.shiftDown && !this.prevInputs.shiftDown) this.paddleShift(-1);
-    if (inp.drs && !this.prevInputs.drs) this.drsRequested = !this.drsOpen;
+    // The flap button: opens the flaps (or keeps the press for the zone ahead, `updateDrs`), shuts them when open, and
+    // a second press takes back a kept one
+    if (inp.drs && !this.prevInputs.drs) {
+      if (this.drsOpen || this.drsQueue) {
+        this.drsRequested = false;
+        this.drsQueue = null;
+      } else {
+        this.drsRequested = true;
+      }
+    }
     this.prevInputs.shiftUp = !!inp.shiftUp;
     this.prevInputs.shiftDown = !!inp.shiftDown;
     this.prevInputs.drs = !!inp.drs;
@@ -2129,11 +2173,37 @@ export class VehiclePhysics {
     if (this.requestShift(this.gear + shift) && throughSpin) this.manualShift.shifted(1, this.gear);
   }
 
+  /**
+   * Where the flaps may open, as one list of stretches: the circuit's zones, and for a car whose zones need no
+   * detection (2026 Straight Mode) its straights too, joined where they meet
+   */
+  private flapStretches(): readonly LapWindow[] {
+    return this.flapStretchInfo().list;
+  }
+
+  private flapStretchInfo(): { list: readonly LapWindow[]; noticeAt: readonly number[] } {
+    const gated = this.drsGatedByDetection;
+    if (this.flapStretchCache?.gated !== gated) {
+      const list = mergeLapWindows(gated ? this.drsZones : [...this.drsZones, ...this.straightZones]);
+      // `STRAIGHT_NOTICE_M` before each; where that is still on the stretch before it (a short corner or a kink
+      // between two), as the car leaves that one
+      const lead = this.lapLengthM > 0 ? STRAIGHT_NOTICE_M / this.lapLengthM : 0;
+      const noticeAt = list.map((w) => {
+        const at = (((w.start - lead) % 1) + 1) % 1;
+        const before = list.find((o) => o !== w && inLapWindow(at, o.start, o.end));
+        return before ? before.end : at;
+      });
+      this.flapStretchCache = { gated, list, noticeAt };
+    }
+    return this.flapStretchCache;
+  }
+
   private updateDrs(inp: VehicleInputs, dt: number): void {
     let inZone = true;
     let armed = true;
+    let p = Number.NaN;
     if (this.locateProgress && Number.isFinite(this.position.x) && Number.isFinite(this.position.z)) {
-      const p = this.locateProgress(this.position.x, this.position.z);
+      p = this.locateProgress(this.position.x, this.position.z);
       const prev = this.trackProgress;
       if (Number.isFinite(prev) && Number.isFinite(p)) {
         if (prev > 0.9 && p < 0.1) this.resetLapEnergy();
@@ -2149,6 +2219,17 @@ export class VehiclePhysics {
               const eligible = this.drsEligibleAtDetection ? this.drsEligibleAtDetection(zone) : true;
               this.drsArmedZone = eligible ? zone.id : null;
               this.onEvent?.({ type: 'DRS_DETECTION', zone: zone.id, eligible });
+            }
+          }
+          // 2026 Straight Mode has no detection: the car is told of each stretch `STRAIGHT_NOTICE_M` before it starts
+          // (or as it leaves the one before, when that is nearer)
+          if (!this.drsGatedByDetection && this.lapLengthM > 0) {
+            for (const at of this.flapStretchInfo().noticeAt) {
+              const ahead = (((at - prev) % 1) + 1) % 1;
+              if (ahead > 0 && ahead <= d) {
+                this.onEvent?.({ type: 'STRAIGHT_MODE_AHEAD' });
+                break;
+              }
             }
           }
         }
@@ -2172,8 +2253,30 @@ export class VehiclePhysics {
     this.telemetry.drsZone = inZone;
     this.telemetry.drsAvailable = inZone && armed && dryEnoughForDrs;
     // Closes on the brake, a lift, or when track wetness exceeds the rear flap threshold
-    const lifted = inp.brake > 0.05 || inp.throttle < this.config.aero.drsCloseThrottle;
-    const open = this.drsRequested && inZone && armed && dryEnoughForDrs && !lifted;
+    const braking = inp.brake > 0.05;
+    const lifted = braking || inp.throttle < this.config.aero.drsCloseThrottle;
+    const canOpen = inZone && armed && dryEnoughForDrs && !lifted;
+    // A press the flaps can't answer yet (before the zone, or in it off the throttle) is kept for the stretch the car
+    // is on or the next one within reach; elsewhere it does nothing, as before
+    if (this.drsRequested && !this.drsOpen && !canOpen) {
+      this.drsRequested = false;
+      const target = this.drsFitted && this.lapLengthM > 0 ? lapWindowFor(p, this.flapStretches(), this.lapLengthM, FLAP_PRESS_REACH_M) : null;
+      if (target) this.drsQueue = { window: target.window, reached: false, waitedS: 0 };
+    }
+    const q = this.drsQueue;
+    if (q) {
+      q.waitedS += dt;
+      const onIt = inLapWindow(p, q.window.start, q.window.end);
+      q.reached ||= onIt;
+      // Lapses past the stretch, on the brake on it (that straight is over), or when the car never gets there
+      if (q.waitedS > FLAP_PRESS_MAX_WAIT_S || (q.reached && !onIt) || (onIt && braking)) this.drsQueue = null;
+      else if (onIt && canOpen) {
+        this.drsRequested = true;
+        this.drsQueue = null;
+      }
+    }
+    this.telemetry.drsQueued = this.drsQueue !== null;
+    const open = this.drsRequested && canOpen;
     if (!open) this.drsRequested = false;
     if (open !== this.drsOpen) {
       this.drsOpen = open;
@@ -3945,6 +4048,7 @@ export class VehiclePhysics {
       drsOpen: false,
       drsZone: false,
       drsAvailable: false,
+      drsQueued: false,
       wallContact: false,
       wallImpactMs: 0,
       LSD_LOCKING_TORQUE: 0,

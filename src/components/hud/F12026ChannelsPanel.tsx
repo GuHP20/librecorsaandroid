@@ -118,8 +118,8 @@ export const F12026ChannelsPanel: React.FC<{
       <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-lc-line pt-2">
         {c.hasDrs ? (
           <>
-            <span className="flex items-center gap-1.5" title="DRS state and openings this session">
-              <span className={HUD_LBL}>DRS</span>
+            <span className="flex items-center gap-1.5" title={`${aero.straightMode ? "Straight Mode" : "DRS"} state and openings this session`}>
+              <span className={HUD_LBL}>{aero.straightMode ? "X-mode" : "DRS"}</span>
               <Badge
                 tone={aero.open || aero.armed ? "info" : "neutral"}
                 variant={aero.open ? "solid" : aero.armed ? "outline" : "soft"}
@@ -131,9 +131,14 @@ export const F12026ChannelsPanel: React.FC<{
               <span className="lc-data text-[10px] text-lc-slate">×{c.drsOpenEvents}</span>
             </span>
             <span className={`${HUD_LBL} truncate`}>
-              {c.drsDetection
-                ? `${c.drsDetection.zone} ${c.drsDetection.eligible ? "EARNED" : "LOCKED"}`
-                : "NO DETECTION"}
+              {/* A 2026 car's flaps need no detection: the 1 s verdict there is Overtake Mode's (races only) */}
+              {aero.straightMode
+                ? c.overtakeDetection
+                  ? `OVERTAKE ${c.overtakeDetection.earned ? "EARNED" : "LOCKED"}`
+                  : "NO VERDICT"
+                : c.drsDetection
+                  ? `${c.drsDetection.zone} ${c.drsDetection.eligible ? "EARNED" : "LOCKED"}`
+                  : "NO DETECTION"}
             </span>
           </>
         ) : (

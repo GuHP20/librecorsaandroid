@@ -117,11 +117,15 @@ export class OvertakeGrant {
     this.earned = false;
   }
 
-  /** Call once per step with the lap progress before and after it */
-  observe(prev: number, p: number, zones: readonly DrsZoneDef[], control: OvertakingRaceControl | null | undefined): void {
+  /**
+   * Call once per step with the lap progress before and after it. True when race control judged the car at the
+   * detection point this step (`earned` holds the verdict); practice is never judged
+   */
+  observe(prev: number, p: number, zones: readonly DrsZoneDef[], control: OvertakingRaceControl | null | undefined): boolean {
     const zone = overtakeDetectionZone(zones);
-    if (!zone || !crossedForward(prev, p, zone.detection)) return;
+    if (!zone || !crossedForward(prev, p, zone.detection)) return false;
     this.earned = control?.racing ? control.earnedAtDetection(zone.id) : false;
+    return control?.racing === true;
   }
 
   /** The override may be used: always in practice, in a race only once earned */
