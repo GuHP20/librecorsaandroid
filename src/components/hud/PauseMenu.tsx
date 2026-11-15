@@ -33,7 +33,10 @@ import { focusInZone, focusOnHover, focusZone, useFocusNav } from "@/components/
 import { useInputMode } from "@/components/menu/input-mode";
 import { TrackQualityBadge } from "@/components/menu/menu-content-ui";
 import { HeroAction, RailRow, RESET_ROW_PROMPT, ShellPrompts, usePanelReadingOrder, useRowResettable } from "@/components/menu/menu-shell";
-import { Card, SettingRow, Tabs, Toggle } from "@/components/ui";
+import { Button, Card, SettingRow, Tabs, Toggle } from "@/components/ui";
+import { HUD_TOUCH_NOTE, HudLayoutPicker } from "@/components/settings/HudLayoutPicker";
+import { isTouchDevice } from "@/lib/input/touch-input";
+import { usePhoneLayout } from "./styles/PhoneHud";
 import { Badge } from "@/components/ui/Badge";
 import { SessionBadge } from "@/components/ui/badges/SessionBadge";
 import { Icon } from "@/components/ui/icons/Icon";
@@ -124,8 +127,8 @@ export interface PauseMenuProps extends MultiplayerPanelProps {
   onTogglePause: () => void;
   /** Opens the controls setup (keyboard / controller / wheel) */
   onOpenControls?: () => void;
-  /** Opens the Settings screen over this menu, on a category (the links from Conditions and the Garage) */
-  onOpenSettings?: (category?: SettingsCategory) => void;
+  /** Opens the Settings screen over this menu, on a category and a tab in it (the links from Conditions, the Garage and the HUD tab) */
+  onOpenSettings?: (category?: SettingsCategory, tab?: string) => void;
   /** Weather, time of day and the track's grip: applies live, so pause offers it too */
   conditionsPanel?: ConditionsPanelProps;
   /** Leaves the session for the title menu */
@@ -148,7 +151,7 @@ export interface PauseMenuProps extends MultiplayerPanelProps {
   perfReport?: (() => string) | null;
 }
 
-type Panel = "settings" | "conditions" | "setup" | "corners" | "multiplayer" | "leaderboard";
+type Panel = "settings" | "hud" | "conditions" | "setup" | "corners" | "multiplayer" | "leaderboard";
 
 /**
  * Esc / Menu: race actions in a rail on the left, the session's panels as tabs on the right.
@@ -156,7 +159,8 @@ type Panel = "settings" | "conditions" | "setup" | "corners" | "multiplayer" | "
  * from anywhere.
  */
 export const PauseMenu: React.FC<PauseMenuProps> = (props) => {
-  const { telemetry, onTogglePause, onResetCar, aiOpponents, onOpenControls, onExitToTitle, leaderboardPanel, conditionsPanel } = props;
+  const { telemetry, onTogglePause, onResetCar, aiOpponents, onOpenControls, onExitToTitle, leaderboardPanel, conditionsPanel, displayPanel } = props;
+  const phoneScreen = usePhoneLayout();
   // Online: the host restarts the race for everyone and nobody has a flying lap; a guest in a lobby restarts nothing
   // (racing or not). The shell guards the same handlers.
   const mpRace = telemetry.race?.multiplayer === true || props.raceRunning === true;
@@ -193,6 +197,9 @@ export const PauseMenu: React.FC<PauseMenuProps> = (props) => {
     () =>
       [
         { id: "settings" as const, label: "Session", icon: "options" as const },
+        // The HUD layout, one press from the session tab: it changes the moment the race resumes (not on a phone, which
+        // always drives with the Phone HUD)
+        ...(displayPanel && !phoneScreen ? [{ id: "hud" as const, label: "HUD", icon: "hud" as const }] : []),
         ...(conditionsPanel ? [{ id: "conditions" as const, label: "Conditions", icon: "conditions" as const }] : []),
         { id: "setup" as const, label: "Garage", icon: "garage" as const },
         // No jumping round the circuit in an online race
@@ -200,7 +207,7 @@ export const PauseMenu: React.FC<PauseMenuProps> = (props) => {
         { id: "multiplayer" as const, label: "Multiplayer", icon: "multiplayer" as const },
         ...(leaderboardPanel ? [{ id: "leaderboard" as const, label: "Lap times", icon: "lapTimes" as const }] : []),
       ] satisfies { id: Panel; label: string; icon: IconName }[],
-    [leaderboardPanel, mpRace, conditionsPanel]
+    [leaderboardPanel, mpRace, conditionsPanel, displayPanel, phoneScreen]
   );
 
   const actions = useMemo(
@@ -384,6 +391,7 @@ export const PauseMenu: React.FC<PauseMenuProps> = (props) => {
             >
               <div key={panel} className="lc-panel-in">
                 {panel === "settings" ? <SessionPanel {...props} /> : null}
+                {panel === "hud" && displayPanel ? <HudPanel display={displayPanel} onOpenSettings={props.onOpenSettings} /> : null}
                 {panel === "conditions" && conditionsPanel ? (
                   <ConditionsPanel {...conditionsPanel} onOpenSettings={props.onOpenSettings} session />
                 ) : null}
@@ -448,6 +456,33 @@ export const SessionPanel: React.FC<PauseMenuProps> = (p) => {
     </div>
   );
 };
+
+/**
+ * The HUD tab: the layout picker (the same one as Settings > Display > HUD). The HUD is hidden under the menu, so the
+ * new layout shows as soon as the race resumes; size, delta bar and the rest stay in Settings, one press away.
+ */
+const HudPanel: React.FC<{ display: DisplayPanelProps; onOpenSettings?: (category?: SettingsCategory, tab?: string) => void }> = ({
+  display,
+  onOpenSettings,
+}) => (
+  <Card
+    title="HUD layout"
+    description={isTouchDevice() ? HUD_TOUCH_NOTE : "The new layout shows when you resume."}
+    action={
+      onOpenSettings ? (
+        <Button variant="ghost" size="sm" icon={<Icon name="settings" />} onClick={() => onOpenSettings("display", "hud")}>
+          HUD settings
+        </Button>
+      ) : undefined
+    }
+  >
+    <HudLayoutPicker
+      value={display.settings.hud.preset}
+      onChange={(id) => display.onChangeSettings((s) => ({ ...s, hud: { ...s.hud, preset: id } }))}
+      navDefault
+    />
+  </Card>
+);
 
 const cornerName = (name: string) => name.replace(/^Turn \d+\s*[—-]\s*/, "");
 

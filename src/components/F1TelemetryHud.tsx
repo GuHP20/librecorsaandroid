@@ -170,7 +170,7 @@ interface F1TelemetryHudProps extends MultiplayerPanelProps {
   onTogglePause: () => void;
   onOpenControls?: () => void;
   /** Opens Settings over the pause menu on a category (the pause menu's links from Conditions and the Garage) */
-  onOpenSettings?: (category?: SettingsCategory) => void;
+  onOpenSettings?: (category?: SettingsCategory, tab?: string) => void;
   /** Weather, time of day and the track's grip, for the pause menu's Conditions tab */
   conditionsPanel?: ConditionsPanelProps;
   onExitToTitle?: () => void;
