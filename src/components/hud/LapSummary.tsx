@@ -48,10 +48,11 @@ interface LapSummaryProps {
   onSaveGhost?: () => void;
   /** Uploads the lap by hand (automatic posting off, or a retry); without it the card only shows how the upload went */
   onSubmit?: () => void;
-  submitState?: "idle" | "sending" | "sent" | "error";
+  /** `waiting`: the board couldn't be reached, and the lap goes up by itself once it can */
+  submitState?: "idle" | "sending" | "sent" | "error" | "waiting";
   /** Place of the uploaded lap on its online board, and how many drivers that board has */
   submitRank?: { rank: number; total: number | null; challengeRank?: number | null } | null;
-  /** Why the board refused the last upload (e.g. the name is taken), shown under the buttons */
+  /** Why the board refused the last upload (e.g. the name is taken), or that it couldn't be reached, shown under the buttons */
   submitError?: string | null;
   /** The name the driver's laps go up under, shown once one went up (or was turned down) */
   driverName?: string;
@@ -177,7 +178,10 @@ export const LapSummary: React.FC<LapSummaryProps> = (props) => {
       {expanded ? (
         <LapCard {...props} onCollapse={() => setExpanded(false)} />
       ) : (
-        <LapToast summary={s} onOpen={() => setExpanded(true)} onClose={onClose} />
+        <>
+          <LapToast summary={s} onOpen={() => setExpanded(true)} onClose={onClose} />
+          {submitState === "waiting" && props.submitError ? <ToastNote text={props.submitError} /> : null}
+        </>
       )}
     </div>,
     document.body
@@ -257,6 +261,20 @@ const LapToast: React.FC<{ summary: LapSummaryData; onOpen: () => void; onClose:
     </button>
     <IconButton size="sm" variant="ghost" aria-label="Dismiss lap summary" icon={<Icon name="close" />} onClick={onClose} />
   </div>
+);
+
+/**
+ * Under the toast, in the toast's glass: the lap couldn't reach the online board and goes up once it can. Said here as
+ * well as in the card, which is seldom opened
+ */
+const ToastNote: React.FC<{ text: string }> = ({ text }) => (
+  <p
+    role="status"
+    className="mt-1.5 ml-auto flex w-fit max-w-full items-center gap-1.5 rounded-full border border-white/7 bg-lc-void/75 px-3 py-1 text-[12px] leading-snug font-medium text-lc-amber shadow-lc-pop backdrop-blur-[14px] pointer-coarse:mx-auto"
+  >
+    <Icon name="offline" size="xs" className="shrink-0" />
+    {text}
+  </p>
 );
 
 /** A read-out inside the card: the value, then the words that say what it is (no label above) */
@@ -382,7 +400,7 @@ const LapCard: React.FC<
       <div className="flex flex-wrap items-center justify-end gap-2">
         {/* Where posting the lap went, said once it changes (the badges below come and go) */}
         <span className="sr-only" aria-live="polite">
-          {submitState === "sent" ? sentLabel : submitState === "sending" ? "Posting" : ""}
+          {submitState === "sent" ? sentLabel : submitState === "sending" ? "Posting" : submitState === "waiting" ? (submitError ?? "") : ""}
         </span>
         {/* Why the lap cannot go online, in words beside the greyed button */}
         {onSubmit && notRanked && submitState !== "sent" ? <span className="lc-hint mr-auto">{notRanked}</span> : null}
@@ -401,13 +419,18 @@ const LapCard: React.FC<
         ) : onSubmit ? (
           <Button
             size="sm"
-            variant={submitState === "error" ? "secondary" : "primary"}
+            variant={submitState === "error" || submitState === "waiting" ? "secondary" : "primary"}
             loading={submitState === "sending"}
             disabledReason={notRanked}
             onClick={onSubmit}
           >
-            {submitState === "error" ? "Retry upload" : "Post online"}
+            {submitState === "error" || submitState === "waiting" ? "Retry upload" : "Post online"}
           </Button>
+        ) : submitState === "waiting" ? (
+          // Waiting for the board, nothing to press: the line below says so
+          <Badge tone="warn" icon="offline">
+            Not posted yet
+          </Badge>
         ) : null}
         <Button size="sm" variant="secondary" onClick={onClose}>
           Close
@@ -416,6 +439,12 @@ const LapCard: React.FC<
       {submitState === "error" && submitError ? (
         <p role="alert" className="-mt-1.5 flex items-start justify-end gap-1.5 text-right text-[12px] leading-snug font-medium text-lc-loss">
           <Icon name="error" size="xs" className="mt-px" />
+          {submitError}
+        </p>
+      ) : submitState === "waiting" && submitError ? (
+        // Not a refusal: the board didn't answer, and the lap goes up by itself once it does
+        <p className="-mt-1.5 flex items-start justify-end gap-1.5 text-right text-[12px] leading-snug font-medium text-lc-amber">
+          <Icon name="offline" size="xs" className="mt-px" />
           {submitError}
         </p>
       ) : null}
