@@ -49,6 +49,7 @@ import { FfbMeter } from "./hud/FfbMeter";
 import { LapSummary } from "./hud/LapSummary";
 import { RaceResults } from "./hud/RaceResults";
 import { RaceControlBanner } from "./hud/RaceControlBanner";
+import { QualityNotice } from "./hud/QualityNotice";
 import { RaceIncidentFeed } from "./hud/RaceIncidentFeed";
 import { DamageWidget } from "./hud/DamageWidget";
 import { ReplayBar } from "./hud/ReplayBar";
@@ -186,6 +187,8 @@ interface F1TelemetryHudProps extends MultiplayerPanelProps {
   inviteRoom?: string | null;
   /** polish:A — the time trial's target while the weekly challenge is driven (best, fastest, place) */
   challengeTarget?: import("@/lib/net/challenge-target").ChallengeTarget | null;
+  /** The automatic quality's quiet note (drive-session.ts), a new id each time */
+  qualityNotice?: { id: number; kind: "lowered" | "floor" } | null;
 }
 
 /**
@@ -471,6 +474,8 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
             <span className="lc-disp text-[16px]">{aeroNoticeNow.text}</span>
           </div>
         ) : null}
+        {/* Under the driving notices in the same column: stacked, never over them */}
+        <QualityNotice notice={props.qualityNotice ?? null} />
         {showLaunchHint && !race ? (
           <div className={`inline-flex min-h-11 items-center gap-3 rounded-full py-1.5 pr-5 pl-2 ${HUD_GLASS}`}>
             <span className="inline-flex size-7.5 flex-none items-center justify-center rounded-full bg-lc-line text-lc-chalk">

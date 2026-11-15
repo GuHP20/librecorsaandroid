@@ -192,6 +192,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     chassisSetup,
     timeTrial,
     autoQualityLowered,
+    qualityNotice,
   } = useSyncExternalStore(session?.subscribe ?? noSubscribe, session?.getSnapshot ?? (() => idleSnapshot), () => idleSnapshot);
 
   const [aeroPreset, setAeroPreset] =
@@ -1634,6 +1635,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           track={track}
           weather={weatherHud}
           boostLatch={boostLatch}
+          qualityNotice={qualityNotice}
           showLaunchHint={launchHint}
           launchHintText={launchHintText}
           hudToggleButton={settings.padButtons.hud === null ? undefined : padButtonLabel(settings.padButtons.hud)}
