@@ -225,6 +225,11 @@ export function takeSafeStart(store: KeyValueStore | null, nowMs: number): SafeS
   return plan;
 }
 
+/** A context was lost on this page, or a loss is remembered: a refused context then likely comes from that reset */
+export function lostRecently(store: KeyValueStore | null = browserStore()): boolean {
+  return lostThisPage || hasRecentLoss(store);
+}
+
 /** Test hook: forget this page's renderer and loss */
 export function resetGpuPageState(): void {
   pageRenderer = null;

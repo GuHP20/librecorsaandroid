@@ -2,6 +2,7 @@
  * The GPU memory behind the context-loss handling (src/lib/render/gpu-health.ts, issue #123): which renderer strings
  * count as a CPU rasteriser or an older Intel chip, what a remembered loss does to the next start (gentle loading,
  * Low once), that a loss in a hidden page is not remembered, that the memory runs out, and the bug form's GPU line.
+ * Also the room side of a lost context: a client with no car to send keeps its room going but sends no state.
  *
  *   npx tsx scripts/verify-gpu-health.ts
  */
@@ -11,6 +12,7 @@ import {
   GPU_NAME_KEY,
   gpuReportLine,
   LOSS_MEMORY_MS,
+  lostRecently,
   noteRenderer,
   readLossMemory,
   recordContextLoss,
@@ -20,6 +22,7 @@ import {
   takeSafeStart,
   type KeyValueStore,
 } from "../src/lib/render/gpu-health";
+import { MultiplayerSyncManager, type NetworkVehiclePacket } from "../src/lib/sim/multiplayer-sync";
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = ""): void {
@@ -175,6 +178,56 @@ const T0 = 1_800_000_000_000;
     threw = true;
   }
   check("a probe that throws is taken as no WebGL", !threw);
+}
+
+{
+  resetGpuPageState();
+  const store = new MapStore();
+  check("a refused context with no loss before it is not taken for a reset", !lostRecently(store));
+  recordContextLoss(store, Date.now(), true);
+  check("…after a loss on this page (even a hidden one) it is", lostRecently(store));
+  resetGpuPageState();
+  check("…and on a new page while a loss is remembered", (recordContextLoss(store, Date.now(), false), resetGpuPageState(), lostRecently(store)));
+}
+
+// --- The room with a lost context (multiplayer-sync update(now, null)) ---
+{
+  let t = 0;
+  const host = new MultiplayerSyncManager({ clock: () => t });
+  const posts: { state: number; control: number; lastStateMs: number; lastControlMs: number } = { state: 0, control: 0, lastStateMs: -1, lastControlMs: -1 };
+  // The same-browser transport, watched: control messages are envelopes ({ ctl }), car states are bare packets
+  (host as unknown as { channel: { postMessage(m: unknown): void; close(): void } }).channel = {
+    postMessage: (m) => {
+      if (m && typeof m === "object" && "ctl" in m) {
+        posts.control++;
+        posts.lastControlMs = t;
+      } else {
+        posts.state++;
+        posts.lastStateMs = t;
+      }
+    },
+    close: () => {},
+  };
+  host.hostLocal();
+  const car: Omit<NetworkVehiclePacket, "peerId" | "timestampMs"> = {
+    driverCode: "LCX",
+    teamColorHex: "#ffffff",
+    pos: [0, 0, 0],
+    quat: [0, 0, 0, 1],
+    linVel: [0, 0, 0],
+    angVel: [0, 0, 0],
+    steerAngle: 0,
+    wheelRPMs: [0, 0, 0, 0],
+    throttle: 0,
+    brake: 0,
+    trackS: 0,
+    speedKmh: 0,
+  };
+  const LOST_AT = 2000;
+  for (t = 0; t <= 12_000; t += 1000 / 60) host.update(t, t < LOST_AT ? car : null);
+  check("before the loss the car's state goes out", posts.state > 30, `${posts.state} packets`);
+  check("after it no state goes out", posts.lastStateMs < LOST_AT, `last at ${posts.lastStateMs.toFixed(0)} ms`);
+  check("the host's room keeps running (its lobby still goes out)", posts.lastControlMs > LOST_AT + 6000, `last control at ${posts.lastControlMs.toFixed(0)} ms`);
 }
 
 if (failed > 0) {
