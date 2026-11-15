@@ -20,6 +20,8 @@ import numpy as np  # noqa: E402
 
 import build_track as bt  # noqa: E402
 import centreline as cl  # noqa: E402
+import glbio  # noqa: E402
+import glbwrite  # noqa: E402
 from surface import Raster  # noqa: E402
 
 
@@ -169,7 +171,57 @@ def test_wall_lane_oval():
     assert dist.max() - dist.min() < 2.5, f'lane {dist.min() - r0:.1f}..{dist.max() - r0:.1f} m right of the centre line'
 
 
-TESTS = [test_route_start_cut, test_wall_lane_oval]
+def read_accessor(j, b, ai):
+    """An accessor's values, sparse ones applied"""
+    a = j['accessors'][ai]
+    n = glbio.NC[a['type']]
+    out = glbio.acc(j, b, ai).copy() if 'bufferView' in a else np.zeros((a['count'], n), glbio.CT[a['componentType']])
+    sp = a.get('sparse')
+    if sp:
+        def part(p, dt, k):
+            bv = j['bufferViews'][p['bufferView']]
+            o = bv.get('byteOffset', 0) + p.get('byteOffset', 0)
+            return np.frombuffer(b, dt, sp['count'] * k, o).reshape(sp['count'], k)
+        idx = part(sp['indices'], glbio.CT[sp['indices']['componentType']], 1)[:, 0]
+        out[idx] = part(sp['values'], glbio.CT[a['componentType']], n)
+    return out
+
+
+def test_glb_sparse_accessors():
+    """glbwrite.write_track_glb keeps a sparse accessor's indices and values with it (a morph target's, with and
+    without a base view)"""
+    g = Glb()
+    V = np.array([[0, 0, 0], [10, 0, 0], [0, 0, 10], [10, 0, 10]], np.float32)
+    prim = g.mesh('Ramp', V, [0, 1, 2, 2, 1, 3], 0)
+    g.j['materials'] = [{'name': 'grey'}]
+    targets = []
+    for base in (None, np.full((4, 3), 0.25, np.float32)):
+        ai = g.accessor(base, 'VEC3') if base is not None else None
+        a = g.j['accessors'][ai] if ai is not None else {'componentType': 5126, 'count': 4, 'type': 'VEC3'}
+        a['sparse'] = {'count': 2,
+                       'indices': {'bufferView': g.view(np.array([1, 3], np.uint16)), 'componentType': 5123},
+                       'values': {'bufferView': g.view(np.array([[0, 1, 0], [0, 2, 0]], np.float32))}}
+        if ai is None:
+            g.j['accessors'].append(a)
+            ai = len(g.j['accessors']) - 1
+        targets.append({'POSITION': ai})
+    prim['targets'] = targets
+    want = [[[0, 0, 0], [0, 1, 0], [0, 0, 0], [0, 2, 0]], [[.25] * 3, [0, 1, 0], [.25] * 3, [0, 2, 0]]]
+    with tempfile.TemporaryDirectory() as tmp:
+        g.save(os.path.join(tmp, 'in.glb'))
+        j, b = glbio.load(os.path.join(tmp, 'in.glb'))
+        glbwrite.write_track_glb(j, b, 1.0, np.zeros(3), [], os.path.join(tmp, 'out.glb'), log=lambda *a: None)
+        j2, b2 = glbio.load(os.path.join(tmp, 'out.glb'))
+    pr = next(m for m in j2['meshes'] if m.get('name') == 'Ramp')['primitives'][0]
+    for k, tg in enumerate(pr['targets']):
+        sp = j2['accessors'][tg['POSITION']]['sparse']
+        for part in ('indices', 'values'):
+            assert sp[part]['bufferView'] < len(j2['bufferViews']), f'target {k}: sparse {part} view out of range'
+        got = read_accessor(j2, b2, tg['POSITION'])
+        assert np.allclose(got, want[k]), f'target {k}: {got.tolist()}'
+
+
+TESTS = [test_route_start_cut, test_wall_lane_oval, test_glb_sparse_accessors]
 
 if __name__ == '__main__':
     failed = 0

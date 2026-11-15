@@ -97,16 +97,26 @@ def write_track_glb(j, b, scale, off, extra_meshes, out_path, clip=4000.0, log=p
         chunks.append((data, target, stride))
         return len(chunks) - 1
 
+    def src_view(bvi):
+        """The new view holding the source's view `bvi`, copied the first time it is asked for"""
+        if bvi not in bv_map:
+            bv = j['bufferViews'][bvi]
+            o = bv.get('byteOffset', 0)
+            bv_map[bvi] = add_view(b[o:o + bv['byteLength']], bv.get('target'), bv.get('byteStride'))
+        return bv_map[bvi]
+
     def raw_acc(ai):
         if ai in raw_cache:
             return raw_cache[ai]
         a = dict(j['accessors'][ai])
         if 'bufferView' in a:
-            if a['bufferView'] not in bv_map:
-                bv = j['bufferViews'][a['bufferView']]
-                o = bv.get('byteOffset', 0)
-                bv_map[a['bufferView']] = add_view(b[o:o + bv['byteLength']], bv.get('target'), bv.get('byteStride'))
-            a['bufferView'] = bv_map[a['bufferView']]
+            a['bufferView'] = src_view(a['bufferView'])
+        if 'sparse' in a:
+            # a sparse accessor's indices and values sit in views of their own (and it may have no base view at all)
+            sp = dict(a['sparse'])
+            sp['indices'] = {**sp['indices'], 'bufferView': src_view(sp['indices']['bufferView'])}
+            sp['values'] = {**sp['values'], 'bufferView': src_view(sp['values']['bufferView'])}
+            a['sparse'] = sp
         new_acc.append(a)
         raw_cache[ai] = len(new_acc) - 1
         return raw_cache[ai]
