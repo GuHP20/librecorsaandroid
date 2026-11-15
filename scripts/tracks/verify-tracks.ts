@@ -15,7 +15,7 @@ import { F1Physics2026 } from '../../src/lib/f1-physics-2026';
 import { F12026CarSim } from '../../src/lib/sim/f12026-car/F12026CarSim';
 import { aiLineOffsetM, computeSpeedProfile, createLc26ProfileCarModel, sampleProfile } from '../../src/lib/sim/speed-profile';
 import { createAmgGt3Sim } from '../../src/lib/sim/gt3/AmgGt3Sim';
-import { loadGlbGeometry } from '../lib/glb-geometry';
+import { loadGlbGeometry, trackModelFiles } from '../lib/glb-geometry';
 
 const DT = 1 / 120;
 const RAD2DEG = 180 / Math.PI;
@@ -208,13 +208,15 @@ for (const entry of index) {
     if (Math.abs(p.lateralOffset) > p.sample.width / 2) fail(`${entry.id}: grid slot ${slot.slot} off the road (${p.lateralOffset.toFixed(1)} m)`);
   }
   const t0 = Date.now();
-  const root = loadGlbGeometry(`public${track.meshUrl}`);
+  // What the game loads: a venue's split pair (src/lib/venue-models.ts) when this copy has it, else the circuit's GLB
+  const files = trackModelFiles({ id: entry.id, meshUrl: track.meshUrl });
+  const root = loadGlbGeometry(files.path, files.shared);
   const names = new Set<string>();
   root.traverse((o) => names.add(o.name));
   for (const n of ['Track_Collider_Road', 'Track_Collider_Wall_Left', 'Track_Collider_Wall_Right', 'Track_Surface_Road']) {
     if (!names.has(n) && !entry.id.startsWith('rwanda_official')) fail(`${entry.id}: GLB has no ${n}`);
   }
-  console.log(`      GLB loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`      ${files.shared ? 'split pair' : 'GLB'} loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   for (const car of ['lc26', 'f12026', 'gt3'] as const) {
     const r = driveLap(track, root, car, pace);
     const ok = r.finished && r.spins === 0 && r.maxBeyondEdgeM <= 1.0;

@@ -511,7 +511,8 @@ def build(args, cfg, scale, fit_pass, xz_fixed=None, recentre=True):
         # (the paved edge distance is capped at 20 m: past it the paving reaches at least that far)
         flush = np.isfinite(wallR) & ((np.abs(wallR - ed[:, 1]) < 2.5) | (ed[:, 1] >= 19.5)) & (on_oval > 0.5)
         flush = ndimage.binary_closing(ndimage.binary_opening(flush, np.ones(5)), np.ones(9))
-        sh = np.where(flush, np.nan_to_num(wallR) - lane_w / 2 - cfg.get('wallLaneGapM', 0.3), sh)
+        # the closing bridges holes in the wall where none was found (wallR NaN): carry the wall across them, not 0 m
+        sh = np.where(flush, periodic_interp_nan(wallR) - lane_w / 2 - cfg.get('wallLaneGapM', 0.3), sh)
         # the lane widens on its inside where `wallLaneWiden` says so: the centre moves in by half the extra width
         sh = sh - lane_widen(xz, cfg) / 2
         sh = ndimage.gaussian_filter1d(ndimage.median_filter(sh, 9, mode='wrap'), 3.0, mode='wrap')
@@ -523,7 +524,13 @@ def build(args, cfg, scale, fit_pass, xz_fixed=None, recentre=True):
         lane = w_oval * cl.smooth_closed_keep_radius(lane, 7.0) + (1 - w_oval) * lane
         log(f'wall lane: centreline moved right by median {np.median(sh):.2f} m, range {sh.min():.2f}..{sh.max():.2f} m; '
             f'laid off the wall at {flush.mean():.0%} of the samples')
-        xz2, _ = cl.resample_closed(lane, DS)
+        xz2, L2 = cl.resample_closed(lane, DS)
+        # The lane is the lap the circuit gets, so the fit to the official length is made on it here: the build on
+        # this line takes it as fixed and is past the fit (as with the plain centreline, not for the debug map alone)
+        real = cfg.get('realLengthM')
+        if real and not args.no_fit and not args.centreline_only and abs(real / L2 - 1) > 0.012 and fit_pass == 0:
+            log(f'wall lane {L2:.1f} m: scaling model by {real / L2:.4f} to match the official {real} m lap')
+            return real / L2
         return roll_to_start(xz2, start, ahead)
     width = ndimage.median_filter(hwL + hwR, 9, mode='wrap')
     if lane_w:
