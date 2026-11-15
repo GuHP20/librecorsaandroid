@@ -27,6 +27,10 @@ export class DualSenseDriver {
   private gaveUp = false;
   /** HD haptics were wanted last frame (the setting on, the pad on USB) */
   private wanted = false;
+  /** Counts the driver's silent tries; going unwanted bumps it too, so a try that answers after that is ignored */
+  private startGen = 0;
+  /** Haptics went unwanted while a start was in flight: once that start ends, the next one counts as just back on */
+  private cycledDuringStart = false;
 
   update(telemetry: CarTelemetry, dtS: number, options: DualSenseDriveOptions): void {
     const usb = dualSenseHid.transportNow() === "usb";
@@ -35,10 +39,14 @@ export class DualSenseDriver {
     if (!wantHaptics) {
       this.gaveUp = false;
       this.wanted = false;
+      this.startGen++;
+      if (state === "starting") this.cycledDuringStart = true;
       if (state === "on") void dualSenseAudioHaptics.stop();
     } else if (!dualSenseAudioHaptics.running() && state !== "starting") {
-      // Just back on (the setting, or the pad on USB again): one try straight away, even over an old error
-      const fresh = !this.wanted;
+      // Just back on (the setting, or the pad on USB again), also when that happened while a start was still in
+      // flight: one try straight away, even over an old error
+      const fresh = !this.wanted || this.cycledDuringStart;
+      this.cycledDuringStart = false;
       this.wanted = true;
       if (fresh) this.retryAtMs = 0;
       // An error left by a start the player asked for (in Settings) keeps its message: no silent try over it
@@ -47,9 +55,11 @@ export class DualSenseDriver {
       const now = Date.now();
       if (!this.gaveUp && now >= this.retryAtMs) {
         this.retryAtMs = now + HAPTICS_RETRY_MS;
-        // A silent try that fails with a reason (not just "pad not listed yet") stops the tries, read from its own result
+        // A silent try that fails with a reason (not just "pad not listed yet") stops the tries, read from its own result,
+        // unless haptics went unwanted while it was in flight (its failure belongs to the earlier wish)
+        const gen = ++this.startGen;
         void dualSenseAudioHaptics.start(false).then((ok) => {
-          if (!ok && dualSenseAudioHaptics.getStatus().state === "error") this.gaveUp = true;
+          if (gen === this.startGen && !ok && dualSenseAudioHaptics.getStatus().state === "error") this.gaveUp = true;
         });
       }
     } else {
