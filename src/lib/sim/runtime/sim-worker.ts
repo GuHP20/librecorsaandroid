@@ -67,6 +67,8 @@ scope.onmessage = (event) => {
     lastInputsMs = performance.now();
     // The clock starts with the first controls after a stop
     if (timer === null && runtime.running) {
+      // `?perf=1`: the stop (a pause, a menu, a hidden tab) is no simulation time, so it is left out of the report's span
+      if (perf) perf.sinceMs = Math.min(lastInputsMs, perf.sinceMs + (lastInputsMs - lastWakeMs));
       lastWakeMs = lastInputsMs;
       timer = setTimeout(wake, SIM_TICK_S * 1000);
     }
