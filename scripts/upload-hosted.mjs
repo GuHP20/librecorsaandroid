@@ -12,7 +12,8 @@
  *
  * A venue's split model (src/lib/venue-models.ts) is one shared file and one file per layout. Uploading a layout file
  * brings its shared file along when it is here; each file goes up once however many targets name it, and shared files
- * go first, so R2 never holds a layout file without its shared file.
+ * go first, so R2 never holds a layout file without its shared file. When a shared file fails to go up, its layout
+ * files stay off R2 in that run and the script exits 1.
  *
  * Needs `wrangler login` (or CLOUDFLARE_API_TOKEN). Cloudflare keeps these files at the edge until the next deploy,
  * so push to main (or re-run the deploy) after replacing a file the site already served.
@@ -66,11 +67,14 @@ function glbJson(file) {
 
 // A venue layout file names its shared file (scripts/split-venue-model.mjs): bring it along, once
 const VENUE_LAYOUT = /\.layout\.[0-9a-f]{8}\.glb$/;
+/** Each venue layout file's shared file */
+const sharedOf = new Map();
 for (const file of [...found]) {
   if (!VENUE_LAYOUT.test(file)) continue;
   const venue = glbJson(file).extras?.lcVenueLayout;
   if (!venue) continue;
   const shared = path.join(PUBLIC, "tracks", venue.venue, `${venue.venue}.shared.${venue.shared}.glb`);
+  sharedOf.set(file, shared);
   if (existsSync(shared)) found.add(shared);
   else console.warn(`note: ${path.relative(PUBLIC, file)} needs ${path.relative(PUBLIC, shared)}, which is not in this copy: make sure R2 has it`);
 }
@@ -78,10 +82,22 @@ const isShared = (f) => /\.shared\.[0-9a-f]{8}\.glb$/.test(f);
 const files = [...[...found].filter(isShared), ...[...found].filter((f) => !isShared(f))];
 
 const work = mkdtempSync(path.join(tmpdir(), "lc-upload-"));
+const keyOf = (file) => path.relative(PUBLIC, file).split(path.sep).join("/");
+/** Files that failed to go up in this run */
+const failedFiles = new Set();
+/** Layout files kept off R2 because their shared file failed */
+const heldBack = [];
 let failed = 0;
 try {
   for (const file of files) {
-    const key = path.relative(PUBLIC, file).split(path.sep).join("/");
+    const key = keyOf(file);
+    // Shared files went first: a layout file whose shared file failed would be a layout R2 can't load
+    const shared = sharedOf.get(file);
+    if (shared && failedFiles.has(shared)) {
+      console.error(`SKIP ${key}: its shared file ${keyOf(shared)} failed to upload, so it stays off R2`);
+      heldBack.push(key);
+      continue;
+    }
     const ext = path.extname(file).toLowerCase();
     const type = TYPES[ext] ?? "application/octet-stream";
     let source = file;
@@ -91,6 +107,7 @@ try {
       const c = spawnSync(process.execPath, [path.join(ROOT, "scripts/compress-car-glb.mjs"), source], { encoding: "utf8" });
       if (c.status !== 0) {
         console.error(`FAIL ${key}: compression failed\n${c.stderr || c.stdout}`);
+        failedFiles.add(file);
         failed++;
         continue;
       }
@@ -111,10 +128,16 @@ try {
       if (!ok && attempt === 3) console.error(`FAIL ${key}: ${(r.stderr ?? "").trim().split("\n").slice(-2).join(" ")}`);
     }
     if (ok) console.log(`ok ${key} (${size})`);
-    else failed++;
+    else {
+      failedFiles.add(file);
+      failed++;
+    }
   }
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
-console.log(`\n${files.length - failed} of ${files.length} file(s) ${dryRun ? "checked" : "uploaded"}`);
-process.exit(failed ? 1 : 0);
+console.log(`\n${files.length - failed - heldBack.length} of ${files.length} file(s) ${dryRun ? "checked" : "uploaded"}`);
+if (heldBack.length) {
+  console.error(`${heldBack.length} layout file(s) held back because their shared file failed; upload them again together with it:\n  ${heldBack.join("\n  ")}`);
+}
+process.exit(failed || heldBack.length ? 1 : 0);
