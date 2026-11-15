@@ -4,6 +4,7 @@ import React from "react";
 import type { HudPreset } from "@/lib/settings/hud-layouts";
 import { draw as irdashiesDraw } from "./hud-previews/irdashies";
 import { draw as racevisionDraw } from "./hud-previews/racevision";
+import { draw as h2hDraw } from "./hud-previews/h2h";
 
 /**
  * A HUD layout's picture for the pickers: the driving view in miniature (sky, ground, the road running to the horizon)
@@ -179,6 +180,7 @@ const BUILT_IN: Record<string, HudPreviewDraw> = {
 const THIRD_PARTY: Record<string, HudPreviewDraw> = {
   irdashies: irdashiesDraw,
   racevision: racevisionDraw,
+  h2h: h2hDraw,
 };
 
 /** A layout's picture: the driving view with the layout's panels on it */

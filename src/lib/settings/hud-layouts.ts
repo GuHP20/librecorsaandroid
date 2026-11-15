@@ -55,6 +55,12 @@ export const THIRD_PARTY_HUD_LAYOUTS = [
     detail: "Standings, relative, input pill and graph",
     credit: { author: "mpavich2", repoUrl: "https://github.com/mpavich2/RaceVision", license: "MIT" },
   },
+  {
+    id: "h2h",
+    label: "Head to Head",
+    detail: "The cars ahead and behind, gaps and lap deltas",
+    credit: { author: "emilioSp", repoUrl: "https://github.com/emilioSp/h2h-iracing", license: "MIT" },
+  },
 ] as const satisfies readonly HudLayoutInfo[];
 
 export type HudPreset = (typeof BUILT_IN_HUD_LAYOUTS)[number]["id"] | (typeof THIRD_PARTY_HUD_LAYOUTS)[number]["id"];
