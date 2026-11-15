@@ -12,7 +12,7 @@
  *   the cubes, stayed on the track (players' board laps went 8.4-8.9 m inside the line there). The yellow kerb and the
  *   cubes are sausages, past the track limits (the surface table's `sausage`, not part of the track); the South
  *   course's Castrol Edge too. At the two corners, as marked on their reviewed images: the anti-cut rumble outside
- *   Castrol Edge's exit is a sausage too and the astroturf behind Remus's outside exit kerb run-off (both were kerb);
+ *   Castrol Edge's exit and the astroturf behind Remus's outside exit kerb are sausages too (both were kerb);
  *   the racing asphalt out to the white line, and the red and white kerb, are the track where the physics called them
  *   run-off and grass; and the road collider's asphalt past the white line on the pit exit before Castrol Edge, and
  *   on the gore island past its apex, is run-off.
