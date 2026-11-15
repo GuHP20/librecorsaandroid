@@ -9,8 +9,9 @@ import {
   type RacingLineMask,
 } from "@/lib/render/asphalt-sheen";
 import type { RacingLineId, RunoffStyle } from "@/types/f1";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { MeshoptDecoder } from "@/lib/render/gltf-loader";
+import { createGltfLoader } from "@/lib/render/gltf-loader";
+import { acquireKtx2Loader, ktx2Ready, releaseKtx2Loader } from "@/lib/render/ktx2";
+import { ktx2ModelUrl } from "@/lib/ktx2-models";
 import { assetProgress } from "@/lib/loading/asset-progress";
 import { applySceneryDetail, prepareTreeGeometry, sceneryKind, setSceneryTime } from "@/lib/render/scenery-detail";
 import { attachSceneryInstances, loadSceneryInstances, resetSceneryInstances } from "@/lib/render/scenery-instances";
@@ -22,7 +23,7 @@ import { OVERLAY_LAYER } from "@/lib/render/layers";
 import { cutSceneryBoxes, isCutMaterialMesh, type SceneryCutBox } from "@/lib/scenery-cuts";
 import { freezeStaticTransforms, singlePassTransparency } from "@/lib/render/static-scene";
 import { loadVenueLayout } from "@/lib/render/venue-model";
-import { venueModelFiles, type VenueModelFiles } from "@/lib/venue-models";
+import { venueModelFiles, type VenueModelFiles, type VenuePair } from "@/lib/venue-models";
 
 /** Height of a racing-line dash over the driving surface: clear of its ripple, low enough to read as paint */
 const DASH_SEAT_LIFT_M = 0.035;
@@ -210,19 +211,38 @@ function loadTrackGlb(
   };
   // Circuit scans are meshopt-compressed (scripts/compress-track-glb.mjs)
   const ownUrl = url;
-  const loadOwnGlb = () =>
-    new GLTFLoader()
-      .setMeshoptDecoder(MeshoptDecoder)
-      .loadAsync(withBasePath(ownUrl), onProgress)
+  const loadGlb = (file: string) =>
+    createGltfLoader()
+      .loadAsync(withBasePath(file), onProgress)
       .then((gltf) => gltf.scene);
+  const loadOwnGlb = () => loadGlb(ownUrl);
+  // GPU-compressed textures for phones (ktx2-models.ts, a venue's ktx2Build; render/ktx2.ts decides who gets them)
+  const ktx2Url = ktx2ModelUrl(url);
+  const ktx2 = ktx2Url || split?.ktx2 ? acquireKtx2Loader() : null;
+  // A load with KTX2 textures also fails when the transcoder can't start (else it would wait for them forever)
+  const transcoded = <T>(load: Promise<T>) => (ktx2 ? Promise.all([load, ktx2Ready()]).then(([result]) => result) : load);
   // A layout of a venue with a shared model loads that pair (the same scene); its own GLB if the pair can't load
-  const loaded = split
-    ? loadVenueLayout(withBasePath(split.layoutUrl), withBasePath(split.sharedUrl), onProgress).catch((err) => {
-        if (!current()) throw new SupersededLoad();
-        console.warn(`Venue model ${split.venue} ${split.build} not available, loading ${url}:`, err);
-        return loadOwnGlb();
-      })
-    : loadOwnGlb();
+  const loadPair = (files: VenuePair, label: string, fallback: () => Promise<THREE.Group>) => {
+    const pair = loadVenueLayout(withBasePath(files.layoutUrl), withBasePath(files.sharedUrl), onProgress);
+    return (files === split?.ktx2 ? transcoded(pair) : pair).catch((err) => {
+      if (!current()) throw new SupersededLoad();
+      console.warn(`${label} not available, falling back:`, err);
+      return fallback();
+    });
+  };
+  const loadWebpPairOrOwn = () => (split ? loadPair(split, `Venue model ${split.venue} ${split.build}`, loadOwnGlb) : loadOwnGlb());
+  const loadSplitOrOwn = () =>
+    split?.ktx2 && ktx2 ? loadPair(split.ktx2, `Venue model ${split.venue} ${split.ktx2.build} (KTX2)`, loadWebpPairOrOwn) : loadWebpPairOrOwn();
+  const chosen =
+    ktx2Url && ktx2
+      ? transcoded(loadGlb(ktx2Url)).catch((err) => {
+          if (!current()) throw new SupersededLoad();
+          console.warn(`KTX2 model ${ktx2Url} not available, loading ${url}:`, err);
+          return loadSplitOrOwn();
+        })
+      : loadSplitOrOwn();
+  // The transcoder's workers are freed once the circuit's textures are in
+  const loaded = ktx2 ? chosen.finally(releaseKtx2Loader) : chosen;
   loaded
     .then((root) => {
       root.name = "CircuitTrack";

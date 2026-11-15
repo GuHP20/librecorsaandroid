@@ -1,5 +1,6 @@
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder as ThreeMeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { activeKtx2Loader, ktx2TextureCheck } from "@/lib/render/ktx2";
 
 type DecodeArgs = Parameters<typeof ThreeMeshoptDecoder.decodeGltfBufferAsync>;
 
@@ -95,7 +96,12 @@ export const MeshoptDecoder: typeof ThreeMeshoptDecoder = {
 /**
  * A GLTFLoader that also reads meshopt-compressed files: the Pages deploy compresses the car models
  * (scripts/compress-car-glb.mjs) while the repository keeps them raw, so the same loader has to take both.
+ * While a circuit load holds the KTX2 loader (ktx2.ts) it also reads KTX2 textures, and a KTX2 texture that fails
+ * fails the whole load.
  */
 export function createGltfLoader(): GLTFLoader {
-  return new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).register(ktx2TextureCheck);
+  const ktx2 = activeKtx2Loader();
+  if (ktx2) loader.setKTX2Loader(ktx2);
+  return loader;
 }
