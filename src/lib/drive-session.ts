@@ -170,6 +170,8 @@ const ASSET_STALL_MS = 25_000;
  */
 const WARMUP_UPLOAD_BYTES = 96 * 1024 * 1024;
 const WARMUP_UPLOAD_BYTES_GENTLE = 24 * 1024 * 1024;
+/** A context loss heard of this soon after the page came back into view counts as one in the background (ms) */
+const BACKGROUND_LOSS_GRACE_MS = 5000;
 /** On a gentle start the warm-up frame is drawn in parts first, each with this many materials' first draws at most */
 const WARMUP_GENTLE_NEW_MATERIALS = 3;
 
@@ -928,12 +930,15 @@ export class DriveSession {
      * library here rebuilds its own.
      */
     let gpuLost = false;
+    /** When the page last came back into view (performance.now()): a suspended tab may only hear of its loss then */
+    let shownAtMs = -Infinity;
     const onContextLost = (event: Event) => {
       // The browser may give the context back only when asked to (three asks too)
       event.preventDefault();
       if (disposed || gpuLost) return;
       gpuLost = true;
-      const hidden = document.visibilityState === "hidden";
+      // Lost in the background (or heard of just after coming back): the browser reclaimed it, nothing to remember
+      const hidden = document.visibilityState === "hidden" || performance.now() - shownAtMs < BACKGROUND_LOSS_GRACE_MS;
       recordContextLoss(browserStore(), Date.now(), hidden);
       console.warn(`[gpu] WebGL context lost (${appPhaseNow}${hidden ? ", page hidden" : ""}): the drive is paused`);
       releaseHeldKeys();
@@ -1528,7 +1533,10 @@ export class DriveSession {
 
     // A hidden tab stops the frame loop: zero the wheel rather than leave it holding the last force
     const onVisibilityChange = () => {
-      if (!document.hidden) return;
+      if (!document.hidden) {
+        shownAtMs = performance.now();
+        return;
+      }
       wheelFfb.stop();
       releaseHeldKeys();
       // The first frames back are no measure of the frame rate
