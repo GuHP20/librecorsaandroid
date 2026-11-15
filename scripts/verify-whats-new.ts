@@ -1,7 +1,7 @@
 /**
- * What's new patch notes and daily updater (`src/lib/home/whats-new.json`, `HomeHub.tsx`, `update_whats_new.py`):
- * validates ordering, entry schema, historical git alignment (when full history is checked out), UI tab order,
- * unread pulse wiring, and the dry-run updater.
+ * What's new patch notes (`src/lib/home/whats-new.json`, `HomeHub.tsx`):
+ * validates ordering, entry schema, historical git alignment (when full history is checked out),
+ * UI tab order, and unread pulse wiring.
  *
  *   npx tsx scripts/verify-whats-new.ts
  */
@@ -13,7 +13,6 @@ import type { WhatsNewDay } from "../src/components/home/home-data";
 const ROOT = process.cwd();
 const DATA_PATH = join(ROOT, "src/lib/home/whats-new.json");
 const HOME_HUB_PATH = join(ROOT, "src/components/home/HomeHub.tsx");
-const UPDATER_PATH = join(ROOT, ".github/scripts/update_whats_new.py");
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = ""): void {
@@ -56,7 +55,7 @@ for (const entry of entries) {
     Array.isArray(entry?.items) &&
     entry.items.length >= 1 &&
     entry.items.length <= 12 &&
-    entry.items.every((it) => typeof it === "string" && it.length > 0 && it.trim() === it && !EMOJI_RE.test(it));
+    entry.items.every((it) => typeof it === "string" && it.length > 0 && it.trim() === it && it.endsWith(".") && !EMOJI_RE.test(it));
   const commitsOk = Number.isInteger(entry?.commits) && entry.commits >= 1;
   const shaOk = typeof entry?.lastSha === "string" && /^[0-9a-f]{40}$/.test(entry.lastSha);
 
@@ -99,25 +98,21 @@ if (hasFullHistory) {
       else gitDays.set(d, { commits: 1, lastSha: sha });
     }
     for (const entry of entries) {
-      if (entry.date > "2026-11-13") continue;
       const g = gitDays.get(entry.date);
-      check(
-        `${entry.date}: historical count & lastSha match git`,
-        !!g && g.commits === entry.commits && g.lastSha === entry.lastSha,
-        g ? `${g.commits} commits, ${g.lastSha.slice(0, 7)}` : "missing"
-      );
+      if (entry.date <= "2026-11-14") {
+        check(
+          `${entry.date}: historical count & lastSha match git`,
+          !!g && g.commits === entry.commits && g.lastSha === entry.lastSha,
+          g ? `${g.commits} commits, ${g.lastSha.slice(0, 7)}` : "missing"
+        );
+      } else {
+        check(
+          `${entry.date}: commit count fits day's git log`,
+          !!g && entry.commits <= g.commits,
+          g ? `${entry.commits}/${g.commits} commits` : "missing"
+        );
+      }
     }
-  }
-
-  const dryRun = spawnSync("python3", [UPDATER_PATH, "--dry-run"], { cwd: ROOT, encoding: "utf8" });
-  if (dryRun.error && (dryRun.error as NodeJS.ErrnoException).code === "ENOENT") {
-    console.log("SKIP  update_whats_new.py --dry-run (python3 not installed)");
-  } else {
-    check(
-      "update_whats_new.py --dry-run succeeds on claude-opus-5-5 high",
-      dryRun.status === 0 && /claude-opus-5-5/.test(dryRun.stdout) && /effort high/.test(dryRun.stdout),
-      dryRun.status === 0 ? "ok" : dryRun.stderr.trim()
-    );
   }
 } else {
   console.log("SKIP  full git history checks (shallow checkout)");
