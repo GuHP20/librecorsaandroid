@@ -11,28 +11,45 @@
  *   as kerb and road, out to the grass: a car with all four wheels past the red and white kerb, on the yellow kerb and
  *   the cubes, stayed on the track (players' board laps went 8.4-8.9 m inside the line there). The yellow kerb and the
  *   cubes are sausages, past the track limits (the surface table's `sausage`, not part of the track); the South
- *   course's Castrol Edge too.
+ *   course's Castrol Edge too. At the two corners, as marked on their reviewed images: the anti-cut rumble outside
+ *   Castrol Edge's exit is a sausage too and the astroturf behind Remus's outside exit kerb run-off (both were kerb);
+ *   the racing asphalt out to the white line, and the red and white kerb, are the track where the physics called them
+ *   run-off and grass; and the road collider's asphalt past the white line on the pit exit before Castrol Edge, and
+ *   on the gore island past its apex, is run-off.
  *
  * Each rule takes the circuit's physics faces lying under the drawn meshes of its materials, where it applies, and
  * moves them to a `Track_Surface_<Kind>` node at their own heights: the ground the car drives on is unchanged, only
- * what it is called. Faces across the drawn edge are split (quartered down to `PIECE_M`) so the cut follows it.
+ * what it is called. Faces across the drawn edge are split (quartered down to `PIECE_M`) so the cut follows it. Over
+ * the road collider, which has no surface node to move, a rule lays a copy of its faces instead.
  */
 import * as THREE from "three";
 import type { BuiltTrackData } from "@/lib/track-data";
 import type { SurfaceTable, TrackSurfaceKind } from "./track-surfaces";
 
 export interface DrawnSurfaceRule {
-  /** Drawn materials (by name), or the circuit's own racing-surface materials (`metadata.mesh.roadMaterials`) */
-  materials: readonly string[] | "roadMaterials";
+  /**
+   * Drawn materials (by name), the circuit's own racing-surface materials (`metadata.mesh.roadMaterials`), or null:
+   * wherever the rule applies, whatever is drawn there
+   */
+  materials: readonly string[] | "roadMaterials" | null;
   /** What the physics under them is */
   surface: TrackSurfaceKind;
   /** The physics surfaces the rule renames (all when absent) */
   from?: readonly TrackSurfaceKind[];
   /**
-   * Where it applies: lap stretches [from, to] (m) on a side (-1 left, +1 right), or anywhere between the lap's
-   * barriers (each side's barrier distance at that point of the lap, `wallLeftM` / `wallRightM`)
+   * Where it applies: lap stretches [from, to] (m) on a side (-1 left, +1 right); lap bands [from, to, side, near,
+   * far], a stretch's side from `near` to `far` m off the centre line; or anywhere between the lap's barriers (each
+   * side's barrier distance at that point of the lap, `wallLeftM` / `wallRightM`)
    */
-  within: { stretches: readonly (readonly [number, number, -1 | 1])[] } | "barriers";
+  within:
+    | { stretches: readonly (readonly [number, number, -1 | 1])[] }
+    | { bands: readonly (readonly [number, number, -1 | 1, number, number])[] }
+    | "barriers";
+  /**
+   * Also lays the rule's surface over the road collider (`Track_Collider_Road`) where it applies, as a copy of its
+   * faces there: the road collider stays the ground the car drives on, the copy says what it is
+   */
+  overRoadCollider?: boolean;
   /**
    * Drawn materials that lie on the rule's ground in places (a sand or grass patch drawn over the street mesh, a
    * millimetre apart): where one of them is within `COVER_M` of a point, the ground there is not the rule's
@@ -49,10 +66,38 @@ export interface DrawnSurfaceRule {
 }
 
 const OFF_ROAD: readonly TrackSurfaceKind[] = ["runoff", "gravel", "grass"];
+const ON_TRACK: readonly TrackSurfaceKind[] = ["road", "kerb", "pitlane"];
 /** Norisring's drawn grass and sand (grassa, SandVariation, grassouttemp, 3dgrasb) */
 const NORISRING_COVERS = ["grassa", "sanda", "grassout", "dteichgrass"];
-/** The Red Bull Ring's curb_yellow, curb_cubes (two) and curb_cubes_red: the same names in the venue pair and the full GLB */
-const RED_BULL_RING_SAUSAGES = ["Material #12016", "Material #13667", "Material #19120", "Material #19526"];
+/**
+ * The Red Bull Ring's sausage kerbs: curb_yellow, curb_cubes (two), curb_cubes_red and the anti-cut rumble (rmblsafe).
+ * Its names here are the same in the venue pair and the full GLB.
+ */
+const RED_BULL_RING_SAUSAGES = ["Material #12016", "Material #13667", "Material #19120", "Material #19526", "rmbl_anticut"];
+/** Its racing asphalt (Castrol Edge's, Remus's) and white line (two names) */
+const RED_BULL_RING_ROAD = ["Material #11573", "Material #11583", "Material #3147", "line_01"];
+/** Its red and white kerbs (curb_redWhite2, curb_redWhite1) */
+const RED_BULL_RING_KERBS = ["Material #18918", "Material #19534"];
+/** Its astroturf: carpet_B_2, redbull_carpet_01_d, curb_greenFlat_3 (and with a drain) */
+const RED_BULL_RING_TURF = ["Material #12386", "Material #18425", "Material #19423", "Material #19509"];
+
+// Castrol Edge (turn 1), the same s in the full lap and the South course: the yellow kerb and cubes inside it, the
+// anti-cut rumble outside its exit; the asphalt round its outside out to the white line (10 m out at the apex); the
+// road collider past the white line (7.25-7.5 m out) on the pit exit beside the run to it, from where the armco
+// between them ends, and on the gore island past the apex, up to where the pit exit lane merges
+type Stretch = readonly [number, number, -1 | 1];
+type Band = readonly [number, number, -1 | 1, number, number];
+const CASTROL_EDGE_SAUSAGES: Stretch[] = [[295, 360, 1], [340, 420, -1]];
+const CASTROL_EDGE_ROAD: Band[] = [[316, 342, -1, 5, 10.1]];
+const CASTROL_EDGE_PIT_EXIT: Band[] = [[222, 298, 1, 7.6, 16], [348, 368, 1, 7.75, 16]];
+const pitExit = (bands: Band[]): DrawnSurfaceRule => ({
+  materials: null,
+  surface: "runoff",
+  from: ["road"],
+  overRoadCollider: true,
+  within: { bands },
+  note: "the road collider past the white line on the pit exit before Castrol Edge and the gore island past its apex",
+});
 
 export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceRule[]>> = {
   norisring: [
@@ -66,23 +111,35 @@ export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceR
     {
       materials: RED_BULL_RING_SAUSAGES,
       surface: "sausage",
-      within: {
-        stretches: [
-          [295, 360, 1],
-          [1240, 1300, 1],
-        ],
-      },
-      note: "the yellow kerbs and cubes inside Castrol Edge (turn 1) and Remus (turn 2)",
+      from: ON_TRACK,
+      within: { stretches: [...CASTROL_EDGE_SAUSAGES, [1240, 1300, 1]] },
+      note: "the yellow kerbs and cubes inside Castrol Edge (turn 1) and Remus (turn 2), the anti-cut rumble outside Castrol Edge's exit",
     },
+    // Behind Remus's outside exit kerb the physics kerb ran on under the astroturf, standing up to 15 cm over the run-off
+    // beneath: as a sausage (raised, off the track) it keeps the kerb's heights, capped as they were
+    { materials: RED_BULL_RING_TURF, surface: "sausage", from: ["kerb"], within: { stretches: [[1278, 1350, -1]] }, note: "the astroturf behind Remus's outside exit kerb" },
+    {
+      materials: RED_BULL_RING_ROAD,
+      surface: "road",
+      from: OFF_ROAD,
+      // Remus: inside on the way in, outside, inside on the way out (the white line 7.75-9 m out)
+      within: { bands: [...CASTROL_EDGE_ROAD, [1238, 1260, 1, 5, 8.25], [1255, 1284, -1, 5, 10], [1282, 1300, 1, 5, 8]] },
+      note: "the racing asphalt out to the white line at Castrol Edge and Remus",
+    },
+    { materials: RED_BULL_RING_KERBS, surface: "kerb", from: OFF_ROAD, within: { bands: [[1255, 1284, -1, 5, 10]] }, note: "Remus's outside kerb" },
+    pitExit(CASTROL_EDGE_PIT_EXIT),
   ],
-  // The South course runs through the same Castrol Edge (and leaves before Remus)
+  // The South course runs the same lap to past Castrol Edge (and leaves before Remus)
   spielberg_south: [
     {
       materials: RED_BULL_RING_SAUSAGES,
       surface: "sausage",
-      within: { stretches: [[295, 360, 1]] },
-      note: "the yellow kerbs and cubes inside Castrol Edge (turn 1)",
+      from: ON_TRACK,
+      within: { stretches: CASTROL_EDGE_SAUSAGES },
+      note: "the yellow kerbs and cubes inside Castrol Edge (turn 1), the anti-cut rumble outside its exit",
     },
+    { materials: RED_BULL_RING_ROAD, surface: "road", from: OFF_ROAD, within: { bands: CASTROL_EDGE_ROAD }, note: "the racing asphalt out to the white line at Castrol Edge" },
+    pitExit(CASTROL_EDGE_PIT_EXIT),
   ],
 };
 
@@ -116,6 +173,12 @@ const isPhysics = (o: THREE.Object3D, root: THREE.Object3D): boolean => {
   }
   return false;
 };
+
+/** A mesh of the road collider (`Track_Collider_Road`, itself or an ancestor) */
+function isRoadCollider(o: THREE.Object3D, root: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = o; p && p !== root; p = p.parent) if (p.name === "Track_Collider_Road" || p.userData?.collider === "road") return true;
+  return false;
+}
 
 /** The surface of the physics node a mesh belongs to (itself or the nearest named ancestor), or null */
 function nodeSurface(o: THREE.Object3D, root: THREE.Object3D): TrackSurfaceKind | null {
@@ -327,28 +390,44 @@ export function applyDrawnSurfaceRules(
   for (const rule of rules) {
     const from = rule.from ? new Set(rule.from) : null;
     const within = rule.within;
+    const barriers = within === "barriers";
+    const stretches = !barriers && "stretches" in within ? within.stretches : null;
+    const bands = !barriers && "bands" in within ? within.bands : null;
+    const lapLen = (s0: number, s1: number) => (((s1 - s0) % track.totalLengthM) + track.totalLengthM) % track.totalLengthM;
 
-    // Where the rule applies: within its stretches (judged once per drawn face, by its middle) or between the
-    // barriers (judged per point, from its place on the lap)
-    const stretchBoxes = within === "barriers" ? [] : within.stretches.map(([s0, s1]) => {
+    // Where the rule applies: within its stretches (judged once per drawn face, by its middle), or within its bands or
+    // between the barriers (judged per point, from a strip of the lap)
+    const stretchBoxes = (stretches ?? bands ?? []).map(([s0, s1]) => {
       const bx = new THREE.Box3();
-      const len = (((s1 - s0) % track.totalLengthM) + track.totalLengthM) % track.totalLengthM;
-      for (let d = 0; d <= len; d += 5) bx.expandByPoint(track.getSampleAtDistance(s0 + d).position);
+      for (let d = 0; d <= lapLen(s0, s1); d += 5) bx.expandByPoint(track.getSampleAtDistance(s0 + d).position);
       return bx.expandByScalar(40);
     });
     const inStretch = (x: number, z: number): boolean => {
-      if (within === "barriers") return true;
+      if (barriers) return true;
       const k = stretchBoxes.findIndex((bx) => x >= bx.min.x && x <= bx.max.x && z >= bx.min.z && z <= bx.max.z);
-      if (k < 0) return false;
+      if (k < 0 || !stretches) return k >= 0;
       // (the stretch's middle as the projection's hint: a search along the lap from there, not round all of it)
-      const [s0, s1] = within.stretches[k];
-      const p = track.projectWorldToTrack(x, z, s0 + ((((s1 - s0) % track.totalLengthM) + track.totalLengthM) % track.totalLengthM) / 2);
+      const [s0, s1] = stretches[k];
+      const p = track.projectWorldToTrack(x, z, s0 + lapLen(s0, s1) / 2);
       const side = p.lateralOffset >= 0 ? 1 : -1;
-      return within.stretches.some(([s0, s1, sd]) => sd === side && (s0 <= s1 ? p.s >= s0 && p.s <= s1 : p.s >= s0 || p.s <= s1));
+      return stretches.some(([s0, s1, sd]) => sd === side && (s0 <= s1 ? p.s >= s0 && p.s <= s1 : p.s >= s0 || p.s <= s1));
     };
-    // Between the barriers: the strip from each sample's left barrier to its right one, as triangles on an XZ grid
+    // Between the barriers: the strip from each sample's left barrier to its right one; a band: its side's strip from
+    // `near` to `far` along its stretch, a metre at a time. As triangles on an XZ grid
     const strip: number[] = [];
-    if (within === "barriers") {
+    for (const [s0, s1, side, near, far] of bands ?? []) {
+      let prev: number[] | null = null;
+      const len = lapLen(s0, s1);
+      for (let k = 0; k <= Math.ceil(len); k++) {
+        const q = track.getSampleAtDistance(s0 + Math.min(k, len));
+        const bl = Math.hypot(q.binormal.x, q.binormal.z) || 1;
+        const bx = (side * q.binormal.x) / bl, bz = (side * q.binormal.z) / bl;
+        const e = [q.position.x + bx * near, q.position.z + bz * near, q.position.x + bx * far, q.position.z + bz * far];
+        if (prev) strip.push(prev[0], prev[1], prev[2], prev[3], e[2], e[3], prev[0], prev[1], e[2], e[3], e[0], e[1]);
+        prev = e;
+      }
+    }
+    if (barriers) {
       const S = track.samples;
       const wallL = (i: number) => S[i].wallLeftM ?? S[i].width / 2;
       const wallR = (i: number) => S[i].wallRightM ?? S[i].width / 2;
@@ -375,7 +454,7 @@ export function applyDrawnSurfaceRules(
       const z0 = Math.floor(Math.min(strip[o + 1], strip[o + 3], strip[o + 5]) / CELL_M), z1 = Math.floor(Math.max(strip[o + 1], strip[o + 3], strip[o + 5]) / CELL_M);
       for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) (stripGrid.get(cx * 73856093 + cz * 19349663) ?? stripGrid.set(cx * 73856093 + cz * 19349663, []).get(cx * 73856093 + cz * 19349663)!).push(t);
     }
-    const betweenBarriers = (x: number, z: number): boolean => {
+    const inStrip = (x: number, z: number): boolean => {
       for (const t of stripGrid.get(Math.floor(x / CELL_M) * 73856093 + Math.floor(z / CELL_M) * 19349663) ?? []) {
         const o = t * 6;
         const v0x = strip[o + 2] - strip[o], v0z = strip[o + 3] - strip[o + 1], v1x = strip[o + 4] - strip[o], v1z = strip[o + 5] - strip[o + 1];
@@ -403,11 +482,11 @@ export function applyDrawnSurfaceRules(
     };
 
     // The drawn ground of the rule's materials (upward faces) within where it applies, and its covers near it
-    const drawn = drawnGround(root, new Set(rule.materials === "roadMaterials" ? roadMaterials : rule.materials), inStretch, within === "barriers" ? null : stretchBoxes);
-    if (!drawn.tris.length) continue;
+    const drawn = rule.materials === null ? null : drawnGround(root, new Set(rule.materials === "roadMaterials" ? roadMaterials : rule.materials), inStretch, barriers ? null : stretchBoxes);
+    if (drawn ? !drawn.tris.length : !strip.length) continue;
     const covers = rule.covers?.length ? drawnGround(root, new Set(rule.covers), () => true) : null;
     const underDrawn = (x: number, y: number, z: number): boolean =>
-      drawn.covers(x, y, z, UNDER_DRAWN_M) && !(covers?.covers(x, y, z, COVER_M) ?? false);
+      (drawn ? drawn.covers(x, y, z, UNDER_DRAWN_M) : true) && !(covers?.covers(x, y, z, COVER_M) ?? false);
     /**
      * The face's box overlaps some drawn face's box (and the strip's, where the rule has one): it may hold drawn ground
      * no vote point lands on
@@ -416,7 +495,7 @@ export function applyDrawnSurfaceRules(
       const x0 = Math.min(f[0][0], f[1][0], f[2][0]), x1 = Math.max(f[0][0], f[1][0], f[2][0]);
       const z0 = Math.min(f[0][2], f[1][2], f[2][2]), z1 = Math.max(f[0][2], f[1][2], f[2][2]);
       if (strip.length && !stripTouches(x0, z0, x1, z1)) return false;
-      return drawn.touches(x0, z0, x1, z1, Math.min(f[0][1], f[1][1], f[2][1]) - UNDER_DRAWN_M, Math.max(f[0][1], f[1][1], f[2][1]) + UNDER_DRAWN_M);
+      return !drawn || drawn.touches(x0, z0, x1, z1, Math.min(f[0][1], f[1][1], f[2][1]) - UNDER_DRAWN_M, Math.max(f[0][1], f[1][1], f[2][1]) + UNDER_DRAWN_M);
     };
 
     // Split each physics face by where the rule applies: its middle, corners and side middles (a tenth of the way in)
@@ -425,13 +504,15 @@ export function applyDrawnSurfaceRules(
     const mid = (p: Corner, q: Corner): Corner => p.map((v, k) => (v + q[k]) / 2);
     const longest = (f: Corner[]) => Math.max(...[0, 1, 2].map((k) => Math.hypot(f[(k + 1) % 3][0] - f[k][0], f[(k + 1) % 3][2] - f[k][2])));
     const areaXZ = (f: Corner[]) => Math.abs((f[1][0] - f[0][0]) * (f[2][2] - f[0][2]) - (f[2][0] - f[0][0]) * (f[1][2] - f[0][2])) / 2;
+    // The footprint (drawn ground, or the strip at any height)
     const box = new THREE.Box3();
-    for (let i = 0; i < drawn.tris.length; i += 3) box.expandByPoint(new THREE.Vector3(drawn.tris[i], drawn.tris[i + 1], drawn.tris[i + 2]));
+    if (drawn) for (let i = 0; i < drawn.tris.length; i += 3) box.expandByPoint(new THREE.Vector3(drawn.tris[i], drawn.tris[i + 1], drawn.tris[i + 2]));
+    else for (let i = 0; i < strip.length; i += 2) box.expandByPoint(new THREE.Vector3(strip[i], 0, strip[i + 1])).expandByPoint(new THREE.Vector3(strip[i], 1e4, strip[i + 1])).expandByPoint(new THREE.Vector3(strip[i], -1e4, strip[i + 1]));
     box.expandByScalar(UNDER_DRAWN_M);
 
     /** The renamed pieces, by the surface they were */
     const moved = new Map<TrackSurfaceKind, number[]>();
-    const inside = (x: number, y: number, z: number) => (within !== "barriers" || betweenBarriers(x, z)) && underDrawn(x, y, z);
+    const inside = (x: number, y: number, z: number) => (!strip.length || inStrip(x, z)) && underDrawn(x, y, z);
     /** 1: all seven vote points inside, 0: none, -1: they differ (a last piece: its middle alone, 1 or 0) */
     const vote = (g: Corner[], last: boolean): 1 | 0 | -1 => {
       const mx = (g[0][0] + g[1][0] + g[2][0]) / 3, my = (g[0][1] + g[1][1] + g[2][1]) / 3, mz = (g[0][2] + g[1][2] + g[2][2]) / 3;
@@ -445,14 +526,16 @@ export function applyDrawnSurfaceRules(
       }
       return middle ? 1 : 0;
     };
-    const targets: THREE.Mesh[] = [];
+    // The physics surfaces the rule renames, and the road collider it lays its surface over (copies: `copy`)
+    const targets: { mesh: THREE.Mesh; fromKind: TrackSurfaceKind; copy: boolean }[] = [];
+    const roadCopy = rule.overRoadCollider === true && rule.surface !== "road" && (!from || from.has("road"));
     root.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
       const kind = nodeSurface(o, root);
-      if (kind && kind !== rule.surface && (!from || from.has(kind))) targets.push(o);
+      if (kind && kind !== rule.surface && (!from || from.has(kind))) targets.push({ mesh: o, fromKind: kind, copy: false });
+      else if (!kind && roadCopy && isRoadCollider(o, root)) targets.push({ mesh: o, fromKind: "road", copy: true });
     });
-    for (const mesh of targets) {
-      const fromKind = nodeSurface(mesh, root) as TrackSurfaceKind;
+    for (const { mesh, fromKind, copy } of targets) {
       const out = moved.get(fromKind) ?? moved.set(fromKind, []).get(fromKind)!;
       const geom = mesh.geometry as THREE.BufferGeometry;
       const pos = geom.getAttribute("position");
@@ -528,7 +611,8 @@ export function applyDrawnSurfaceRules(
           todo = next;
         }
       }
-      if (!changed) continue;
+      // (the road collider keeps every face: the pieces were copied)
+      if (!changed || copy) continue;
       // Rebuilt unindexed in the mesh's own space, keeping its texture coordinates (the kerb ripple reads them)
       const nf = keptFaces.length;
       const keptPos = new Float32Array((nf + kept.length) * 9);
