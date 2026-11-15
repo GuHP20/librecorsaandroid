@@ -1506,6 +1506,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     onAcceptManualOffer: handleAcceptManualOffer,
     onAcceptManualAnswer: handleAcceptManualAnswer,
     onTogglePause: togglePause,
+    // `?perf=1`: the pause menu copies or saves the session's performance report
+    perfReport: session?.perfReport ?? null,
     keyNames,
     // The lap board while driving, with an online board only
     onChangeBoardWidget: boardOn ? handleChangeBoardWidget : undefined,

@@ -27,6 +27,7 @@ import type { PlayerSettings } from "@/lib/settings/player-settings";
 import { useUnits } from "@/lib/settings/ui-prefs";
 import { SPEED_LABEL, speedIn } from "@/lib/settings/units";
 import { MultiplayerPanel, type MultiplayerPanelProps } from "./MultiplayerPanel";
+import { PerfReportCard } from "./PerfReportCard";
 import { LeaderboardPanel, type LeaderboardPanelProps } from "./LeaderboardPanel";
 import { focusInZone, focusOnHover, focusZone, useFocusNav } from "@/components/menu/useFocusNav";
 import { useInputMode } from "@/components/menu/input-mode";
@@ -143,6 +144,8 @@ export interface PauseMenuProps extends MultiplayerPanelProps {
    * the focus back to.
    */
   covered?: boolean;
+  /** `?perf=1`: the session's performance report as text, which the Session tab copies or saves */
+  perfReport?: (() => string) | null;
 }
 
 type Panel = "settings" | "conditions" | "setup" | "corners" | "multiplayer" | "leaderboard";
@@ -420,10 +423,9 @@ export const SessionPanel: React.FC<PauseMenuProps> = (p) => {
       <Toggle checked={p.telemetry.aiAutopilot} onChange={() => p.onToggleAiAutopilot()} />
     </SettingRow>
   );
-  if (!p.onChangeRaceSetup) {
-    return <Card title="Session">{autopilot}</Card>;
-  }
-  return (
+  const rules = !p.onChangeRaceSetup ? (
+    <Card title="Session">{autopilot}</Card>
+  ) : (
     <RaceRules
       context="pause"
       setup={p.raceSetup}
@@ -436,6 +438,14 @@ export const SessionPanel: React.FC<PauseMenuProps> = (p) => {
       trackLengthM={getActiveTimedLengthM()}
       extraFieldRows={autopilot}
     />
+  );
+  // `?perf=1`: the performance report comes first, where the player lands on pausing
+  if (!p.perfReport) return rules;
+  return (
+    <div className="flex flex-col gap-3">
+      <PerfReportCard report={p.perfReport} />
+      {rules}
+    </div>
   );
 };
 

@@ -189,6 +189,8 @@ interface F1TelemetryHudProps extends MultiplayerPanelProps {
   challengeTarget?: import("@/lib/net/challenge-target").ChallengeTarget | null;
   /** The automatic quality's quiet note (drive-session.ts), a new id each time */
   qualityNotice?: { id: number; kind: "lowered" | "floor" } | null;
+  /** `?perf=1`: the session's performance report, for the pause menu to copy or save */
+  perfReport?: (() => string) | null;
 }
 
 /**
