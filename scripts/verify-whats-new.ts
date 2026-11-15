@@ -31,8 +31,8 @@ const EMOJI_RE = /\p{Extended_Pictographic}/u;
 
 const raw = readFileSync(DATA_PATH, "utf8");
 const parsed: unknown = JSON.parse(raw);
-// The backfill runs from the project's first day (17 Oct 2026) to 11 Nov; the daily job adds every day after it
-check("whats-new.json is an array with at least 17 days", Array.isArray(parsed) && parsed.length >= 17, `${Array.isArray(parsed) ? parsed.length : 0} days`);
+// Covers every active day from project start (17 Oct 2026) through 14 Nov 2026
+check("whats-new.json is an array with at least 20 days", Array.isArray(parsed) && parsed.length >= 20, `${Array.isArray(parsed) ? parsed.length : 0} days`);
 
 const entries = (Array.isArray(parsed) ? parsed : []) as WhatsNewDay[];
 const seenDates = new Set<string>();
