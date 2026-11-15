@@ -62,6 +62,8 @@ UI-RESEARCH-*.md
 !/public/tracks/rwanda_official/
 !/public/tracks/rwanda_official_short/
 !/public/tracks/index.json
+# RISE's KTX2 model for phones (src/lib/ktx2-models.ts) is hosted like the other circuits
+/public/tracks/rwanda_official/*.ktx2.*.glb
 /public/cars/*
 !/public/cars/f12026/
 /public/gt3/

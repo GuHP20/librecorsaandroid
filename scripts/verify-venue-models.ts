@@ -14,6 +14,10 @@
  * 6. The TV director's occlusion pass (camera-rig.ts): the same stations moved to the same dollies.
  * A control run swaps two of a layout's children and must be caught by 2.
  *
+ * A venue's KTX2 build for phones (`ktx2Build`) is the same pair with its textures converted to KTX2: it is compared with the
+ * layout's own WebP GLB in everything but the image bytes and type and the converter's `alphaKind` material extras
+ * (scripts/verify-ktx2-models.ts checks its textures).
+ *
  * Layouts whose files this copy doesn't have (hosted on librecorsa.org only) are skipped.
  *
  * Usage: npx tsx scripts/verify-venue-models.ts [layout ...]
@@ -23,13 +27,14 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import * as THREE from 'three';
 import type { GLTF, GLTFLoader, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import type { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { createGltfLoader } from '../src/lib/render/gltf-loader';
 import { fitVisualRoad } from '../src/lib/render/fit-visual-road';
 import { createVenueLoaders, mergeVenueLayout } from '../src/lib/render/venue-model';
 import { createGroundHit } from '../src/lib/sim/f12026-car/TrackColliderQuery';
 import { trackColliders } from '../src/lib/sim/track-colliders';
 import { getActiveTrackData, setActiveTrack, type RawTrackJson } from '../src/lib/track-data';
-import { VENUE_MODELS, venueModelFiles } from '../src/lib/venue-models';
+import { VENUE_MODELS, venueModelFiles, type VenuePair } from '../src/lib/venue-models';
 import { TracksideBroadcastDirector } from '../src/lib/render/camera-rig';
 import { loadGlbGeometry, readTrackGltfJson } from './lib/glb-geometry';
 import { noteSkip } from './lib/hosted-files';
@@ -74,7 +79,16 @@ const standInImages = (parser: GLTFParser) => {
   };
   return { name: 'verify_stand_in_images' };
 };
-const withStandIns = (loader: GLTFLoader) => loader.register(standInImages);
+/** KTX2 images (KHR_texture_basisu) become the same stand-ins, without a transcoder */
+const standInKtx2 = {
+  isKTX2Loader: true,
+  parse(buf: ArrayBuffer, onLoad: (t: THREE.Texture) => void) {
+    const tex = new THREE.Texture();
+    tex.image = { width: 4, height: 4, hash: sha(new Uint8Array(buf)) };
+    onLoad(tex);
+  },
+} as unknown as KTX2Loader;
+const withStandIns = (loader: GLTFLoader) => loader.register(standInImages).setKTX2Loader(standInKtx2);
 
 async function loadFull(path: string): Promise<THREE.Group> {
   return (await withStandIns(createGltfLoader()).parseAsync(readArrayBuffer(path), '')).scene;
@@ -90,8 +104,11 @@ async function loadSplitParts(layout: string, shared: string): Promise<{ l: GLTF
 
 const TEXTURE_SLOTS = ['map', 'emissiveMap', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'alphaMap', 'lightMap', 'bumpMap', 'clearcoatMap', 'specularIntensityMap', 'sheenColorMap'] as const;
 
-/** The scene, one line per object in depth-first order; objects, materials, textures and images numbered by first use */
-function describeLoaded(root: THREE.Object3D): string[] {
+/**
+ * The scene, one line per object in depth-first order; objects, materials, textures and images numbered by first use.
+ * `ktx2`: leave out image bytes and type and the converter's extras (a KTX2 build against the WebP GLB).
+ */
+function describeLoaded(root: THREE.Object3D, ktx2 = false): string[] {
   const ids = new Map<object, number>();
   const id = (kind: string, o: object) => {
     if (!ids.has(o)) ids.set(o, ids.size);
@@ -104,8 +121,8 @@ function describeLoaded(root: THREE.Object3D): string[] {
     return {
       id: id('tex', t),
       source: id('src', t.source),
-      image: (t.image as { hash?: string })?.hash,
-      props: [t.name, vec(t.offset), vec(t.repeat), t.rotation, vec(t.center), t.channel, t.colorSpace, t.wrapS, t.wrapT, t.magFilter, t.minFilter, t.flipY, t.generateMipmaps, JSON.stringify(t.userData)].join('|'),
+      image: ktx2 ? undefined : (t.image as { hash?: string })?.hash,
+      props: [t.name, vec(t.offset), vec(t.repeat), t.rotation, vec(t.center), t.channel, t.colorSpace, t.wrapS, t.wrapT, t.magFilter, t.minFilter, t.flipY, t.generateMipmaps, JSON.stringify(ktx2 ? { ...t.userData, mimeType: undefined } : t.userData)].join('|'),
     };
   };
   const walk = (o: THREE.Object3D, depth: number) => {
@@ -123,7 +140,8 @@ function describeLoaded(root: THREE.Object3D): string[] {
       parts.push(attrs.join(' '), g.index ? sha(g.index.array as ArrayBufferView) : 'no-index', bounds.join(' '), id('geo', g));
       for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
         const std = m as THREE.MeshStandardMaterial;
-        const props = [m.type, m.name, m.side, m.transparent, m.opacity, m.alphaTest, m.depthWrite, m.vertexColors, std.flatShading, std.color?.getHexString(), std.emissive?.getHexString(), std.emissiveIntensity, std.roughness, std.metalness, std.normalScale && vec(std.normalScale), JSON.stringify(m.userData)];
+        const userData = ktx2 ? Object.fromEntries(Object.entries(m.userData).filter(([k]) => k !== 'alphaKind')) : m.userData;
+        const props = [m.type, m.name, m.side, m.transparent, m.opacity, m.alphaTest, m.depthWrite, m.vertexColors, std.flatShading, std.color?.getHexString(), std.emissive?.getHexString(), std.emissiveIntensity, std.roughness, std.metalness, std.normalScale && vec(std.normalScale), JSON.stringify(userData)];
         const slots = TEXTURE_SLOTS.map((s) => [s, texture((std as unknown as Record<string, THREE.Texture | null>)[s])] as const).filter(([, t]) => t);
         parts.push(id('mat', m), props.join('|'), JSON.stringify(slots));
       }
@@ -156,7 +174,12 @@ function describeGeometry(root: THREE.Object3D): string[] {
 function firstDifference(a: string[], b: string[]): string {
   if (a.length !== b.length) return `${a.length} vs ${b.length} objects`;
   const i = a.findIndex((x, k) => x !== b[k]);
-  return i < 0 ? '' : `object ${i}: ${a[i].slice(0, 160)} | ${b[i].slice(0, 160)}`;
+  if (i < 0) return '';
+  // From just before the first character that differs: the start of a long line is usually the same in both
+  let c = 0;
+  while (c < a[i].length && a[i][c] === b[i][c]) c++;
+  const from = Math.max(0, c - 60);
+  return `object ${i}, at ${c}: …${a[i].slice(from, c + 100)} | …${b[i].slice(from, c + 100)}`;
 }
 
 const sameBuffers = (a: object, b: object) => {
@@ -198,8 +221,8 @@ function shadowCasters(root: THREE.Object3D): string[] {
 
 // ---------------------------------------------------------------------------------------------------------------
 
-async function verifyLayout(id: string, build: string) {
-  const files = venueModelFiles(id)!;
+async function verifyLayout(id: string, files: VenuePair, ktx2: boolean) {
+  const build = files.build;
   const fullPath = `public/tracks/${id}/${id}.glb`;
   const layoutPath = `public${files.layoutUrl}`;
   const sharedPath = `public${files.sharedUrl}`;
@@ -208,7 +231,7 @@ async function verifyLayout(id: string, build: string) {
     noteSkip(id, missing);
     return;
   }
-  console.log(`\n${id} (build ${build})`);
+  console.log(`\n${id} (build ${build}${ktx2 ? ', KTX2' : ''})`);
   const full = statSync(fullPath).size;
   const layoutBytes = statSync(layoutPath).size;
   const sharedBytes = statSync(sharedPath).size;
@@ -222,9 +245,9 @@ async function verifyLayout(id: string, build: string) {
   check("the shared file is this venue's, for these layouts", sx?.venue === venue.venue && JSON.stringify(sx?.layouts) === JSON.stringify(venue.layouts));
 
   // 2. The game's loader
-  const a = describeLoaded(await loadFull(fullPath));
+  const a = describeLoaded(await loadFull(fullPath), ktx2);
   const { l, s } = await loadSplitParts(layoutPath, sharedPath);
-  const b = describeLoaded(mergeVenueLayout(l, s));
+  const b = describeLoaded(mergeVenueLayout(l, s), ktx2);
   const diff = firstDifference(a, b);
   check('GLTFLoader: same tree, geometry, materials, textures and sharing', !diff, diff || `${a.length} objects`);
 
@@ -301,17 +324,22 @@ function tvStations(track: ReturnType<typeof getActiveTrackData>, root: THREE.Ob
 }
 
 async function main() {
-  const layouts = VENUE_MODELS.flatMap((v) => v.layouts.map((id) => ({ id, build: v.build }))).filter((x) => !only.size || only.has(x.id));
-  for (const { id, build } of layouts) await verifyLayout(id, build);
+  const layouts = VENUE_MODELS.flatMap((v) => v.layouts).filter((id) => !only.size || only.has(id));
+  // Each layout's WebP pair, and its KTX2 pair for phones where the venue has one
+  const pairs = layouts.flatMap((id) => {
+    const files = venueModelFiles(id)!;
+    return [{ id, files: files as VenuePair, ktx2: false }, ...(files.ktx2 ? [{ id, files: files.ktx2, ktx2: true }] : [])];
+  });
+  for (const { id, files, ktx2 } of pairs) await verifyLayout(id, files, ktx2);
 
   // Control: a pair merged with two children swapped must not pass as the same scene
-  const control = layouts.map((x) => ({ ...x, files: venueModelFiles(x.id)! })).find((x) => existsSync(`public${x.files.layoutUrl}`) && existsSync(`public${x.files.sharedUrl}`));
+  const control = pairs.find((x) => existsSync(`public${x.files.layoutUrl}`) && existsSync(`public${x.files.sharedUrl}`));
   if (control) {
     const { l, s } = await loadSplitParts(`public${control.files.layoutUrl}`, `public${control.files.sharedUrl}`);
     const order = (l.userData.lcVenueLayout as { order: number[] }).order;
     [order[0], order[1]] = [order[1], order[0]];
-    const swapped = describeLoaded(mergeVenueLayout(l, s));
-    const a = describeLoaded(await loadFull(`public/tracks/${control.id}/${control.id}.glb`));
+    const swapped = describeLoaded(mergeVenueLayout(l, s), control.ktx2);
+    const a = describeLoaded(await loadFull(`public/tracks/${control.id}/${control.id}.glb`), control.ktx2);
     console.log('\ncontrol');
     check(`${control.id} with two Track_Model children swapped is caught`, firstDifference(a, swapped) !== '');
   }

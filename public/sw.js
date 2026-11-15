@@ -27,6 +27,8 @@ const USED = "librecorsa-files-v1-used";
 const LEGACY_PREFIX = "librecorsa-assets-";
 /** Folders (under the site's base path) of hosted files: models, textures, sounds, track data */
 const ASSET_PATH = /\/(tracks|cars|lc26|gt3|audio)\/[^?#]+\.(glb|gltf|bin|webp|png|jpg|jpeg|ktx2|ogg|wav|mp3|json)$/i;
+/** The KTX2 texture transcoder (src/lib/render/ktx2.ts), which a phone fetches with every circuit: kept and checked the same way */
+const TRANSCODER_PATH = /\/basis\/basis_transcoder\.(js|wasm)$/;
 
 /** How long a check may wait for the server's answer before the kept copy is served */
 const CHECK_TIMEOUT_MS = 6000;
@@ -62,7 +64,7 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET" || req.headers.has("range") || req.cache === "no-store" || req.cache === "reload") return;
   const url = new URL(req.url);
   // A query string asks past the edge copy: that request is left to the network as it is
-  if (url.origin !== self.location.origin || url.search || !ASSET_PATH.test(url.pathname)) return;
+  if (url.origin !== self.location.origin || url.search || !(ASSET_PATH.test(url.pathname) || TRANSCODER_PATH.test(url.pathname))) return;
   // The work after the answer (keeping a download, noting a use, the clean-up) is collected while serving it
   const later = [];
   const answer = serve(event, url.origin + url.pathname, later);

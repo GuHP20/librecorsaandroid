@@ -9,6 +9,7 @@ import { F1AudioEngine2026 } from "@/lib/f1-audio-2026";
 import { createF1Car2026, type PortedSkin, type SimCarRig } from "@/lib/car-builder-2026";
 import { createGt3CarRig, gt3RigCameraAnchors } from "@/lib/gt3-car-model";
 import { disposeTree } from "@/lib/render/dispose-tree";
+import { setKtx2Renderer } from "@/lib/render/ktx2";
 import { Gt3DashDisplay, gt3MirrorPatches } from "@/lib/render/gt3-dash-display";
 import { createPortedCarRig } from "@/lib/ported-car-model";
 import { staticFloorOf } from "@/lib/render/body-floor";
@@ -836,6 +837,8 @@ export class DriveSession {
     });
     // AgX exposure, pixel ratio clamp and shadow type; set before the composer is created
     configureRenderer(renderer);
+    // The GPU formats the circuit's KTX2 textures transcode to (render/ktx2.ts)
+    setKtx2Renderer(renderer);
     renderer.setSize(container.clientWidth, container.clientHeight);
 
     container.innerHTML = "";
@@ -2560,6 +2563,7 @@ export class DriveSession {
       rainFx.dispose();
       virtualMirror.dispose();
       floorSparks.dispose();
+      setKtx2Renderer(null);
       renderer.dispose();
       audio?.dispose();
     };
