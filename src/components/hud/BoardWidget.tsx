@@ -126,6 +126,11 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
   const name = driverName.trim();
   const physics = lapPhysicsVersion(vehicle);
   const boardKey = `${trackId}|${vehicle}|${physics}|${driverNameKey(name)}`;
+  /** The board shown now: a read that answers after the car, circuit or name changed is cached, never shown */
+  const shownKey = useRef(boardKey);
+  useLayoutEffect(() => {
+    shownKey.current = boardKey;
+  }, [boardKey]);
   const [read, setRead] = useState<Read | null>(() => reads.get(boardKey) ?? null);
   /** The place an upload just gave the lap, shown at once while the board is read again */
   const [justSet, setJustSet] = useState<{ rank: number; total: number | null } | null>(null);
@@ -181,6 +186,7 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
       // A failed read keeps what was shown; a first failed read shows nothing (the board may be off)
       const next: Read = { at: Date.now(), page: page ?? known?.page ?? null, totals: totals ?? known?.totals ?? null };
       reads.set(boardKey, next);
+      if (shownKey.current !== boardKey) return;
       setRead(next);
       if (page) setJustSet(null);
     },
