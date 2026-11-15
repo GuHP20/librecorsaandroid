@@ -183,7 +183,8 @@ function buildGlbGeometry(path: string): { root: THREE.Group; json: GltfJson } {
       }
     } else obj = new THREE.Object3D();
     obj.name = n.name ?? '';
-    obj.userData = { ...(n.extras ?? {}) };
+    // Node extras next to a single primitive's material name (the node is that primitive's mesh)
+    obj.userData = { ...obj.userData, ...(n.extras ?? {}) };
     if (n.translation) obj.position.fromArray(n.translation);
     if (n.rotation) obj.quaternion.fromArray(n.rotation);
     if (n.scale) obj.scale.fromArray(n.scale);
