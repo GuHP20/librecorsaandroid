@@ -24,6 +24,11 @@
  * plus `COURSE_CUT_MARGIN_S`, and never under `COURSE_CUT_MIN_PENALTY_S`; none when the reference shows the road the
  * car took lost it the margin or more (the Grand Prix lap's loop driven on the short lap). Any excursion being judged
  * ends with it.
+ *
+ * Barrier contact (the car's summed contact while moving, `TrackLimitsFrame.wallContactS`): on a hill climb any touch
+ * breaks the rule (a run that hits the bales is done), on a circuit only riding the wall does, contact adding up to
+ * `WALL_RIDE_S` within `WALL_RIDE_WINDOW_S` (a brush off a barrier does not). Outside a race a breach deletes the lap
+ * ("Wall contact"); in a race it is judged as time off the track, like any excursion.
  */
 import type { TrackLimitsReason, TrackLimitsStatus } from "@/types/f1";
 import { CourseCutWatch } from "./course-limits";
@@ -55,6 +60,17 @@ const LIFT_MAX_S = 2.0;
 const CORNER_CURVATURE = 1 / 450;
 /** How long the banner message stays meaningful (ms) */
 const MESSAGE_HOLD_MS = 4200;
+/**
+ * Wall-riding on a circuit: barrier contact (while moving) adding up to this within the window below (s). Measured
+ * with the real cars: the racing lines touch no barrier anywhere; driving every corner with the outer wheels on or
+ * past the edge (Monaco, Norisring, the F1 and the GT3) adds up to at most 0.30 s in any 3 s; leaning on Monaco's and
+ * Norisring's barriers on purpose for two seconds or more, 0.40-1.03 s (the car bounces along the wall, so it touches
+ * it a fifth to a third of the time)
+ */
+const WALL_RIDE_S = 0.35;
+const WALL_RIDE_WINDOW_S = 3.0;
+/** In a race, a breach of the wall rule is time off the track until the car has been clear of the wall this long (s) */
+const WALL_CLEAR_S = 0.5;
 
 export const STRIKES_PER_PENALTY = 3;
 /** A course cut's penalty: the time it saved plus this, rounded up to the second, and at least the minimum (s) */
@@ -97,6 +113,13 @@ export interface TrackLimitsFrame {
   racePosition?: number;
   /** Racing (judging on) or not (lights, finished, autopilot, paused) */
   active: boolean;
+  /**
+   * Seconds the car's body has touched a barrier while moving, summed since the car was placed (its `wallContactS`
+   * channel): the contact between two frames is its rise (a drop, a placement, is none). Absent: none is judged
+   */
+  wallContactS?: number;
+  /** How barrier contact is judged: "touch" (a hill climb: any touch), "ride" (a circuit: wall-riding only); absent: not */
+  wallRule?: "touch" | "ride";
 }
 
 export interface TrackLimitsEvent {
@@ -158,6 +181,15 @@ export class TrackLimitsMonitor {
   private afterCut = false;
   /** The last frame was judged (`TrackLimitsFrame.active`); a verdict waiting while not is kept off the HUD */
   private active = true;
+  /** Barrier contact: the car's contact total last frame, the contact of the window's frames (clock, s pairs) and its sum */
+  private seenWallS: number | null = null;
+  private readonly wallLog: number[] = [];
+  private wallSumS = 0;
+  /** A breach of the wall rule in progress (from the frame it broke it until the window holds no contact), and contact this frame */
+  private wallBreach = false;
+  private wallNow = false;
+  /** Session clock of the last frame with barrier contact */
+  private wallLastS = -Infinity;
   private message: TrackLimitsStatus["message"] = null;
   private readonly status: TrackLimitsStatus = {
     warnings: 0,
@@ -190,6 +222,12 @@ export class TrackLimitsMonitor {
     this.afterCut = false;
     this.active = true;
     this.message = null;
+    this.seenWallS = null;
+    this.wallLog.length = 0;
+    this.wallSumS = 0;
+    this.wallBreach = false;
+    this.wallNow = false;
+    this.wallLastS = -Infinity;
   }
 
   get mode(): TrackLimitsSession {
@@ -219,9 +257,14 @@ export class TrackLimitsMonitor {
   }
 
   /** Advances the judging by one frame; returns the race-control decision taken this frame, if any */
-  update(f: TrackLimitsFrame): TrackLimitsEvent | null {
-    this.active = f.active;
-    this.clockS += f.dtS;
+  update(frame: TrackLimitsFrame): TrackLimitsEvent | null {
+    this.active = frame.active;
+    this.clockS += frame.dtS;
+    const wallBroken = this.wallFrame(frame);
+    // In a race, a breach of the wall rule is judged as time off the track, until the car is clear of the wall (it
+    // bounces along it, touching it a fifth to a third of the time)
+    const riding = this.wallBreach && this.clockS - this.wallLastS < WALL_CLEAR_S;
+    const f = this.session === "race" && riding && !frame.offTrack ? { ...frame, offTrack: true } : frame;
     if (this.courseCut(f)) {
       const race = this.session === "race";
       const deleted = race ? null : this.strict(f);
@@ -246,7 +289,7 @@ export class TrackLimitsMonitor {
         if (this.cutFrom) return this.cutPenalty(f);
       }
     }
-    if (this.session === "practice") return this.strict(f);
+    if (this.session === "practice") return this.strict(f, wallBroken);
     if (!f.active) {
       // An excursion still in progress can't be finished by the driver any more (the autopilot, the lights or the
       // flag took over): forget it. One already back on the track owes a verdict: it waits, its clocks stopped,
@@ -278,6 +321,43 @@ export class TrackLimitsMonitor {
     }
     if (e.stage === "judging") return this.whileJudging(e, f);
     return this.whileGivingBack(e, f);
+  }
+
+  /**
+   * Barrier contact this frame against the frame's wall rule: a hill climb's any touch, a circuit's wall-riding
+   * (contact adding up to `WALL_RIDE_S` within `WALL_RIDE_WINDOW_S`). True on the frame a breach starts; a breach lasts
+   * until the window holds no contact (scraping along the barrier is one breach, not one a frame)
+   */
+  private wallFrame(f: TrackLimitsFrame): boolean {
+    const total = f.wallContactS;
+    const prev = this.seenWallS;
+    this.seenWallS = total ?? null;
+    if (total === undefined || prev === null || !f.wallRule || !f.active) {
+      this.wallLog.length = 0;
+      this.wallSumS = 0;
+      this.wallBreach = false;
+      this.wallNow = false;
+      return false;
+    }
+    const d = Math.max(0, total - prev);
+    this.wallNow = d > 0;
+    if (this.wallNow) this.wallLastS = this.clockS;
+    if (d > 0) {
+      this.wallLog.push(this.clockS, d);
+      this.wallSumS += d;
+    }
+    while (this.wallLog.length > 0 && this.wallLog[0] <= this.clockS - WALL_RIDE_WINDOW_S) {
+      this.wallSumS -= this.wallLog[1];
+      this.wallLog.splice(0, 2);
+    }
+    if (this.wallLog.length === 0) this.wallSumS = 0;
+    const over = f.wallRule === "touch" ? this.wallNow : this.wallSumS >= WALL_RIDE_S;
+    if (over && !this.wallBreach) {
+      this.wallBreach = true;
+      return true;
+    }
+    if (this.wallLog.length === 0) this.wallBreach = false;
+    return false;
   }
 
   /** Has a jump of the lap distance further than the car can have driven stood (judged only while driving)? */
@@ -355,7 +435,7 @@ export class TrackLimitsMonitor {
    * sector deletes the lap that starts next too (said again as that lap starts). Not driving (the autopilot) judges
    * nothing, but the lap starts are still followed.
    */
-  private strict(f: TrackLimitsFrame): TrackLimitsEvent | null {
+  private strict(f: TrackLimitsFrame, wallBroken = false): TrackLimitsEvent | null {
     const started =
       this.seenLapCount !== null &&
       (f.lapCount !== this.seenLapCount || (f.lapTimeMs !== undefined && this.seenLapTimeMs !== null && f.lapTimeMs < this.seenLapTimeMs));
@@ -387,6 +467,16 @@ export class TrackLimitsMonitor {
         };
       }
       if (lastSector) this.nextLapDeleted = true;
+    }
+    if (wallBroken && !deleted) {
+      this.totalStrikes++;
+      this.message = {
+        kind: "lap_invalid",
+        text: "Wall contact · lap deleted",
+        detail: f.wallRule === "touch" ? "Touched the barrier" : "Rode the wall",
+        atMs: f.nowMs,
+      };
+      return { kind: "lap_invalid", reason: "wall_contact", lap: f.lapCount };
     }
     if (!deleted) return null;
     this.totalStrikes++;

@@ -488,7 +488,7 @@ export interface CarTelemetry {
 }
 
 /** Why an excursion counted against the driver */
-export type TrackLimitsReason = "gained" | "corner_cut" | "not_lifted" | "illegal_overtake" | "course_cut";
+export type TrackLimitsReason = "gained" | "corner_cut" | "not_lifted" | "illegal_overtake" | "course_cut" | "wall_contact";
 
 /** The race-control state of the track-limits judging (see `TrackLimitsMonitor`) */
 export interface TrackLimitsStatus {
@@ -664,6 +664,12 @@ export interface F12026Channels {
   absActive: boolean;
   /** Touching a barrier this frame / last impact speed into the wall (m/s) and its sim time (ms) */
   wallContact: boolean;
+  /**
+   * Seconds the body has touched a barrier while moving, every fixed step counted, since the car was last placed (a
+   * placement zeroes it, otherwise it only grows): race control judges barrier contact from its rise between frames,
+   * however few of them it sees
+   */
+  wallContactS: number;
   /** Last barrier impact: into-wall speed, when, and where on the car (m, + left / + forward) */
   wallImpact: { speedMs: number; atMs: number; localX?: number; localZ?: number } | null;
 }

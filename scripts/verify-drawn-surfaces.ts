@@ -11,7 +11,9 @@
  * 2. Norisring: the street out to the barriers is the track (s 760, the Schoeller S and the inside lane into the Grundig
  *    hairpin), the gravel inside the hairpin and the car park past its outside kerb are not; from the marked images of
  *    turns 2-6, the back straight's promenades and the apron past the start-finish straight's edge are off the track,
- *    the Schöller S's inside street and turn 6's outer lane and pit entry on it. Red Bull Ring (and its
+ *    the Schöller S's inside street and turn 6's outer lane and pit entry on it. Goodwood: the verges past the asphalt
+ *    (the inside of Molecomb and Turn 2 within the lap's shifted width too) are off the track, the asphalt on
+ *    Molecomb's outside on it. Red Bull Ring (and its
  *    South course): a car past the red and white kerb inside Castrol Edge and Remus is off the track, one on the kerb
  *    is not; past the white line on the pit exit and the gore island, on the anti-cut rumble and on Remus's exit
  *    astroturf it is off; the asphalt out to the white line is on; the pit exit merge is as it was.
@@ -258,6 +260,16 @@ if (south) {
   check('and on the kerb it is on the track', !carOff(south.after, 330, 7.5));
   check('Red Bull Ring South: on the pit exit past the white line and the anti-cut rumble off the track (on before)',
     !carOff(south.before, 270, 9) && !carOff(south.before, 380, -12.5) && carOff(south.after, 270, 9) && carOff(south.after, 380, -12.5));
+}
+const goodwood = load('goodwood');
+if (goodwood) {
+  // The marked corner images: the verges past the asphalt before the MMS Bridge (both sides), the inside verge of
+  // Molecomb and of Turn 2 (within the lap's track-data width, which is shifted off the road there)
+  const verges: [number, number][] = [[150, -4.75], [150, 4.75], [905, -2.5], [355, 3]];
+  check('Goodwood: on the verges past the asphalt a car was on the track, and is off it now',
+    verges.every(([s, l]) => !carOff(goodwood.before, s, l) && carOff(goodwood.after, s, l)), verges.filter(([s, l]) => !carOff(goodwood.after, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
+  check("Goodwood: the asphalt on Molecomb's outside is on the track now (off before), the road's middle stays on it",
+    carOff(goodwood.before, 905, 3.75) && !carOff(goodwood.after, 905, 3.75) && !carOff(goodwood.after, 905, 0) && !carOff(goodwood.after, 150, 0));
 }
 
 if (failures.length) {

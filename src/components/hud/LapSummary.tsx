@@ -292,7 +292,7 @@ const LapCard: React.FC<
   if (!s.valid) {
     badge = (
       <Badge tone="bad" icon="trackLimits">
-        Invalid: track limits
+        {s.wallContact ? "Invalid: wall contact" : "Invalid: track limits"}
       </Badge>
     );
   } else if (s.autopilot) {

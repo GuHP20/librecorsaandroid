@@ -17,6 +17,7 @@ import { createGroundHit } from '../src/lib/sim/f12026-car/TrackColliderQuery';
 import { simMode } from '../src/lib/sim/runtime/sim-mode';
 import { F1Physics2026 } from '../src/lib/f1-physics-2026';
 import { SIM_TICK_S } from '../src/lib/sim/runtime/sim-protocol';
+import { TrackLimitsMonitor } from '../src/lib/sim/track-limits';
 import { createSimHost, loopbackTransport } from '../src/lib/sim/runtime/sim-host';
 import type { SimulatorCar } from '../src/lib/sim/simulator-car';
 import { getActiveTrackData } from '../src/lib/track-data';
@@ -282,6 +283,37 @@ for (const [name, vehicle] of [['f12026-car', 'f12026-car'], ['LC26 as it ships'
   flat.aiAutopilot = true;
   for (let t = 0; t < 20 - 1e-9; t += SIM_TICK_S) flat.step(SIM_TICK_S, {});
   check(`${name}: (a car on the track samples' ground ends elsewhere)`, worstDifference(poseOf(flat), poseOf(direct)) > 1e-3);
+
+  if (vehicle === 'f12026-car') {
+    // Barrier contact, summed over every tick in the simulation, crosses to the game with the telemetry (race control's
+    // wall rules read it): the car steered into the left barrier before turn 1
+    r.car.aiAutopilot = false;
+    r.car.teleportToDistance(225, 25, -7);
+    for (let f = 0; f < 120 && (sim.telemetry.f12026?.wallContactS ?? 0) === 0; f++) frame(r, { throttle: 0.5, analogSteer: -1 });
+    for (let f = 0; f < 30; f++) frame(r, { throttle: 0.5, analogSteer: -1 });
+    const there = sim.telemetry.f12026?.wallContactS ?? 0;
+    const here = r.car.telemetry.f12026?.wallContactS ?? 0;
+    check(`${name}: barrier contact, summed in the simulation, reaches the game`, there > 0 && Math.abs(here - there) < 0.02, `${there.toFixed(3)} s there, ${here.toFixed(3)} s here`);
+    // A restart puts the car somewhere else: the sum starts again on both cars, so race control, judging a hill climb's
+    // touch from what the game reads, sees no contact while the hand-over settles
+    const control = new TrackLimitsMonitor();
+    control.reset('practice');
+    const judge = (n: number) => {
+      const seen: number[] = [];
+      for (let f = 0; f < n; f++) {
+        const t = r.car.telemetry;
+        seen.push(t.f12026?.wallContactS ?? 0);
+        const ev = control.update({ nowMs: f * 16, dtS: FRAME_S, lapCount: t.lapCount, distM: r.car.sMeters, offTrack: false, throttle: 0.4, brake: 0, lateralM: 0, curvature: 0, deltaS: null, active: true, wallContactS: t.f12026?.wallContactS, wallRule: 'touch' });
+        if (ev) return { ev, seen };
+        frame(r, { throttle: 0.4 });
+      }
+      return { ev: null, seen };
+    };
+    judge(3);
+    r.car.teleportToDistance(400, 20, 0);
+    const after = judge(30);
+    check(`${name}: after a restart the game's contact sum starts again, and no touch is judged`, after.ev === null && Math.max(...after.seen) < 1e-9, `${after.seen.slice(0, 6).map((v) => v.toFixed(3)).join(' ')} …`);
+  }
 
   if (vehicle === 'lc26') {
     // The kerbs' blocks (the circuit's surface table, read off the kerb meshes' texture coordinates) are the same under
