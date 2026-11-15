@@ -6,7 +6,11 @@
  *   barriers (20 m and more across), and the bands past the edge called it run-off and grass. A car using the street
  *   was off the track (and on grass grip) on drawn asphalt. Every drawn road and kerb between the barriers is the
  *   track, except past a kerb's outer edge (the car parks, escape roads and the island behind the hairpins' kerbs);
- *   paving past the barriers stays as it is.
+ *   paving past the barriers stays as it is. At turns 2-6 the areas marked on the reviewed corner images
+ *   (norisring-marked-areas.ts) apply on top: street marked as track that the street rule misses (past the lap's
+ *   barrier distances, which run short at the Schöller S, or paving it doesn't read as road) is the track, and the
+ *   back straight's promenades, the curb strips behind the Schöller S's inside wall and road faces jutting past the
+ *   start-finish straight's edge are off it, except where an area marked as track overlaps them.
  * - Red Bull Ring: its physics counts the yellow kerbs and kerb cubes inside Castrol Edge (turn 1) and Remus (turn 2)
  *   as kerb and road, out to the grass: a car with all four wheels past the red and white kerb, on the yellow kerb and
  *   the cubes, stayed on the track (players' board laps went 8.4-8.9 m inside the line there). The yellow kerb and the
@@ -24,6 +28,7 @@
  */
 import * as THREE from "three";
 import type { BuiltTrackData } from "@/lib/track-data";
+import { NORISRING_MARKED_AREAS } from "./norisring-marked-areas";
 import { isTrackSurfaceKind, type SurfaceTable, type TrackSurfaceKind } from "./track-surfaces";
 
 export interface DrawnSurfaceRule {
@@ -73,6 +78,9 @@ const OFF_ROAD: readonly TrackSurfaceKind[] = ["runoff", "gravel", "grass"];
 const ON_TRACK: readonly TrackSurfaceKind[] = ["road", "kerb", "pitlane"];
 /** Norisring's drawn grass and sand (grassa, SandVariation, grassouttemp, 3dgrasb) */
 const NORISRING_COVERS = ["grassa", "sanda", "grassout", "dteichgrass"];
+/** The areas marked on Norisring's corner images (turns 2-6) as track, and as off it */
+const NORISRING_MARKED_TRACK = NORISRING_MARKED_AREAS.filter((a) => a.legal).map((a) => a.outline);
+const NORISRING_MARKED_OFF = NORISRING_MARKED_AREAS.filter((a) => !a.legal).map((a) => a.outline);
 /**
  * The Red Bull Ring's sausage kerbs: curb_yellow, curb_cubes (two), curb_cubes_red and the anti-cut rumble (rmblsafe).
  * Its names here are the same in the venue pair and the full GLB.
@@ -110,6 +118,24 @@ export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceR
     { materials: "roadMaterials", surface: "road", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn street between the barriers" },
     // curbrubber and the drain strip by the kerbs
     { materials: ["CurbRubber", "rmblb"], surface: "kerb", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn kerbs between the barriers" },
+    // The corner images of turns 2-6 as marked (cut to 0.5 m, about the pen's line): street the rules above leave off
+    // the track (past the lap's barrier distances, which run 1-2 m short at the Schöller S, paving the street rule
+    // doesn't read as road)...
+    { materials: null, surface: "road", from: OFF_ROAD, within: { areas: NORISRING_MARKED_TRACK }, pieceM: 0.5, note: "the areas marked as track on the corner images" },
+    // ...and what is off it although drawn as street or kerb (the back straight's promenades, the curb strips behind the
+    // Schöller S's inside wall, road faces jutting past the start-finish straight's edge), where no area marked as
+    // track overlaps it (the finer image's marks win)
+    {
+      materials: null,
+      surface: "runoff",
+      from: ON_TRACK,
+      overRoadCollider: true,
+      within: { areas: NORISRING_MARKED_OFF, except: NORISRING_MARKED_TRACK },
+      // (the marks on the coarser turn 4 image reach up to 1.5 m onto the start-finish straight's road)
+      offTheRoad: true,
+      pieceM: 0.5,
+      note: "the areas marked off the track on the corner images",
+    },
   ],
   spielberg: [
     {
