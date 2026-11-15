@@ -17,7 +17,7 @@ import { SCENERY_CREDITS } from "@/lib/render/scenery-credits";
 import { isLikelyWheel, padDisplayName } from "@/lib/input/device-input";
 import { isTouchDevice } from "@/lib/input/touch-input";
 import type { SpeedUnit } from "@/lib/settings/player-settings";
-import { hudLayout } from "@/lib/settings/hud-layouts";
+import { HUD_LICENSE_URL, THIRD_PARTY_HUD_LAYOUTS, hudLayout } from "@/lib/settings/hud-layouts";
 import { useUnits } from "@/lib/settings/ui-prefs";
 import { DISTANCE_LABEL, distanceIn } from "@/lib/settings/units";
 import { useGamepads, type PadState } from "./useMenuNav";
@@ -109,6 +109,29 @@ const Credits: React.FC = () => (
         </CreditRow>
         <CreditRow title="Graphics & audio">
           WebGL2 PBR rendering with GPU tyre deformation, golden-hour lighting and multi-layer Web Audio synthesis.
+        </CreditRow>
+        <CreditRow title="HUD layouts">
+          The third-party HUD layouts are recreated from other open-source HUD projects, with LibreCorsa&apos;s own
+          telemetry:
+          <br />
+          {THIRD_PARTY_HUD_LAYOUTS.map((l) => (
+            <React.Fragment key={l.id}>
+              &ldquo;{l.label}&rdquo; (
+              <a href={l.credit.repoUrl} target="_blank" rel="noreferrer" className={linkClass}>
+                github.com
+              </a>
+              ) by {l.credit.author} ·{" "}
+              <a href={HUD_LICENSE_URL[l.credit.license]} target="_blank" rel="noreferrer" className={linkClass}>
+                {l.credit.license === "MIT" ? "MIT" : "GPL v3"}
+              </a>
+              <br />
+            </React.Fragment>
+          ))}
+          Their licence texts are in{" "}
+          <a href={`${REPO_URL}/blob/main/THIRD_PARTY_NOTICES.md`} target="_blank" rel="noreferrer" className={linkClass}>
+            THIRD_PARTY_NOTICES.md
+          </a>
+          .
         </CreditRow>
       </div>
       <div>
