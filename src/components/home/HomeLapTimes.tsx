@@ -58,7 +58,7 @@ const LoadingCard: React.FC = () => (
 
 export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, carTags, scrollRoot, onShown }) => {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const [state, setState] = useState<"waiting" | "on" | "off">("waiting");
+  const [state, setState] = useState<"waiting" | "on" | "off" | "unreachable">("waiting");
   const [picked, setPicked] = useState<{ from: string; id: string } | null>(null);
   // The hub's pick, until another circuit is picked here (a new pick on the hub wins again)
   const shownCircuit = picked && picked.from === circuit ? picked.id : circuit;
@@ -80,8 +80,8 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
             .then((m) => {
               if (!live) return;
               unwatch = m.watchOnlineConfig((online) => {
-                const board = m.boardStateOf(online);
-                if (board !== "unreachable") setState(board);
+                // Out of reach says so (not a loading card for good); a later "on" replaces it
+                setState(m.boardStateOf(online));
               });
             })
             .catch(() => {
@@ -109,6 +109,8 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
     <div ref={sentinelRef} className="mx-auto min-h-px w-full max-w-[1200px]">
       {!HAS_API || state === "off" ? (
         <EmptyState icon={<Icon name="offline" size="lg" />}>Lap times are offline right now. Try again later.</EmptyState>
+      ) : state === "unreachable" ? (
+        <EmptyState icon={<Icon name="offline" size="lg" />}>Couldn&apos;t reach the online board. I&apos;ll keep trying.</EmptyState>
       ) : state === "on" ? (
         <Suspense fallback={<LoadingCard />}>
           <OnlineBoard
