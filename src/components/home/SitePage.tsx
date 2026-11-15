@@ -33,6 +33,7 @@ export function SitePage({
   scrollRef,
   id,
   className,
+  wide,
 }: {
   /** Right of the logo (default "Play now"); null for none */
   action?: React.ReactNode;
@@ -42,6 +43,8 @@ export function SitePage({
   id?: string;
   /** Classes of the scroll box (smooth scrolling) */
   className?: string;
+  /** 1280 px instead of 1040, for a page of grids (press and media); running text keeps its own measure */
+  wide?: boolean;
 }) {
   return (
     <div
@@ -54,7 +57,12 @@ export function SitePage({
           Skip to content
         </Button>
       </div>
-      <div className="mx-auto flex w-full max-w-[1040px] flex-col pt-[max(1.25rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(4rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(2rem,env(safe-area-inset-right))] sm:pl-[max(2rem,env(safe-area-inset-left))]">
+      <div
+        className={cx(
+          "mx-auto flex w-full flex-col pt-[max(1.25rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(4rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(2rem,env(safe-area-inset-right))] sm:pl-[max(2rem,env(safe-area-inset-left))]",
+          wide ? "max-w-[1280px]" : "max-w-[1040px]",
+        )}
+      >
         <header className="flex min-h-13 flex-wrap items-center justify-between gap-4">
           <Link href="/" aria-label="LibreCorsa home" className="inline-flex rounded-lc-nub no-underline">
             <LibreCorsaLogo variant="compact" size="sm" />

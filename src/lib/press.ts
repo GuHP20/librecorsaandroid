@@ -18,6 +18,8 @@ export interface CoverageItem {
   author?: string;
   /** Two-letter language code, when not English */
   lang?: string;
+  /** e.g. "198K views", as the site showed it when added */
+  engagement?: string;
 }
 
 /** Smaller mentions by other people: social posts, threads, projects built on it */
@@ -39,6 +41,7 @@ export const COVERAGE: CoverageItem[] = [
     url: "https://www.instagram.com/reel/Dfs4we0jXsa/",
     date: "2026-11-14",
     kind: "Video",
+    engagement: "198K views",
   },
   {
     outlet: "AppMunchies on YouTube",
@@ -266,4 +269,9 @@ export const RISE_OFFICIAL_RENDER = "/press/rise/official-render.jpg";
 const newestFirst =<T extends { date: string }>(items: T[]) => [...items].sort((a, b) => b.date.localeCompare(a.date));
 
 export const coverage = () => newestFirst(COVERAGE);
+
+/** What a coverage filter groups by: videos and podcasts apart from everything written */
+export type CoverageGroup = "written" | "video" | "podcast";
+export const coverageGroup = (kind: CoverageKind): CoverageGroup =>
+  kind === "Video" ? "video" : kind === "Podcast" ? "podcast" : "written";
 export const discussions = () => newestFirst(DISCUSSIONS);
