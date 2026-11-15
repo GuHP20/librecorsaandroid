@@ -1,6 +1,6 @@
 # Porting circuits
 
-The repository includes one circuit, RISE Motordrome. Every other circuit is hosted on librecorsa.org and is gitignored. This guide is how I convert an Assetto Corsa circuit mod for a local clone, and what the game reads if you want to build a circuit yourself.
+The repository includes one circuit, RISE Motordrome. Every other circuit is hosted on librecorsa.org and is gitignored. This guide is how I convert an Assetto Corsa circuit mod for a local clone, and how to build a circuit of your own in Blender.
 
 The converter was written circuit by circuit, so expect to read it and adjust it for a new one.
 
@@ -8,7 +8,8 @@ The converter was written circuit by circuit, so expect to read it and adjust it
 
 - Node.js, then `npm install` once (the game, the racing-line optimiser, the checks and the compressor).
 - [uv](https://docs.astral.sh/uv/) for the Python scripts. The commands below pull the pinned packages from `scripts/tracks/requirements.txt`, so there is no virtualenv to set up. Other Pillow or OpenCV versions work, but they encode some textures to different bytes.
-- The mod's track folder: the one with the `.kn5` models, `models*.ini` files, `data/` and the layout folders. You don't need the game itself to convert a mod.
+- For a mod: its track folder, the one with the `.kn5` models, `models*.ini` files, `data/` and the layout folders. You don't need the game itself to convert a mod.
+- For your own circuit: [Blender](https://www.blender.org/) (I use 5.3).
 
 ## Converting a mod
 
@@ -62,11 +63,81 @@ From the mod it reads:
 - `ai/pit_lane.ai`: optional, the pit lane
 - `data/`: `surfaces.ini`, `sections.ini`, `drs_zones.ini`, `cameras*.ini`, `groove.ini`, `crew.ini` and `lighting.ini`, each optional
 
+## Building a circuit in Blender
+
+`scripts/tracks/build_blender_track.py` turns a circuit modelled in Blender into the game's files. It runs the same road, kerb, wall and racing-line steps as the mod converter, so you don't need Assetto Corsa.
+
+### Try the example
+
+`scripts/tracks/example_circuit.py` models a small test circuit in Blender from code: a 1.86 km loop with a pit lane, a hairpin, esses and a banked corner. Build it and convert it:
+
+```bash
+blender -b --factory-startup -P scripts/tracks/example_circuit.py -- ~/librecorsa-example
+```
+
+```bash
+uv run --python 3.14 --no-project --with-requirements scripts/tracks/requirements.txt \
+  python -P scripts/tracks/build_blender_track.py example_circuit --glb ~/librecorsa-example/example_circuit.glb
+```
+
+On a Mac, `blender` is `/Applications/Blender.app/Contents/MacOS/Blender`. The first command also saves `example_circuit.blend` next to the GLB: open it to see how the meshes are named and laid out.
+
+### Modelling
+
+Work in metres with Blender's Z up; the export turns it into the game's Y up.
+
+- **Surfaces**: name each mesh the cars touch by what it is: `Road`, `Kerb`, `Runoff`, `Gravel`, `Grass`, `Wall` or `PitLane`, alone or followed by `.`, `_`, `-`, a space or a digit (`Road.001`, `Kerb_T1`, `Wall 3`). The cars drive on those meshes' triangles and hit the walls. Meshes with any other name are scenery: drawn, never driven on.
+- **The road** should be smooth, with enough faces across it for its camber. Unwrap its UVs: the game draws the road's materials with its own asphalt shader, which needs them. Lay kerbs a centimetre or so above the road edge.
+- **Materials**: Principled BSDF, as the glTF exporter expects. The game keeps metalness (up to 0.6) only on material names that say metal (metal, steel, armco, rail, guard, post, pole and the like), and roughness at 0.65 or more (0.8 for ground: asphalt, grass, kerbs, gravel), unless a texture sets them.
+- **`Track_Centreline`**: a curve down the middle of the road all the way round, converted to a mesh (Object > Convert > Mesh). It can float above the road; the heights come from the road under it.
+- **`Track_Start`**: an empty with Single Arrow display on the start line, rotated so the arrow lies flat and points the way the cars go. The grid lines up behind it, so leave about 180 m of road there.
+- **`Track_PitLane`** (optional): the same kind of line down the middle of the pit lane, from its entry to its exit.
+
+Closed circuits only for now: a hill climb still needs the mod converter.
+
+### Exporting
+
+File > Export > glTF 2.0, with:
+
+- Format: glTF Binary (`.glb`)
+- Data > Mesh > Loose Edges: on. That's how `Track_Centreline` and `Track_PitLane` get into the file.
+- Data > Mesh > Apply Modifiers: on if any mesh is built with modifiers (an Array or Curve road, say). It is off by default, and the meshes then export without them.
+- Draco Compression and Meshopt Compression (under Data): off
+
+### Settings
+
+Next to the GLB, a JSON file with the same name (or pass `--settings <file>`):
+
+```json
+{
+  "name": "My Circuit",
+  "layout": "Grand Prix",
+  "country": "Somewhere",
+  "city": "Some town",
+  "baseAltitudeM": 120,
+  "pitboxes": 20,
+  "description": "One or two sentences for the circuit menu.",
+  "credit": { "title": "My Circuit", "author": "Your name", "url": "https://…", "license": "CC BY 4.0", "licenseUrl": "https://…" }
+}
+```
+
+The keys the mod converter reads also work here, e.g. `minWidthM` for a road narrower than 8.5 m or `turns_override` to name the corners.
+
+### Converting
+
+```bash
+uv run --python 3.14 --no-project --with-requirements scripts/tracks/requirements.txt \
+  python -P scripts/tracks/build_blender_track.py <id> --glb path/to/circuit.glb
+```
+
+It writes `public/tracks/<id>/track_data.json` and `public/tracks/<id>/<id>.glb`, adds the circuit to `public/tracks/index.json`, runs the racing-line optimiser and compresses the GLB, with the same `--no-line-opt`, `--no-glb` and `--no-compress` options. A DRS zone goes on each of the three longest straights that is at least 450 m long, the TV cameras are spread round the lap, and the corners are numbered in order. Then list it and check it as below.
+
 ## Listing it in the game
 
 - A clone lists only the circuits in `REPO_TRACK_IDS` in `src/lib/hosted-content.ts`. Add your id there. Setting `NEXT_PUBLIC_HOSTED_CONTENT=1` instead lists every circuit, including hosted ones whose files you don't have.
 - `npm run home-outlines` draws the circuit's map for the home page.
 - The AI's per-circuit settings are optional: see the tuning files in `public/ai`.
+- Both converters add the circuit to `public/tracks/index.json`, which is tracked. Don't commit that change for a circuit whose files only you have: a listed circuit without its files can't load.
 
 ## Checking it
 
@@ -79,24 +150,14 @@ npm run dev
 
 If you converted with `--no-compress`, `npm run compress-tracks` compresses every listed circuit that isn't yet and checks the physics meshes come out bit-exact.
 
-## Building a circuit yourself
-
-There is no general tool for this yet. Here is what the game reads, and the two routes that exist today.
-
-### What a circuit is
+## What a circuit is
 
 A GLB and a `track_data.json` in `public/tracks/<id>/`:
 
 - **The GLB** needs `Track_Collider_Road`, a low-resolution drivable surface covering the road plus 1.6 m each side, and `Track_Collider_Wall` for the barriers. Drivable and off-road surfaces are meshes tagged with `userData.surface` (`road`, `kerb`, `sausage`, `runoff`, `pitlane`, `gravel` or `grass`) and optionally `userData.grip`. The converters name them `Track_Surface_Road`, `Track_Surface_Kerb`, `Track_Surface_Runoff`, `Track_Surface_Gravel` and `Track_Surface_Grass`. The full contract is the comment at the top of `src/lib/sim/f12026-car/TrackColliderQuery.ts`.
 - **`track_data.json`** holds the circuit's metadata, DRS zones, cameras, turns, sectors, spawn grid, pit lane and a sample every few metres along the lap (position, width, banking, racing lines, kerbs, run-off and walls each side). `public/tracks/rwanda_official/track_data.json` is the reference schema, and `src/lib/track-data.ts` reads it.
 
-### Route 1: build it as an Assetto Corsa track, then convert it
-
-Model it in Blender, export the `.kn5` with Assetto Corsa's track editor (ksEditor, in the game's SDK), drive it in the game to record `ai/fast_lane.ai`, then convert it as above. You need a copy of Assetto Corsa for the editor and the AI lane. Most Assetto Corsa track-making guides apply, in particular keeping a fine, smooth physics road under a lighter visual mesh. I haven't tried this route end to end with a circuit made from scratch.
-
-### Route 2: build it in Blender the way RISE Motordrome is built
-
-`scripts/rwanda-official/` builds RISE Motordrome in Blender and writes the GLB and track data directly, with no Assetto Corsa. It is written for that one site (its terrain, traced centreline and design references), so read it as a worked example rather than a template. Its README explains the steps.
+`scripts/rwanda-official/` builds RISE Motordrome in Blender and writes both files itself, with its own terrain, kerbs and scenery. It is written for that one site, so read it as a worked example of a more detailed build. Its README explains the steps.
 
 ## Licences
 

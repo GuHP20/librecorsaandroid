@@ -1407,6 +1407,11 @@ def build_pit_lane(layout_path, xz, off, L, ds):
         return {'entryS': round(float(L - 300), 1), 'exitS': 250, 'widthM': 10, 'centerline': []}
     pts, _ = read_ai_lane(pit_path)
     p3 = np.stack([pts['x'], pts['y'], pts['z']], 1).astype(float)
+    return pit_lane_from_points(p3, xz, off, L, ds)
+
+
+def pit_lane_from_points(p3, xz, off, L, ds):
+    """The pit lane from its centreline points (N, 3), entry first"""
     tree = cKDTree(xz)
     _, i_entry = tree.query(p3[0, [0, 2]])
     _, i_exit = tree.query(p3[-1, [0, 2]])
@@ -1805,6 +1810,26 @@ def write_ac_glb(visual_items, tex_pool, materials, grooves, scale, off, extra_m
     log(f'  wrote raw GLB {out_path} ({total / 1e6:.1f} MB, {len(all_visual)} visual mesh nodes)')
 
 
+def index_entry(tid, cfg, data):
+    """A circuit's entry in public/tracks/index.json, the list the title menu offers"""
+    m = data['metadata']
+    return {
+        'id': tid,
+        'name': cfg['name'],
+        'layout': cfg['layout'],
+        'country': cfg['country'],
+        'city': cfg['city'],
+        # A point-to-point course is as long as its run (its loop runs on round the dead stretch)
+        'lengthM': m.get('pointToPoint', {}).get('finishS', m['lengthMeters']),
+        'turns': len(data['turns']),
+        'direction': m['direction'],
+        'dataUrl': f'/tracks/{tid}/track_data.json',
+        'credit': cfg['credit'],
+        **({'type': cfg['type']} if cfg.get('type') else {}),
+        'quality': 'sim',
+    }
+
+
 def sync_track_configs(built_tracks):
     """Update scripts/tracks/tracks.json and public/tracks/index.json with the ported AC tracks."""
     tjson_path = os.path.join(HERE, 'tracks.json')
@@ -1827,23 +1852,7 @@ def sync_track_configs(built_tracks):
     idx_path = os.path.join(ROOT, 'public', 'tracks', 'index.json')
     idx = json.load(open(idx_path, encoding='utf-8')) if os.path.exists(idx_path) else []
     for tid, (cfg, data) in built_tracks.items():
-        m = data['metadata']
-        entry = {
-            'id': tid,
-            'name': cfg['name'],
-            'layout': cfg['layout'],
-            'country': cfg['country'],
-            'city': cfg['city'],
-            # A point-to-point course is as long as its run (its loop runs on round the dead stretch)
-            'lengthM': m.get('pointToPoint', {}).get('finishS', m['lengthMeters']),
-            'turns': len(data['turns']),
-            'direction': m['direction'],
-            'dataUrl': f'/tracks/{tid}/track_data.json',
-            'credit': cfg['credit'],
-            **({'type': cfg['type']} if cfg.get('type') else {}),
-            'quality': 'sim',
-        }
-        idx = [e for e in idx if e['id'] != tid] + [entry]
+        idx = [e for e in idx if e['id'] != tid] + [index_entry(tid, cfg, data)]
     order = list(cfgs.keys())
     # Circuits this script does not know (RISE Motordrome, built by scripts/rwanda-official) keep their place on top
     idx.sort(key=lambda e: order.index(e['id']) if e['id'] in order else -1)
@@ -2368,6 +2377,41 @@ def build_ac_track(tid, cfg, args):
     start_pt = xz0[0].copy()
     ahead_pt = xz0[min(12, len(xz0) - 1)].copy()
 
+    src = {
+        'kind': 'ac',
+        'phys_tris': phys_tris,
+        'road_mat_names': road_mat_names,
+        'xz0': xz0,
+        'w_ai': w_ai,
+        'y_ai': y_ai,
+        'start_pt': start_pt,
+        'ahead_pt': ahead_pt,
+        'base': base,
+        'layout_path': layout_path,
+        'data_dir': data_dir,
+        'write_glb': lambda off, extra, glb_out: write_ac_glb(
+            visual_items, tex_pool, materials, parse_groove_ini(data_dir), 1.0, off, extra, glb_out,
+            double_sided_re=cfg.get('doubleSidedMaterials'),
+        ),
+    }
+    return build_from_sources(tid, cfg, args, src)
+
+
+def build_from_sources(tid, cfg, args, src):
+    """From the physics triangles by surface and a centreline on: the road's width, profile, kerbs, run-off and walls,
+    track_data.json and the GLB. `src`: `kind` ('ac' for a mod, 'glb' for a model built in Blender, see
+    build_blender_track.py), `phys_tris` {surface: [triangles (N, 3, 3)]}, `road_mat_names`, the centreline `xz0`
+    (N, 2) with its lane widths `w_ai` and heights `y_ai`, `start_pt` / `ahead_pt` (the start line and a point past it),
+    `base` / `layout_path` / `data_dir` (the mod's folders; missing for a model), optional `pit_points` (N, 3), and
+    `write_glb(off, extra_meshes, path)` for the visual model"""
+    phys_tris = src['phys_tris']
+    road_mat_names = src['road_mat_names']
+    xz0, w_ai, y_ai = src['xz0'], src['w_ai'], src['y_ai']
+    start_pt, ahead_pt = src['start_pt'], src['ahead_pt']
+    base, layout_path, data_dir = src['base'], src['layout_path'], src['data_dir']
+    from_mod = src['kind'] == 'ac'
+    min_w = float(cfg.get('minWidthM', 8.5))
+
     # Build 2D road raster from physics road triangles and cut along 1WALL* barrier faces
     T_road = np.concatenate(phys_tris['road'], 0)
     T_wall = np.concatenate(phys_tris['wall'], 0) if phys_tris['wall'] else np.zeros((0, 3, 3))
@@ -2709,9 +2753,14 @@ def build_ac_track(tid, cfg, args):
     # A point-to-point course's AC lap fractions are of its AI lane, which starts before the start gate
     to_s = (lambda f: (f * p2p['laneL'] - p2p['laneS0']) % L) if p2p else None
     data['turns'] = apply_turn_names(data['turns'], data_dir, L, cfg, to_s)
-    data['drsZones'] = [] if p2p else parse_drs_zones(data_dir, s_arr, k_arr, L)
+    drs = [] if p2p else parse_drs_zones(data_dir, s_arr, k_arr, L)
+    # A model has no drs_zones.ini: it keeps the zones assemble_track_json finds on its straights
+    data['drsZones'] = drs if from_mod or drs else data['drsZones']
     data['cameras'] = parse_cameras(data_dir, pos3, rgt2, width, wall, off, L, (lambda f: to_s(f) / L) if p2p else None)
-    data['pitLane'] = build_pit_lane(layout_path, xz, off, L, ds)
+    if src.get('pit_points') is not None:
+        data['pitLane'] = pit_lane_from_points(src['pit_points'], xz, off, L, ds)
+    else:
+        data['pitLane'] = build_pit_lane(layout_path, xz, off, L, ds)
 
     out_dir = os.path.join(ROOT, 'public', 'tracks', tid)
     os.makedirs(out_dir, exist_ok=True)
@@ -2730,12 +2779,11 @@ def build_ac_track(tid, cfg, args):
             pass
     with open(json_out, 'w', encoding='utf-8') as f:
         json.dump(data, f, separators=(',', ':'), ensure_ascii=False)
-    if args.no_line_opt:
+    if args.no_line_opt and from_mod:
         apply_street_hairpin_margin(tid, cfg)
     log(f'  wrote {json_out} ({os.path.getsize(json_out) / 1e3:.0f} kB, {len(data["turns"])} turns, {len(data["cameras"])} cams, {len(data["pitLane"]["centerline"])} pit pts)')
 
     if not args.no_glb:
-        grooves = parse_groove_ini(data_dir)
         extra = bt.collider_meshes(
             soup, road_set, kerb_mats, xz, rgt2, yprof, width, bank,
             kerbL, kerbR, run, grav, wall, off,
@@ -2752,8 +2800,7 @@ def build_ac_track(tid, cfg, args):
         if use_scan_kerbs:
             build_ac_kerb_mesh(phys_tris['kerb'], xz, tan2, rgt2, yc, width, ds, off, extra)
         glb_out = os.path.join(out_dir, f'{tid}.glb')
-        write_ac_glb(visual_items, tex_pool, materials, grooves, 1.0, off, extra, glb_out,
-                     double_sided_re=cfg.get('doubleSidedMaterials'))
+        src['write_glb'](off, extra, glb_out)
         if not args.no_compress:
             r = subprocess.run(
                 ['node', 'scripts/compress-track-glb.mjs', glb_out],
