@@ -221,7 +221,20 @@ def test_glb_sparse_accessors():
         assert np.allclose(got, want[k]), f'target {k}: {got.tolist()}'
 
 
-TESTS = [test_route_start_cut, test_wall_lane_oval, test_glb_sparse_accessors]
+def test_turn_names_over_the_start_line():
+    """apply_turn_names with a sections.ini section that runs over the start line (IN 0.95, OUT 0.06 of a 4 km lap):
+    the corner 30 m past the line, in the middle of it, takes its name, and a corner half a lap away does not"""
+    import port_ac_track as pat
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, 'sections.ini'), 'w', encoding='utf-8') as f:
+            f.write('[SECTION_0]\nIN=0.95\nOUT=0.06\nTEXT=Start Curve\n\n[SECTION_1]\nIN=0.20\nOUT=0.25\nTEXT=Hairpin\n')
+        turns = [{'number': k + 1, 'sApprox': sa, 'name': f'Turn {k + 1}', 'complexName': f'Turn {k + 1}'}
+                 for k, sa in enumerate((30, 900, 2010, 3900))]
+        got = [t['name'] for t in pat.apply_turn_names(turns, tmp, 4000.0, {})]
+    assert got == ['Start Curve', 'Hairpin', 'Turn 3', 'Start Curve'], got
+
+
+TESTS = [test_route_start_cut, test_wall_lane_oval, test_glb_sparse_accessors, test_turn_names_over_the_start_line]
 
 if __name__ == '__main__':
     failed = 0

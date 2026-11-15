@@ -1221,11 +1221,21 @@ def apply_turn_names(turns, data_dir, L, cfg, to_s=None):
         sa = float(t['sApprox'])
         best = None
         for inp, outp, text in named:
-            mid = 0.5 * (inp + outp)
-            if inp <= sa <= outp:
+            if outp < inp:
+                # A section over the start line (or a point-to-point one that `to_s` wraps round the loop): it runs on
+                # past L, so its end and middle are taken on that far side
+                outp += L
+                mid = 0.5 * (inp + outp)
+                inside = sa >= inp or sa + L <= outp
+                ends = (abs(sa - inp), abs(sa + L - outp))
+            else:
+                mid = 0.5 * (inp + outp)
+                inside = inp <= sa <= outp
+                ends = (abs(sa - inp), abs(sa - outp))
+            if inside:
                 d = 0.0
             else:
-                d = min(abs(sa - inp), abs(sa - outp), abs(sa - mid), abs(sa - mid + L), abs(sa - mid - L))
+                d = min(*ends, abs(sa - mid), abs(sa - mid + L), abs(sa - mid - L))
             if d < 140.0 and (best is None or d < best[0]):
                 best = (d, text)
         if best is not None:
