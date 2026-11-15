@@ -35,8 +35,11 @@ export interface LeaderboardPanelProps {
   loadAllLocal?: () => Promise<LeaderboardEntry[]>;
   /** This site has an online board */
   remoteEnabled: boolean;
-  /** The online board hasn't answered yet (the game keeps asking): said instead of "off" */
-  remoteUnreachable?: boolean;
+  /**
+   * Without an online board, why: turned off, not reached (the game keeps asking), or not asked yet (nothing is said
+   * until the first answer)
+   */
+  remoteStatus?: "off" | "unreachable" | "unknown";
   /** Changes when the online board may have changed (a lap went up): it is read again */
   boardVersion?: number;
   /** The car being driven: the online board's "My car" */
@@ -74,7 +77,7 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
   local,
   loadAllLocal,
   remoteEnabled,
-  remoteUnreachable = false,
+  remoteStatus = "off",
   boardVersion = 0,
   vehicle,
   driverName = "",
@@ -367,9 +370,9 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
         )}
       </Card>
 
-      {remoteEnabled ? null : (
+      {remoteEnabled || remoteStatus === "unknown" ? null : (
         <p className="lc-hint m-0 px-1">
-          {remoteUnreachable
+          {remoteStatus === "unreachable"
             ? "Couldn't reach the online board, I'll keep trying. These are the laps saved in this browser."
             : "Online times are off in this version: these are the laps saved in this browser."}
         </p>

@@ -1632,7 +1632,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       carTag: carBoardTag,
       local: localLaps,
       remoteEnabled: boardOn,
-      remoteUnreachable: boardState === "unreachable",
+      remoteStatus: boardState === null ? ("unknown" as const) : boardState === "unreachable" ? ("unreachable" as const) : ("off" as const),
       boardVersion,
       vehicle: vehicleModel,
       driverName: settings.profile.name,
