@@ -111,8 +111,9 @@ boards on an in-memory database (`scripts/verify-room-server.ts`, `verify-race-s
   admin route answers the same 404 as an unknown path, and past the limit the same 429. The page reads, for the range:
   hours and sessions against the days before; sessions, hours, countries, board times, new names and laps driven per
   day; circuits split by mode, and the circuits the game no longer has (ids not in `public/tracks/index.json`, still
-  driven on old builds); minutes a session by screen, input, mode, assists, weather, circuit and car; each day's share
-  of sessions on an older build, with the day each build was first seen; cars and countries; names new, seen and
+  driven on old builds); minutes a session by screen, input, mode, assists, weather, circuit and car; each day's builds
+  with the day each was first seen, and the share still on a build replaced before that day (usage is per UTC day, so a
+  deploy day splits between two builds and neither counts as behind); cars and countries; names new, seen and
   back a day or more after their claim; board times per day and by class; the busiest boards and the weekly
   challenges; the open races per day (grid sizes, finishes, proven names, wins and podiums by name) and who is waiting
   for the next one. The live count at the top comes from `GET /api/stats`. A part whose table or column is not there

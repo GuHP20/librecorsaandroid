@@ -14,6 +14,7 @@ import { onlineUrl } from "@/lib/net/online-config";
 import type { AdminStats as StatsBody, Count, UsageGroup } from "../../../cloudflare/api/admin";
 import type { CloudflareStats } from "../../../cloudflare/api/analytics";
 import { readAdmin } from "./admin-fetch";
+import { type BuildDay, buildDays } from "./build-days";
 import {
   AverageList,
   BarChart,
@@ -23,7 +24,6 @@ import {
   change,
   count,
   dayLabel,
-  daysBetween,
   everyDay,
   hours,
   idWords,
@@ -287,30 +287,19 @@ function CircuitName({ id, name, removed }: { id: string; name: string; removed:
   );
 }
 
-/** A day of the builds chart, with the older build that ran most that day */
-type BuildDay = SplitDay & { top: { build: string; sessions: number; first: string } | null };
+/** "c31ac20 and 8e2edf9", "a, b and c" */
+const andList = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
 
-/** Each day's sessions split into the newest build that day and older ones, with the older build that ran most */
-function buildDays(stats: StatsBody, days: string[]): BuildDay[] {
-  const builds = stats.builds;
-  const first = new Map((builds?.firstSeen ?? []).map((b) => [b.build, b.day]));
-  return days.map((day) => {
-    const rows = (builds?.perDay ?? []).filter((r) => r.day === day);
-    if (!rows.length) return { day, fresh: 0, stale: 0, readout: `${dayLabel(day)}: no builds sent`, top: null };
-    // The newest build is the one first reported last; builds first seen on the same day count alike
-    const newest = rows.reduce((d, r) => ((first.get(r.build) ?? day) > d ? (first.get(r.build) ?? day) : d), "");
-    const fresh = rows.filter((r) => (first.get(r.build) ?? day) === newest);
-    const stale = rows.filter((r) => (first.get(r.build) ?? day) !== newest);
-    const freshN = sessionsOf(fresh);
-    const staleN = sessionsOf(stale);
-    const all = freshN + staleN;
-    const top = stale[0];
-    const topFirst = top ? (first.get(top.build) ?? day) : day;
-    const readout = top
-      ? `${dayLabel(day)}: ${percent(staleN, all)} of ${count(all)} sessions on an older build; ${top.build}, first seen ${dayLabel(topFirst)}, ran ${count(top.sessions)}`
-      : `${dayLabel(day)}: all ${count(all)} sessions on the newest build`;
-    return { day, fresh: freshN, stale: staleN, readout, top: top ? { build: top.build, sessions: top.sessions, first: topFirst } : null };
-  });
+/** A day of the builds chart: its split, and what the readout says about it (build-days.ts decides what is replaced) */
+function splitOf(d: BuildDay, firstDay: string): SplitDay {
+  if (d.total === 0) return { day: d.day, fresh: 0, stale: 0, readout: `${dayLabel(d.day)}: no builds sent` };
+  const parts = d.builds.slice(0, 3).map((b) => `${b.build} ${percent(b.sessions, d.total)}`);
+  const more = d.builds.length > 3 ? `, ${d.builds.length - 3} more` : "";
+  const replaced = d.builds.filter((b) => b.replaced).map((b) => b.build);
+  // The range's first day shows every build as first seen there when they came before it: say nothing of new ones then
+  const fresh = d.day !== firstDay && d.fresh.length ? `; first seen that day: ${andList(d.fresh)}` : "";
+  const behind = d.replaced > 0 ? `; ${percent(d.replaced, d.total)} still on a build replaced before that day (${andList(replaced)})` : "";
+  return { day: d.day, fresh: d.total - d.replaced, stale: d.replaced, readout: `${dayLabel(d.day)}: ${count(d.total)} sessions, ${parts.join(", ")}${more}${fresh}${behind}` };
 }
 
 function Numbers({
@@ -385,14 +374,19 @@ function Numbers({
       .slice(0, 12)
       .map((r) => ({ key: r.id, title: title(r.id), cells: [name(r.id), count(r.sessions), perSession(r.minutes, r.sessions), hours(r.minutes)] }));
 
-  // Builds: the newest that day against older ones
-  const split = buildDays(stats, days);
-  const withBuilds = split.map((d, i) => (d.fresh + d.stale > 0 ? i : -1)).filter((i) => i >= 0);
+  // Builds: each day's split. A deploy day always splits between the build before and the new one (usage is per UTC
+  // day), so a build counts as replaced only on the days after a newer one was first seen (build-days.ts)
+  const builtDays = buildDays(stats.builds?.perDay ?? [], stats.builds?.firstSeen ?? [], days);
+  const split = builtDays.map((d) => splitOf(d, stats.from));
+  const withBuilds = builtDays.map((d, i) => (d.total > 0 ? i : -1)).filter((i) => i >= 0);
   // The latest whole day with builds; today (still counting) only when it is the one day there is
   const defaultBuildDay = withBuilds.filter((i) => i < days.length - 1).pop() ?? withBuilds.pop() ?? null;
-  const buildDay = defaultBuildDay === null ? null : split[defaultBuildDay];
+  const buildDay = defaultBuildDay === null ? null : builtDays[defaultBuildDay];
+  const replacedTop = buildDay?.builds.find((b) => b.replaced) ?? null;
+  const today = builtDays[builtDays.length - 1];
+  const todayReplaced = today && today !== buildDay && today.replaced > 0 ? today : null;
+  const recentBuildDays = builtDays.filter((d) => d.total > 0).slice(-5).reverse();
   const firstSeen = new Map((stats.builds?.firstSeen ?? []).map((b) => [b.build, b.day]));
-  const staleTop = buildDay?.top ?? null;
   const buildTotals = new Map<string, number>();
   for (const r of stats.builds?.perDay ?? []) buildTotals.set(r.build, (buildTotals.get(r.build) ?? 0) + r.sessions);
   const buildSessions = [...buildTotals.values()].reduce((n, v) => n + v, 0);
@@ -566,22 +560,66 @@ function Numbers({
             "Builds show once the database has migration 0004."
           ) : !buildDay ? (
             "No build was sent in this range. Local builds send none."
-          ) : buildDay.stale > 0 && staleTop ? (
-            <>
-              On {dayLabel(buildDay.day)}, <b className="text-lc-chalk">{percent(buildDay.stale, buildDay.stale + buildDay.fresh)}</b> of{" "}
-              {count(buildDay.stale + buildDay.fresh)} sessions ran an older build than that day&rsquo;s newest. Most of them ran{" "}
-              <b className="lc-data text-lc-chalk">{staleTop.build}</b>, first seen {dayLabel(staleTop.first)} ({daysBetween(staleTop.first, buildDay.day)}{" "}
-              {daysBetween(staleTop.first, buildDay.day) === 1 ? "day" : "days"} old): {count(staleTop.sessions)} sessions.
-            </>
           ) : (
-            <>On {dayLabel(buildDay.day)} every session ran that day&rsquo;s newest build.</>
+            <>
+              {buildDay.replaced > 0 && replacedTop ? (
+                <>
+                  On {dayLabel(buildDay.day)}, <b className="text-lc-chalk">{percent(buildDay.replaced, buildDay.total)}</b> of {count(buildDay.total)} sessions still
+                  ran a build replaced before that day. Most of them ran <b className="lc-data text-lc-chalk">{replacedTop.build}</b>, first seen{" "}
+                  {dayLabel(replacedTop.firstSeen)}: {count(replacedTop.sessions)} sessions.
+                </>
+              ) : buildDay.fresh.length > 0 && buildDay.day !== stats.from ? (
+                <>
+                  On {dayLabel(buildDay.day)} {andList(buildDay.fresh)} {buildDay.fresh.length === 1 ? "was" : "were"} first seen. Usage is counted per UTC day,
+                  so a deploy day splits between the build before it and the new one, and neither counts as behind.
+                </>
+              ) : (
+                <>On {dayLabel(buildDay.day)} no session ran a build replaced before that day.</>
+              )}
+              {todayReplaced ? (
+                <>
+                  {" "}Today so far, {percent(todayReplaced.replaced, todayReplaced.total)} of sessions still run a build replaced before today (
+                  {andList(todayReplaced.builds.filter((b) => b.replaced).map((b) => b.build))}).
+                </>
+              ) : null}
+            </>
           )
         }
       >
         {stats.builds && buildDay ? (
           <>
-            <Card title="Older builds per day" aside="Share of each day's sessions; a build is newest from the day it is first reported">
-              <SplitChart days={split} partialLast defaultDay={defaultBuildDay} label="Share of sessions on an older build, per day" />
+            <Card
+              title="Sessions on a replaced build"
+              aside="Share of each day's sessions. A build counts as replaced from the day after a newer one is first seen: a deploy day splits between both builds"
+            >
+              <SplitChart days={split} partialLast defaultDay={defaultBuildDay} label="Share of sessions on a build replaced before that day, per day" />
+            </Card>
+            <Card title="Builds per day" aside="The last days with builds, newest first">
+              <div className="flex flex-col gap-5">
+                {recentBuildDays.map((d) => (
+                  <NumberTable
+                    key={d.day}
+                    head={[`${dayLabel(d.day)}${d.day === stats.to ? ", so far" : ""}`, "First seen", "Sessions", "Share"]}
+                    rows={d.builds.map((b) => ({
+                      key: b.build,
+                      title: b.build,
+                      cells: [
+                        <span key="b" className="flex flex-col items-start gap-1">
+                          <span className="lc-data text-lc-chalk">{b.build}</span>
+                          {b.replaced ? (
+                            <Badge size="sm" tone="warn" icon="warning">
+                              Replaced
+                            </Badge>
+                          ) : null}
+                        </span>,
+                        dayLabel(b.firstSeen),
+                        count(b.sessions),
+                        percent(b.sessions, d.total),
+                      ],
+                    }))}
+                  />
+                ))}
+              </div>
             </Card>
             <Card title="Builds" aside="Newest first">
               <NumberTable

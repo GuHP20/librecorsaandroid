@@ -99,8 +99,6 @@ export const weekLabel = (week: string) => {
   const m = /^\d{4}-W(\d{1,2})$/.exec(week);
   return m ? `Week ${Number(m[1])}` : week;
 };
-/** Whole days from one UTC day to another */
-export const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 
 /** Every UTC day from `from` to `to`, with the value of each (0 for the days not listed) */
 export function everyDay<T extends { day: string }>(from: string, to: string, rows: T[], empty: (day: string) => T): T[] {
@@ -416,15 +414,16 @@ export function TrendChart({ days, rows, partialLast, label }: { days: string[];
 
 export interface SplitDay {
   day: string;
-  /** Sessions on the newest build, and on older ones; both 0 for a day no build was sent */
+  /** Sessions on builds current that day, and on builds replaced before it; both 0 for a day no build was sent */
   fresh: number;
   stale: number;
   readout: string;
 }
 
 /**
- * Each day's sessions as one column of 100 %: older builds from the baseline in caution amber, the newest above in
- * neutral ink, a 2 px gap between them. The readout gives the day's numbers; a legend names the two parts.
+ * Each day's sessions as one column of 100 %: those on a build replaced before that day from the baseline in caution
+ * amber, the rest above in neutral ink, a 2 px gap between them. The readout gives the day's builds; a legend names
+ * the two parts.
  */
 export function SplitChart({ days, partialLast, label, defaultDay }: { days: SplitDay[]; partialLast: boolean; label: string; defaultDay: number | null }) {
   const span = `${days.length}|${days[0]?.day ?? ""}`;
@@ -436,11 +435,11 @@ export function SplitChart({ days, partialLast, label, defaultDay }: { days: Spl
       <ul className="lc-hint m-0 flex list-none flex-wrap gap-x-4 gap-y-1.5 p-0 text-[13px] text-lc-fog" aria-label="Legend">
         <li className="flex items-center gap-1.5">
           <span aria-hidden className={cx("inline-block size-2.5 bg-lc-caution", SWATCH_SHAPE)} />
-          Older build
+          On a replaced build
         </li>
         <li className="flex items-center gap-1.5">
           <span aria-hidden className={cx("inline-block size-2.5 bg-lc-slate/60", SWATCH_SHAPE)} />
-          Newest build that day
+          On a current build
         </li>
       </ul>
       <p className="lc-body m-0 min-h-10 text-[14px] sm:min-h-5" aria-live="polite">
@@ -480,7 +479,7 @@ export function SplitChart({ days, partialLast, label, defaultDay }: { days: Spl
         <Axis labels={days.map((d) => dayLabel(d.day))} />
       </div>
       <TableView
-        head={["Day", "Sessions", "Older build"]}
+        head={["Day", "Sessions", "Replaced build"]}
         rows={days
           .filter((d) => d.fresh + d.stale > 0)
           .map((d) => ({ key: d.day, cells: [dayLabel(d.day), count(d.fresh + d.stale), `${percent(d.stale, d.fresh + d.stale)} (${count(d.stale)})`] }))}

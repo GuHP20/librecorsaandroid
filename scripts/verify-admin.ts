@@ -9,6 +9,8 @@
  *   - the numbers: countries past the top list, laps per day (and none before migration 0006), circuits the game no
  *     longer has, builds per day with the day each was first seen, names that came back, board times by class, races
  *     per day with their grids
+ *   - which builds a day ran on: a deploy day splits between the build before and the new one and none of it is behind;
+ *     a build counts as replaced only on the days after a newer one was first seen
  *   - the page: not in the sitemap or robots.txt, not indexed, and a title that says nothing about it
  *
  *   npx tsx scripts/verify-admin.ts
@@ -19,6 +21,7 @@ import { bearerKey, handleApi } from '../cloudflare/api/index';
 import { adminKeyMatches, adminStats, CIRCUIT_IDS, type AdminStats } from '../cloudflare/api/admin';
 import { RaceServer } from '../cloudflare/api/race';
 import type { D1Database, Env, RateLimit } from '../cloudflare/api/types';
+import { buildDays } from '../src/app/admin/build-days';
 import { raceSlot } from '../src/lib/net/race-schedule';
 import { PROTOCOL_VERSION } from '../src/lib/net/wire';
 import { FakeSocket, fakeD1, fakeR2, fakeState } from './lib/fake-cloudflare';
@@ -274,7 +277,51 @@ async function main(): Promise<void> {
     check('numbers: a longer range takes in the build first seen before the shorter one', ranges[1].builds?.perDay.some((p) => p.day === '2026-10-30') === true);
   }
 
-  // 5. The page --------------------------------------------------------------------------------------------------------------
+  // 5. Which builds a day ran on (src/app/admin/build-days.ts) -----------------------------------------------------------
+  {
+    // Production's 12 to 14 Nov: 22c31fc was live until the deploys of 14 Nov (8e2edf9 at 14:09, ec04521 at 14:42,
+    // c31ac20 at 15:30), and usage is counted per UTC day. Then a day after, with a stray report of a made-up build
+    const use = [
+      { day: '2026-11-12', build: '22c31fc', sessions: 487 },
+      { day: '2026-11-12', build: '2493bd3', sessions: 48 },
+      { day: '2026-11-13', build: '22c31fc', sessions: 1839 },
+      { day: '2026-11-14', build: 'c31ac20', sessions: 5312 },
+      { day: '2026-11-14', build: '22c31fc', sessions: 5056 },
+      { day: '2026-11-14', build: 'ec04521', sessions: 609 },
+      { day: '2026-11-14', build: '8e2edf9', sessions: 477 },
+      { day: '2026-11-15', build: 'c31ac20', sessions: 600 },
+      { day: '2026-11-15', build: '22c31fc', sessions: 100 },
+      { day: '2026-11-15', build: 'ec04521', sessions: 20 },
+      { day: '2026-11-15', build: 'deadbee', sessions: 1 },
+      { day: '2026-11-16', build: 'c31ac20', sessions: 500 },
+      { day: '2026-11-16', build: '22c31fc', sessions: 40 },
+    ];
+    const first = [
+      { build: '2493bd3', day: '2026-11-12' },
+      { build: '22c31fc', day: '2026-11-12' },
+      { build: '8e2edf9', day: '2026-11-14' },
+      { build: 'ec04521', day: '2026-11-14' },
+      { build: 'c31ac20', day: '2026-11-14' },
+      { build: 'deadbee', day: '2026-11-15' },
+    ];
+    const days = buildDays(use, first, ['2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16']);
+    const on = (day: string) => days.find((d) => d.day === day)!;
+    const replacedOn = (day: string) => on(day).builds.filter((b) => b.replaced).map((b) => b.build).join();
+    check('builds: a day with no reports has nothing to split', on('2026-11-11').total === 0 && on('2026-11-11').builds.length === 0);
+    check('builds: with no deploy that day, every session is on a current build', on('2026-11-13').replaced === 0 && on('2026-11-13').total === 1839);
+    check(
+      'builds: a deploy day splits between the build before and the new ones, and none of it is behind',
+      on('2026-11-14').replaced === 0 && on('2026-11-14').fresh.join() === 'c31ac20,ec04521,8e2edf9' && on('2026-11-14').builds.find((b) => b.build === '22c31fc')?.firstSeen === '2026-11-12',
+      JSON.stringify(on('2026-11-14')),
+    );
+    check('builds: the day after a deploy, the build it replaced is behind', replacedOn('2026-11-15') === '22c31fc' && on('2026-11-15').replaced === 100, replacedOn('2026-11-15'));
+    check('builds: builds first seen on the same day never count as replacing each other', !on('2026-11-15').builds.find((b) => b.build === 'ec04521')?.replaced);
+    check('builds: a stray report under 1% of its day is not a deploy', replacedOn('2026-11-16') === '22c31fc' && !on('2026-11-16').builds.find((b) => b.build === 'c31ac20')?.replaced, replacedOn('2026-11-16'));
+    const dashboard = readFileSync(join(__dirname, '..', 'src', 'app', 'admin', 'Dashboard.tsx'), 'utf8');
+    check('builds: the page no longer calls a deploy day\'s build older', !/on an older build|older build than|newest build/i.test(dashboard));
+  }
+
+  // 6. The page --------------------------------------------------------------------------------------------------------------
   {
     const { default: sitemap } = await import('../src/app/sitemap');
     const { default: robots } = await import('../src/app/robots');
