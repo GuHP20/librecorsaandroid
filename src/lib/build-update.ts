@@ -1,7 +1,8 @@
 /**
- * Tells a game left open across a deploy that a newer build is out. Each page load gets the deployed build (its HTML
- * is checked with the server every time), but a tab or an installed app that stays open keeps running the build it
- * loaded, for days if nobody reloads it.
+ * Tells a game left open across a deploy that a newer build is out. A fresh load or a reload gets the deployed build
+ * (the page is checked with the server each time), but a tab or an installed app that stays open keeps running the
+ * build it loaded, for days if nobody reloads it. And going Back to the game takes its page from the browser's cache
+ * without asking the server, so it can start an old build too.
  *
  * The deploy publishes /build.json (src/app/build.json/route.ts): its build's commit and online protocol. The game
  * reads it as it starts, every five minutes while it is in view, and when the tab comes back into view, back from
@@ -81,9 +82,9 @@ export interface AutoReloadInput {
 
 /**
  * Whether to reload now without asking. Only where a reload loses nothing and nobody is looking at a menu that
- * disappears: on the page's first loading screen, or on the idle title screen while the tab is out of view, and
- * there only for a page open over a day or one that can no longer play online. Never once driving, paused, in a lobby
- * or in Settings, and once per build at most.
+ * disappears: on the page's first loading screen (an old page brought back by Back is caught there), or on the idle
+ * title screen while the tab is out of view, and there only for a page open over a day or one that can no longer play
+ * online. Never once driving, paused, in a lobby or in Settings, and once per build at most.
  */
 export function autoReloadNow(o: AutoReloadInput): boolean {
   if (!o.update.ready || !o.update.latest || o.triedFor === o.update.latest) return false;
