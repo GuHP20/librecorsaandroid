@@ -31,6 +31,7 @@ import { parseCameraNudges, type CameraNudges } from "@/lib/settings/camera-nudg
 import { resolveCarId, type CarId } from "@/lib/cars/car-registry";
 import { AI_SKILL_DEFAULT } from "@/lib/sim/ai-tuning";
 import { DEFAULT_DEVICE_ASSIST_TUNING, sanitizeAssistTuning, type DeviceAssistTuning } from "@/lib/sim/steering-assist";
+import { DEFAULT_HUD_PRESET, parseHudPreset, type HudPreset } from "@/lib/settings/hud-layouts";
 import { SIM_REALISM_LEVELS, type SimRealism } from "@/lib/sim/sim-realism";
 import { DEFAULT_SESSION_CONDITIONS, sanitizeConditions, type SessionConditions } from "@/lib/sim/weather";
 
@@ -204,10 +205,11 @@ export interface KeyboardTuning extends DeviceAssistTuning {
 
 /**
  * In-race HUD style: Broadcast (TV graphics), Wheel Dash (steering-wheel screen), Telemetry (the dash
- * plus tyres, channels and inputs), or the earlier Classic layout and its Minimal cut.
+ * plus tyres, channels and inputs), the earlier Classic layout and its Minimal cut, or a third-party layout
+ * (the list and the credits: hud-layouts.ts)
  */
-export type HudPreset = "broadcast" | "dash" | "telemetry" | "classic" | "minimal";
-export const HUD_PRESETS: readonly HudPreset[] = ["broadcast", "dash", "telemetry", "classic", "minimal"];
+export type { HudPreset } from "@/lib/settings/hud-layouts";
+export { HUD_PRESETS } from "@/lib/settings/hud-layouts";
 
 export interface HudSettings {
   preset: HudPreset;
@@ -359,7 +361,7 @@ export const resetKeyboardTuning = (tuning: KeyboardTuning, fields: readonly (ke
   withDefaults(tuning, DEFAULT_KEYBOARD_TUNING, fields);
 
 export const DEFAULT_HUD_SETTINGS: HudSettings = {
-  preset: "broadcast",
+  preset: DEFAULT_HUD_PRESET,
   scale: 1,
   inputTrace: false,
   deltaBar: true,
@@ -683,8 +685,9 @@ function parseHud(v: unknown): HudSettings {
   const d = DEFAULT_HUD_SETTINGS;
   if (!isObj(v)) return structuredClone(d);
   return {
-    // Older saves: "full" (the old default) moves to the new default, "engineer" to Telemetry
-    preset: v.preset === "engineer" ? "telemetry" : oneOf(v.preset, HUD_PRESETS, d.preset),
+    // Older saves: "full" (the old default) moves to the new default, "engineer" to Telemetry; a layout this build
+    // doesn't have (a newer build's, a removed one) to Broadcast
+    preset: parseHudPreset(v.preset),
     scale: num(v.scale, 0.75, 1.5, d.scale),
     inputTrace: bool(v.inputTrace, d.inputTrace),
     deltaBar: bool(v.deltaBar, d.deltaBar),

@@ -16,7 +16,8 @@ import { getTrackInfo, DEFAULT_TRACK_ID, TRACKS, type TrackInfo } from "@/lib/tr
 import { SCENERY_CREDITS } from "@/lib/render/scenery-credits";
 import { isLikelyWheel, padDisplayName } from "@/lib/input/device-input";
 import { isTouchDevice } from "@/lib/input/touch-input";
-import type { HudPreset, SpeedUnit } from "@/lib/settings/player-settings";
+import type { SpeedUnit } from "@/lib/settings/player-settings";
+import { hudLayout } from "@/lib/settings/hud-layouts";
 import { useUnits } from "@/lib/settings/ui-prefs";
 import { DISTANCE_LABEL, distanceIn } from "@/lib/settings/units";
 import { useGamepads, type PadState } from "./useMenuNav";
@@ -82,13 +83,6 @@ const ASSIST_LABELS: Record<PauseMenuProps["assistPreset"], string> = {
   assisted: "Full assists",
 };
 
-const HUD_LABELS: Record<HudPreset, string> = {
-  broadcast: "Broadcast",
-  dash: "Wheel dash",
-  telemetry: "Telemetry",
-  classic: "Classic",
-  minimal: "Minimal",
-};
 
 /** A circuit's length in the player's units ("5.34 km") */
 const lengthOf = (t: TrackInfo, unit: SpeedUnit) => `${distanceIn(t.lengthM / 1000, unit).toFixed(2)} ${DISTANCE_LABEL[unit]}`;
@@ -871,7 +865,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = (props) => {
                 {hudPreset ? (
                   <>
                     <dt className="lc-hint">HUD</dt>
-                    <dd className="m-0 line-clamp-2 text-right text-[14px] font-semibold">{HUD_LABELS[hudPreset] ?? hudPreset}</dd>
+                    <dd className="m-0 line-clamp-2 text-right text-[14px] font-semibold">{hudLayout(hudPreset).label}</dd>
                   </>
                 ) : null}
               </dl>
