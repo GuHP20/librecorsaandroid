@@ -77,6 +77,7 @@ import { assetProgress } from "@/lib/loading/asset-progress";
 import { prefetchSoundBank } from "@/lib/sim/lc26-audio";
 import { CarReflectionProbe } from "@/lib/render/car-reflection-probe";
 import { StartupMonitor } from "@/lib/render/startup-monitor";
+import { browserStore, noteRenderer, recordContextLoss, rendererName } from "@/lib/render/gpu-health";
 import { SessionPerfMonitor, type PerfPhase } from "@/lib/render/session-perf";
 import { FramePacer } from "@/lib/render/frame-pacer";
 import {
@@ -230,6 +231,17 @@ export interface DriveSnapshot {
    * once when every step is taken and the frames are still slow
    */
   qualityNotice: { id: number; kind: "lowered" | "floor" } | null;
+  /**
+   * The browser took the WebGL context away (a GPU reset, a driver crash, or a phone reclaiming a background tab): the
+   * drive is frozen and draws nothing until the component remounts it. `hidden`: it went while the page was hidden
+   */
+  gpuLost: GpuLoss | null;
+}
+
+/** A lost WebGL context: whether the page was hidden at the time, and where the player was */
+export interface GpuLoss {
+  hidden: boolean;
+  phase: AppPhase;
 }
 
 /** The snapshot before the drive exists: a throwaway LC26's numbers, as the menus need something to show */
@@ -263,7 +275,16 @@ export function idleDriveSnapshot(track: BuiltTrackData): DriveSnapshot {
     timeTrial: null,
     autoQualityLowered: null,
     qualityNotice: null,
+    gpuLost: null,
   };
+}
+
+/** The browser gave no WebGL context: switched off, unsupported, or refused for the page after a GPU reset */
+export class WebGLUnavailableError extends Error {
+  constructor(reason: unknown) {
+    super(`WebGL is not available: ${reason instanceof Error ? reason.message : String(reason)}`);
+    this.name = "WebGLUnavailableError";
+  }
 }
 
 /** A React state setter */
@@ -730,6 +751,7 @@ export class DriveSession {
       timeTrial: null,
       autoQualityLowered: null,
       qualityNotice: null,
+      gpuLost: null,
     };
 
     /**
@@ -864,15 +886,48 @@ export class DriveSession {
     // The view camera also draws the driving aids (the racing line), which the probe and mirrors leave out
     camera.layers.enable(OVERLAY_LAYER);
 
-    const renderer = new THREE.WebGLRenderer({
-      // MSAA happens in the post-processing composer's half-float target instead
-      antialias: false,
-      stencil: false,
-      powerPreference: "high-performance",
-      // Float precision across the 0.12 m .. 5.5 km depth range (kerbs, lines and decals stop z-fighting at
-      // distance). three falls back to the standard buffer without EXT_clip_control; ?depth=standard forces it.
-      reversedDepthBuffer: new URLSearchParams(window.location.search).get("depth") !== "standard",
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        // MSAA happens in the post-processing composer's half-float target instead
+        antialias: false,
+        stencil: false,
+        powerPreference: "high-performance",
+        // Float precision across the 0.12 m .. 5.5 km depth range (kerbs, lines and decals stop z-fighting at
+        // distance). three falls back to the standard buffer without EXT_clip_control; ?depth=standard forces it.
+        reversedDepthBuffer: new URLSearchParams(window.location.search).get("depth") !== "standard",
+      });
+    } catch (reason) {
+      // No WebGL (switched off, or refused after a GPU reset): the worker started above goes with the session
+      simHost?.dispose();
+      throw new WebGLUnavailableError(reason);
+    }
+    // The GPU for the bug form, read now: after a context loss the browser may refuse to tell
+    noteRenderer(rendererName(renderer.getContext()));
+    /**
+     * The context is gone: the frame loop keeps the network and the menus going but draws nothing and moves nothing,
+     * and the component offers to load the circuit again on a new context. The old one is never reused: the sky's
+     * lookup tables, the environment bake, the probe and the post-processing targets exist only on the GPU, and no
+     * library here rebuilds its own.
+     */
+    let gpuLost = false;
+    const onContextLost = (event: Event) => {
+      // The browser may give the context back only when asked to (three asks too)
+      event.preventDefault();
+      if (disposed || gpuLost) return;
+      gpuLost = true;
+      const hidden = document.visibilityState === "hidden";
+      recordContextLoss(browserStore(), Date.now(), hidden);
+      console.warn(`[gpu] WebGL context lost (${appPhaseNow}${hidden ? ", page hidden" : ""}): the drive is paused`);
+      releaseHeldKeys();
+      this.silenceFeedback();
+      this.publish({ gpuLost: { hidden, phase: appPhaseNow } });
+    };
+    const onContextRestored = () => {
+      if (!disposed) console.info("[gpu] WebGL context restored; the circuit loads again on a new one when the player asks");
+    };
+    renderer.domElement.addEventListener("webglcontextlost", onContextLost);
+    renderer.domElement.addEventListener("webglcontextrestored", onContextRestored);
     // AgX exposure, pixel ratio clamp and shadow type; set before the composer is created
     configureRenderer(renderer);
     // The GPU formats the circuit's KTX2 textures transcode to (render/ktx2.ts)
@@ -1673,7 +1728,9 @@ export class DriveSession {
       assetProgress.begin("shaders");
       // One frame later the car model has been swapped in by its own (earlier) listener
       requestAnimationFrame(() => {
-        if (disposed) return;
+        // No context to compile on: the circuit loads again on a new one (a compile started on a lost context polls
+        // for programs that never finish)
+        if (disposed || gpuLost) return;
         // The scene is drawn into the composer's half-float target (no tone mapping, linear output), and three keys
         // its programs on the bound target: compiled with none bound, every shader would be the wrong variant and
         // recompile on the first frame after the player presses start. The program build runs synchronously inside
@@ -1688,7 +1745,7 @@ export class DriveSession {
           .then(
             () => {
               // Given up on already: the first frames compile what is left
-              if (disposed || warmupSettled) return;
+              if (disposed || warmupSettled || gpuLost) return;
               warmUpGpu();
               visualFx.hidePrewarmed();
               assetProgress.done("shaders");
@@ -1770,8 +1827,9 @@ export class DriveSession {
       displayRate.add(nowMs - lastTimeMs);
       lastTimeMs = nowMs;
       // The frame-rate cap: this frame draws, or only runs input, the simulation, the network and the laps. The
-      // drawing catches up with the time since the last drawn frame. Never in a headset, which sets its own rate.
-      const draw = renderer.xr.isPresenting || pacer.shouldDraw(nowMs);
+      // drawing catches up with the time since the last drawn frame. Never in a headset, which sets its own rate. With
+      // the GPU context lost nothing is drawn at all.
+      const draw = !gpuLost && (renderer.xr.isPresenting || pacer.shouldDraw(nowMs));
       pendingDrawS += dtSeconds;
       const drawDtS = draw ? pendingDrawS : 0;
       const drawIntervalMs = draw ? nowMs - lastDrawMs : 0;
@@ -1812,8 +1870,8 @@ export class DriveSession {
         if (!this.snapshot.paused) this.togglePause();
         setPauseNotice("Steering wheel disconnected. Reconnect it, or resume to drive with what's left.");
       }
-      // The pause menu or the seat panel: the car waits
-      const frozen = this.snapshot.paused || this.snapshot.seatPanel;
+      // The pause menu, the seat panel or a lost GPU context: the car waits
+      const frozen = this.snapshot.paused || this.snapshot.seatPanel || gpuLost;
       const driving = !inMenu && !frozen && !replaying && !device.wheelLost;
       const padTuning = settingsNow.padTuning;
       const kbTuning = settingsNow.keyboardTuning;
@@ -1828,7 +1886,8 @@ export class DriveSession {
           ? undefined
           : shapeStick(device.padSteer, padTuning.deadzone, padTuning.outerDeadzone, padTuning.linearity);
       const gamepadBoost = driving && device.boostHeld;
-      if (!inMenu) {
+      // With the GPU lost the notice over the game has the buttons: the pad's Menu must not open the pause menu under it
+      if (!inMenu && !gpuLost) {
         for (const action of device.pressed) {
           // polish:B any pad button skips the podium shot
           if (podium.playing) {
@@ -2165,9 +2224,10 @@ export class DriveSession {
         lapLengthM: track.totalLengthM,
         offTrack: physics.telemetry.offTrack,
       });
+      // With the GPU lost no state goes out: the others see this car go, not parked where it stopped
       const interpolatedPeers = multiplayerSync.update(
         nowMs,
-        {
+        gpuLost ? null : {
           driverCode: settingsNow.profile.code,
           teamColorHex: settingsNow.profile.color,
           name: settingsNow.profile.name,
@@ -2543,8 +2603,8 @@ export class DriveSession {
         }
       }
 
-      // Nothing to draw behind the opaque loading screen (the shaders are compiled separately)
-      if (appPhase === "loading") return;
+      // Nothing to draw behind the opaque loading screen (the shaders are compiled separately), or with no GPU context
+      if (appPhase === "loading" || gpuLost) return;
 
       // Weather: sun, sky, fill and fog, the wet look of the road, spray, and rain around the camera
       const wx = trackEnv.weather;
@@ -2734,6 +2794,8 @@ export class DriveSession {
       wheelFfb.dispose();
       simHost?.dispose();
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", onPageShow);
       window.removeEventListener("blur", onWindowBlur);
