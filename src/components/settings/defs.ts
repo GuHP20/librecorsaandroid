@@ -513,8 +513,7 @@ export const driverBody = toggle({
 
 // ---- Display > HUD
 
-/** The layouts, the game's own then the third-party ones (one list: hud-layouts.ts) */
-export { HUD_LAYOUTS } from "@/lib/settings/hud-layouts";
+/* The layout itself is chosen in its own picker (HudLayoutPicker, the list in hud-layouts.ts) */
 
 export const hudSize = slider({ id: "hudScale", label: "Size", hint: "The whole HUD, larger or smaller", min: 0.75, max: 1.5, step: 0.05, format: pct, ...hud("scale") });
 
