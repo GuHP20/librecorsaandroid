@@ -2,6 +2,11 @@
  * Physics surfaces named by what the circuit draws, where its converted physics got them wrong (per circuit, in code,
  * like the venue models: no hosted file changes).
  *
+ * - Norisring: its physics road is the lap's own band, 9-17 m wide, but the street is drawn as asphalt out to the
+ *   barriers (20 m and more across), and the bands past the edge called it run-off and grass. A car using the street
+ *   was off the track (and on grass grip) on drawn asphalt. Every drawn road and kerb between the barriers is the
+ *   track, except past a kerb's outer edge (the car parks, escape roads and the island behind the hairpins' kerbs);
+ *   paving past the barriers stays as it is.
  * - Red Bull Ring: its physics counts the yellow kerbs and kerb cubes inside Castrol Edge (turn 1) and Remus (turn 2)
  *   as kerb and road, out to the grass: a car with all four wheels past the red and white kerb, on the yellow kerb and
  *   the cubes, stayed on the track (players' board laps went 8.4-8.9 m inside the line there). The yellow kerb and the
@@ -33,15 +38,30 @@ export interface DrawnSurfaceRule {
    * millimetre apart): where one of them is within `COVER_M` of a point, the ground there is not the rule's
    */
   covers?: readonly string[];
+  /**
+   * With `within: "barriers"`: where the lap has a kerb on a side, the rule stops at the kerb's outer edge there instead
+   * of the barrier (past a corner's kerb is off the track, however much asphalt is drawn)
+   */
+  kerbsLimit?: boolean;
   /** How fine a face across the drawn edge is cut (m; default `PIECE_M`) */
   pieceM?: number;
   note: string;
 }
 
+const OFF_ROAD: readonly TrackSurfaceKind[] = ["runoff", "gravel", "grass"];
+/** Norisring's drawn grass and sand (grassa, SandVariation, grassouttemp, 3dgrasb) */
+const NORISRING_COVERS = ["grassa", "sanda", "grassout", "dteichgrass"];
 /** The Red Bull Ring's curb_yellow, curb_cubes (two) and curb_cubes_red: the same names in the venue pair and the full GLB */
 const RED_BULL_RING_SAUSAGES = ["Material #12016", "Material #13667", "Material #19120", "Material #19526"];
 
 export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceRule[]>> = {
+  norisring: [
+    // The gravel traps and grass drawn over the street mesh in places stay as they are; cut to 0.5 m, as where the
+    // street meets a gravel trap inside the barriers its edge is the track limit
+    { materials: "roadMaterials", surface: "road", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn street between the barriers" },
+    // curbrubber and the drain strip by the kerbs
+    { materials: ["CurbRubber", "rmblb"], surface: "kerb", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn kerbs between the barriers" },
+  ],
   spielberg: [
     {
       materials: RED_BULL_RING_SAUSAGES,
@@ -175,6 +195,87 @@ function drawnGround(root: THREE.Object3D, mats: ReadonlySet<string>, keep: (x: 
   return { tris, covers, touches };
 }
 
+/** How far (m) past each end of a kerb its outer edge is carried over to the barrier */
+const KERB_BRIDGE_M = 20;
+
+/**
+ * One side's limit per lap sample (0 = none, the barrier): the kerb's outer edge where there is a kerb, and from each
+ * end of a kerb a line over `KERB_BRIDGE_M` to the barrier there, so where the barrier opens out beside a corner (an
+ * escape road, a car park) the limit runs from the kerb to the barrier instead of out to the opening
+ */
+function kerbLimits(edge: Float64Array, wall: (i: number) => number, track: BuiltTrackData): Float64Array {
+  const n = edge.length;
+  const D = Math.max(1, Math.round((KERB_BRIDGE_M / track.totalLengthM) * n));
+  const out = Float64Array.from(edge);
+  for (let i = 0; i < n; i++) {
+    if (!(edge[i] > 0)) continue;
+    for (const dir of [-1, 1]) {
+      if (edge[(i + dir + n) % n] > 0) continue;
+      const far = wall((((i + dir * D) % n) + n) % n);
+      for (let k = 1; k <= D; k++) {
+        const j = (((i + dir * k) % n) + n) % n;
+        if (edge[j] > 0) break;
+        const v = edge[i] + (far - edge[i]) * (k / D);
+        out[j] = out[j] > 0 ? Math.min(out[j], v) : v;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The outer edge of the lap's physics kerb (`Track_Surface_Kerb`) on each side, per lap sample (m from the centre line;
+ * 0 where the side has none): each kerb face marks every sample its lap span covers with its outermost corner
+ */
+export function kerbOuterEdges(root: THREE.Object3D, track: BuiltTrackData): { left: Float64Array; right: Float64Array } {
+  const S = track.samples;
+  const n = S.length;
+  const L = track.totalLengthM;
+  const left = new Float64Array(n);
+  const right = new Float64Array(n);
+  // The nearest sample of a point from a coarse grid of the samples, as the projection's hint
+  const CELL = 25;
+  const sgrid = new Map<number, number[]>();
+  const skey = (cx: number, cz: number) => cx * 73856093 + cz * 19349663;
+  S.forEach((q, i) => {
+    const k = skey(Math.floor(q.position.x / CELL), Math.floor(q.position.z / CELL));
+    (sgrid.get(k) ?? sgrid.set(k, []).get(k)!).push(i);
+  });
+  const hintAt = (x: number, z: number): number | undefined => {
+    let best = Infinity, bi = -1;
+    const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      for (const i of sgrid.get(skey(cx + dx, cz + dz)) ?? []) {
+        const d = (S[i].position.x - x) ** 2 + (S[i].position.z - z) ** 2;
+        if (d < best) { best = d; bi = i; }
+      }
+    }
+    return bi >= 0 ? S[bi].s : undefined;
+  };
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || o.name !== "Track_Surface_Kerb") return;
+    forEachTri(o, (a, b, c) => {
+      const pr = [a, b, c].map((v) => track.projectWorldToTrack(v.x, v.z, hintAt(v.x, v.z)));
+      const side = pr[0].lateralOffset + pr[1].lateralOffset + pr[2].lateralOffset >= 0 ? 1 : -1;
+      const out = Math.max(...pr.map((p) => Math.abs(p.lateralOffset)));
+      // The face's span along the lap (the shorter way round), every sample in it
+      let s0 = pr[0].s, s1 = pr[0].s;
+      for (const p of pr.slice(1)) {
+        const d = ((((p.s - pr[0].s) % L) + L * 1.5) % L) - L / 2;
+        s0 = Math.min(s0, pr[0].s + d);
+        s1 = Math.max(s1, pr[0].s + d);
+      }
+      if (s1 - s0 > 50) return;
+      const edge = side > 0 ? right : left;
+      for (let i = Math.floor((s0 / L) * n); i <= Math.ceil((s1 / L) * n); i++) {
+        const k = ((i % n) + n) % n;
+        edge[k] = Math.max(edge[k], out);
+      }
+    });
+  });
+  return { left, right };
+}
+
 /**
  * Applies a circuit's rules to its fitted physics surfaces (TrackColliderQuery.fromTrackRoot's `prepare`). Returns the
  * area renamed (m², per surface); nothing changes on a circuit without rules.
@@ -217,10 +318,15 @@ export function applyDrawnSurfaceRules(
       const S = track.samples;
       const wallL = (i: number) => S[i].wallLeftM ?? S[i].width / 2;
       const wallR = (i: number) => S[i].wallRightM ?? S[i].width / 2;
+      const kerb = rule.kerbsLimit ? kerbOuterEdges(root, track) : null;
+      const limL = kerb ? kerbLimits(kerb.left, wallL, track) : null;
+      const limR = kerb ? kerbLimits(kerb.right, wallR, track) : null;
       const ends = S.map((q, i) => {
         const bl = Math.hypot(q.binormal.x, q.binormal.z) || 1;
         const bx = q.binormal.x / bl, bz = q.binormal.z / bl;
-        const wl = wallL(i), wr = wallR(i);
+        let wl = wallL(i), wr = wallR(i);
+        if (limL && limL[i] > 0) wl = Math.min(wl, limL[i]);
+        if (limR && limR[i] > 0) wr = Math.min(wr, limR[i]);
         return [q.position.x - bx * wl, q.position.z - bz * wl, q.position.x + bx * wr, q.position.z + bz * wr];
       });
       for (let i = 0; i < S.length; i++) {
