@@ -26,6 +26,8 @@ export interface SettingsEnv {
   vrSupported?: boolean;
   vrActive?: boolean;
   onEnterVr?: () => void;
+  /** What the automatic quality has lowered right now ("resolution 70%, car reflections off"); null with nothing */
+  autoQualityLowered?: string | null;
   /** Claims a new name on the online board: null once it has taken, else why not */
   onRenameDriver?: (name: string) => Promise<string | null>;
   /** Closes the menus onto the seat panel (only while driving) */

@@ -6,6 +6,7 @@ import {
   COCKPIT_FOV_MAX_DEG,
   COCKPIT_FOV_MIN_DEG,
   DEFAULT_PLAYER_SETTINGS,
+  defaultPlayerSettings,
   UI_SCALE_MAX,
   UI_SCALE_MIN,
   type PlayerSettings,
@@ -478,6 +479,29 @@ export const renderScale = choice("select", {
   read: (env) => (Math.round(env.settings.graphics.renderScale * 20) / 20).toFixed(2),
   write: (env, id) => env.update((s) => ({ ...s, graphics: { ...s.graphics, renderScale: Number(id) } })),
   initial: () => DEFAULT_PLAYER_SETTINGS.graphics.renderScale.toFixed(2),
+});
+
+export const frameRate = choice("segmented", {
+  id: "fpsCap",
+  label: "Frame rate",
+  hint: "30 fps keeps a phone cooler on long sessions. The car handles the same",
+  options: [
+    { id: "0", label: "Full" },
+    { id: "30", label: "30 fps" },
+  ],
+  read: (env) => String(env.settings.graphics.fpsCap),
+  write: (env, id) => env.update((s) => ({ ...s, graphics: { ...s.graphics, fpsCap: id === "30" ? 30 : 0 } })),
+  initial: () => String(defaultPlayerSettings().graphics.fpsCap),
+});
+
+export const autoQuality = toggle({
+  id: "autoQuality",
+  label: "Automatic quality",
+  hint: (env) =>
+    env.autoQualityLowered
+      ? `Lowered for now: ${env.autoQualityLowered}`
+      : "Lowers the graphics a step at a time if the game starts to stutter, like on a hot phone",
+  ...graphics("autoQuality"),
 });
 
 export const driverBody = toggle({

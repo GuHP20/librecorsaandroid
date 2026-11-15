@@ -191,6 +191,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     defaultTyreSetup,
     chassisSetup,
     timeTrial,
+    autoQualityLowered,
   } = useSyncExternalStore(session?.subscribe ?? noSubscribe, session?.getSnapshot ?? (() => idleSnapshot), () => idleSnapshot);
 
   const [aeroPreset, setAeroPreset] =
@@ -1582,6 +1583,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     vrSupported,
     vrActive: vrState === "on",
     onEnterVr: () => session?.enterVr(),
+    autoQualityLowered,
     onRenameDriver: renameFromSettings,
     onOpenSeatPanel:
       phase === "driving"
