@@ -34,6 +34,27 @@ export interface DiscussionItem {
 
 export const COVERAGE: CoverageItem[] = [
   {
+    outlet: "AppMunchies on Instagram",
+    title: "This free F1-style sim runs in a browser tab, force feedback and all",
+    url: "https://www.instagram.com/reel/Dfs4we0jXsa/",
+    date: "2026-11-14",
+    kind: "Video",
+  },
+  {
+    outlet: "AppMunchies on YouTube",
+    title: "This free F1-style sim runs in a browser tab, force feedback and all",
+    url: "https://www.youtube.com/watch?v=B5QJXawgARA",
+    date: "2026-11-14",
+    kind: "Video",
+  },
+  {
+    outlet: "AppMunchies on TikTok",
+    title: "This free F1-style sim runs in a browser tab, force feedback and all",
+    url: "https://www.tiktok.com/@appmunchies/video/7707408455664946463",
+    date: "2026-11-13",
+    kind: "Video",
+  },
+  {
     outlet: "Andrey Zhuravlev",
     title: "LibreCorsa - open-source racing simulator in your Browser",
     url: "https://www.youtube.com/watch?v=-_mMah4gYg4",
