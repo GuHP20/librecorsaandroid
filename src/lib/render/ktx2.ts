@@ -145,3 +145,39 @@ export function ktx2TextureCheck(parser: GLTFParser): GLTFLoaderPlugin {
     },
   };
 }
+
+const NO_TEXELS = new Uint8Array(0);
+
+/** Called by three once a texture is on the GPU: the texture lets go of its transcoded copy */
+function releaseTexels(texture: THREE.Texture): void {
+  const t = texture as THREE.CompressedTexture;
+  // New mip objects: a clone of this texture (another sampler) still holds the old ones until its own upload
+  t.mipmaps = t.mipmaps.map((m) => ({ width: m.width, height: m.height, data: NO_TEXELS })) as typeof t.mipmaps;
+  t.onUpdate = null;
+}
+
+/**
+ * Lets a model's KTX2 textures drop their transcoded data once the GPU has it. three keeps a compressed texture's mip
+ * data in memory after the upload, which on a phone is the tab's own memory (Monaco: about 110 MB in the iOS
+ * simulator's Safari) on top of the GPU's copy. Only a lost and restored WebGL context would need the data again; the
+ * game doesn't restore a lost context, so such a texture would stay black until the circuit is loaded again.
+ */
+export function ktx2ReleaseTexels(): GLTFLoaderPlugin {
+  return {
+    name: "LC_ktx2_release_texels",
+    afterRoot: async (result) => {
+      for (const scene of result.scenes) {
+        scene.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+            for (const v of Object.values(m)) {
+              const t = v as THREE.CompressedTexture | null;
+              if (t?.isCompressedTexture && t.userData.mimeType === "image/ktx2") t.onUpdate = releaseTexels;
+            }
+          }
+        });
+      }
+    },
+  };
+}
