@@ -324,6 +324,15 @@ async function main() {
   await sw.get("/cars/x/c.ogg", { client: "page11" });
   check("Last-Modified alone works as the check (304)", storage.kept().includes("/cars/x/c.ogg") && site.since(mark).statuses.join() === "304");
 
+  // --- The KTX2 transcoder: a static file (no X-File-Size) that a phone fetches with every circuit ---
+  const WASM = "/basis/basis_transcoder.wasm";
+  site.put(WASM, 64 * KB, 7, { etag: '"wasm-7"', headers: { "Content-Encoding": "br" } });
+  await sw.get(WASM, { client: "page12" });
+  mark = site.log.length;
+  r = await sw.get(WASM, { client: "page13" });
+  check("The KTX2 transcoder is kept and checked like a circuit file (304)", storage.kept().includes(WASM) && site.since(mark).statuses.join() === "304" && same(r.body, site.files.get(WASM)!.body));
+  check("Other files under /basis/ are left to the network", !(await sw.get("/basis/other.js")).intercepted);
+
   // --- The budget: least recently used first ---
   const fresh = new Site();
   const box = new FakeStorage();

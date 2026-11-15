@@ -152,6 +152,7 @@ Made for this project and licensed under [Creative Commons Attribution-NonCommer
 
 * **Next.js** — Vercel (MIT)
 * **Three.js** — Ricardo Cabello / Mr.doob and contributors (MIT)
+* **Basis Universal** — Binomial LLC (Apache-2.0): the transcoder in `public/basis/` (the build that ships with Three.js) turns the circuits' KTX2 textures into the GPU's compressed formats in the browser.
 * **React** — Meta Platforms, Inc. (MIT)
 * **Tailwind CSS** — Tailwind Labs (MIT)
 * **Framer Motion** — Motion Division (MIT)
