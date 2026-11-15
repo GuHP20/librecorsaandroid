@@ -79,7 +79,9 @@ async function serve(event, key, later) {
   const seen = event.clientId ? `${event.clientId} ${key}` : "";
   const files = await caches.open(FILES);
   const kept = await files.match(key);
-  if (!kept || !validator(kept)) return keep(later, files, key, await fetch(event.request), !!kept, seen);
+  // Downloaded past the browser's own cache: a copy from there would keep the headers of when it was stored (an older
+  // server's, without X-File-Size for the loading bar), and the file would sit on disk twice
+  if (!kept || !validator(kept)) return keep(later, files, key, await fetch(event.request, { cache: "no-store" }), !!kept, seen);
 
   if (seen && checked.has(seen)) {
     later.push(touch(key));
