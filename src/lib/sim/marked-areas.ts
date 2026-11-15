@@ -1,16 +1,17 @@
 /**
- * Norisring's marked corner images (turns 2-6, 15 Nov 2026): each area the reviewer marked as track (`legal`) or off
- * it, as a world outline (x, z pairs, m): the pen stroke's outer edge pulled in by half the pen's width, simplified to
- * 0.15 m. drawn-surfaces.ts applies them; where a legal and an off area overlap, the legal one wins (the finer image).
+ * The areas marked on the reviewed corner images (15 Nov 2026), per circuit: each area the reviewer marked as track
+ * (`legal`) or off it, as a world outline (x, z pairs, m): the pen stroke's outer edge pulled in by half the pen's width,
+ * simplified to 0.15 m. drawn-surfaces.ts applies them; where a legal and an off area overlap, the legal one wins.
  * Made by a script from the marks; not edited by hand.
  */
 export interface MarkedArea {
-  /** The image and its mark (turn, mark number) */
+  /** The image (turn, part) and its mark number */
   mark: string;
   legal: boolean;
   outline: readonly number[];
 }
 
+/** Norisring: T2, T3, T4, T5, T6 */
 export const NORISRING_MARKED_AREAS: readonly MarkedArea[] = [
   { mark: "T2 #1", legal: true, outline: [77.24, -43.97, 77.34, -42.97, 84.64, -42.97, 85.54, -42.47, 85.54, -38.57, 89.54, -38.57, 90.64, -38.37, 91.74, -37.17, 92.04, -31.77, 92.04, -5.57, 93.44, -5.57, 93.74, -5.37, 93.74, 18.73, 93.14, 19.03, 92.04, 19.13, 92.74, 24.43, 94.64, 30.33, 95.54, 31.63, 97.74, 35.93, 98.94, 37.03, 102.54, 41.33, 104.04, 42.63, 106.84, 44.43, 108.54, 45.83, 109.14, 45.93, 109.64, 46.33, 115.24, 48.83, 118.24, 49.33, 120.44, 50.03, 120.44, 52.03, 120.14, 52.23, 112.64, 52.23, 88.54, 51.53, 88.44, 51.83, 94.54, 53.33, 104.04, 54.83, 111.94, 55.53, 118.64, 55.83, 197.34, 56.13, 197.34, 47.63, 155.64, 48.73, 139.24, 48.73, 128.84, 48.23, 120.94, 47.13, 113.74, 44.63, 111.74, 43.13, 106.64, 40.03, 102.54, 35.63, 99.54, 31.03, 97.64, 26.63, 96.44, 20.93, 96.04, 16.03, 96.14, 7.73, 97.64, -2.47, 99.04, -10.07, 99.74, -18.77, 99.44, -24.17, 98.64, -28.77, 98.14, -29.57, 97.14, -32.57, 96.64, -32.97, 95.14, -35.37, 92.34, -38.07, 89.64, -40.27, 86.64, -42.17, 85.74, -42.47, 85.54, -43.07, 80.84, -43.77] },
   { mark: "T2 #2", legal: true, outline: [124.01, 34.23, 129.31, 34.93, 134.51, 36.33, 141.91, 37.73, 151.61, 38.63, 169.91, 38.93, 197.31, 38.23, 197.31, 32.13, 143.21, 32.23, 131.81, 31.73, 125.21, 30.93] },

@@ -7,7 +7,7 @@
  *   was off the track (and on grass grip) on drawn asphalt. Every drawn road and kerb between the barriers is the
  *   track, except past a kerb's outer edge (the car parks, escape roads and the island behind the hairpins' kerbs);
  *   paving past the barriers stays as it is. At turns 2-6 the areas marked on the reviewed corner images
- *   (norisring-marked-areas.ts) apply on top: street marked as track that the street rule misses (past the lap's
+ *   (marked-areas.ts) apply on top: street marked as track that the street rule misses (past the lap's
  *   barrier distances, which run short at the Schöller S, or paving it doesn't read as road) is the track, and the
  *   back straight's promenades, the curb strips behind the Schöller S's inside wall and road faces jutting past the
  *   start-finish straight's edge are off it, except where an area marked as track overlaps them.
@@ -21,6 +21,7 @@
  *   run-off and grass; and the road collider's asphalt past the white line on the pit exit before Castrol Edge, and
  *   on the gore island past its apex, is run-off.
  *
+ *
  * Each rule takes the circuit's physics faces lying under the drawn meshes of its materials, where it applies, and
  * moves them to a `Track_Surface_<Kind>` node at their own heights: the ground the car drives on is unchanged, only
  * what it is called. Faces across the drawn edge are split (quartered down to `PIECE_M`) so the cut follows it. Over
@@ -28,7 +29,7 @@
  */
 import * as THREE from "three";
 import type { BuiltTrackData } from "@/lib/track-data";
-import { NORISRING_MARKED_AREAS } from "./norisring-marked-areas";
+import { NORISRING_MARKED_AREAS, type MarkedArea } from "./marked-areas";
 import { isTrackSurfaceKind, type SurfaceTable, type TrackSurfaceKind } from "./track-surfaces";
 
 export interface DrawnSurfaceRule {
@@ -67,7 +68,10 @@ export interface DrawnSurfaceRule {
    * of the barrier (past a corner's kerb is off the track, however much asphalt is drawn)
    */
   kerbsLimit?: boolean;
-  /** Never inside the lap's road (its track-data width, the street there in any case) */
+  /**
+   * Never on the lap's road: inside its track-data width where the circuit's road (`roadMaterials`) is drawn (where
+   * that width lies over drawn grass, as where it is shifted off the road, the rule applies)
+   */
   offTheRoad?: boolean;
   /** How fine a face across the drawn edge is cut (m; default `PIECE_M`) */
   pieceM?: number;
@@ -78,9 +82,29 @@ const OFF_ROAD: readonly TrackSurfaceKind[] = ["runoff", "gravel", "grass"];
 const ON_TRACK: readonly TrackSurfaceKind[] = ["road", "kerb", "pitlane"];
 /** Norisring's drawn grass and sand (grassa, SandVariation, grassouttemp, 3dgrasb) */
 const NORISRING_COVERS = ["grassa", "sanda", "grassout", "dteichgrass"];
-/** The areas marked on Norisring's corner images (turns 2-6) as track, and as off it */
-const NORISRING_MARKED_TRACK = NORISRING_MARKED_AREAS.filter((a) => a.legal).map((a) => a.outline);
-const NORISRING_MARKED_OFF = NORISRING_MARKED_AREAS.filter((a) => !a.legal).map((a) => a.outline);
+/**
+ * A circuit's marked corner images (marked-areas.ts) as two rules, cut to 0.5 m (about the pen's line): the areas
+ * marked as track are road where the physics left them off it, and the areas marked off it are run-off where they are
+ * track (the road collider too), except where an area marked as track overlaps them (the finer image's marks win) and
+ * inside the lap's road (its track-data width: a mark that reaches into it is a coarse image's pen, the road is the
+ * track)
+ */
+function markedAreaRules(areas: readonly MarkedArea[], track: string, off: string): DrawnSurfaceRule[] {
+  const legal = areas.filter((a) => a.legal).map((a) => a.outline);
+  return [
+    { materials: null, surface: "road", from: OFF_ROAD, within: { areas: legal }, pieceM: 0.5, note: track },
+    {
+      materials: null,
+      surface: "runoff",
+      from: ON_TRACK,
+      overRoadCollider: true,
+      within: { areas: areas.filter((a) => !a.legal).map((a) => a.outline), except: legal },
+      offTheRoad: true,
+      pieceM: 0.5,
+      note: off,
+    },
+  ];
+}
 /**
  * The Red Bull Ring's sausage kerbs: curb_yellow, curb_cubes (two), curb_cubes_red and the anti-cut rumble (rmblsafe).
  * Its names here are the same in the venue pair and the full GLB.
@@ -118,24 +142,12 @@ export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceR
     { materials: "roadMaterials", surface: "road", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn street between the barriers" },
     // curbrubber and the drain strip by the kerbs
     { materials: ["CurbRubber", "rmblb"], surface: "kerb", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn kerbs between the barriers" },
-    // The corner images of turns 2-6 as marked (cut to 0.5 m, about the pen's line): street the rules above leave off
-    // the track (past the lap's barrier distances, which run 1-2 m short at the Schöller S, paving the street rule
-    // doesn't read as road)...
-    { materials: null, surface: "road", from: OFF_ROAD, within: { areas: NORISRING_MARKED_TRACK }, pieceM: 0.5, note: "the areas marked as track on the corner images" },
-    // ...and what is off it although drawn as street or kerb (the back straight's promenades, the curb strips behind the
-    // Schöller S's inside wall, road faces jutting past the start-finish straight's edge), where no area marked as
-    // track overlaps it (the finer image's marks win)
-    {
-      materials: null,
-      surface: "runoff",
-      from: ON_TRACK,
-      overRoadCollider: true,
-      within: { areas: NORISRING_MARKED_OFF, except: NORISRING_MARKED_TRACK },
-      // (the marks on the coarser turn 4 image reach up to 1.5 m onto the start-finish straight's road)
-      offTheRoad: true,
-      pieceM: 0.5,
-      note: "the areas marked off the track on the corner images",
-    },
+    // The corner images of turns 2-6 as marked: street the rules above leave off the track (past the lap's barrier
+    // distances, which run 1-2 m short at the Schöller S, paving the street rule doesn't read as road), and what is off
+    // it although drawn as street or kerb (the back straight's promenades, the curb strips behind the Schöller S's
+    // inside wall, road faces jutting past the start-finish straight's edge; the coarser turn 4 image's marks reach up
+    // to 1.5 m onto that straight's road)
+    ...markedAreaRules(NORISRING_MARKED_AREAS, "the areas marked as track on the corner images", "the areas marked off the track on the corner images"),
   ],
   spielberg: [
     {
@@ -603,14 +615,18 @@ export function applyDrawnSurfaceRules(
         strip.push(a[0], a[1], a[2], a[3], b[2], b[3], a[0], a[1], b[2], b[3], b[0], b[1]);
       }
     }
-    // The rule's region, judged per point: the strip, or its areas less the areas excepted (and less the lap's road,
-    // with `offTheRoad`)
+    // The rule's region, judged per point: the strip, or its areas less the areas excepted (and, with `offTheRoad`, less
+    // the circuit's road drawn within the lap's road)
     const road = rule.offTheRoad ? (roadBand ??= stripRegion(lapRoadStrip(track))) : null;
-    const region = strip.length
-      ? stripRegion(strip)
+    const roadDrawn = road && areas ? drawnGround(root, new Set(roadMaterials), () => true, stretchBoxes) : null;
+    const onRoad = (x: number, y: number, z: number): boolean => !!road && road.contains(x, z) && (roadDrawn?.covers(x, y, z, UNDER_DRAWN_M) ?? true);
+    const strips = strip.length ? stripRegion(strip) : null;
+    const region = strips
+      ? { contains: (x: number, _y: number, z: number) => strips.contains(x, z), touches: strips.touches }
       : areas
         ? {
-            contains: (x: number, z: number) => areas.some((m) => inMask(m, x, z)) && !except.some((m) => inMask(m, x, z)) && !(road?.contains(x, z) ?? false),
+            contains: (x: number, y: number, z: number) =>
+              areas.some((m) => inMask(m, x, z)) && !except.some((m) => inMask(m, x, z)) && !onRoad(x, y, z),
             touches: (x0: number, z0: number, x1: number, z1: number) => areas.some((m) => maskTouches(m, x0, z0, x1, z1)),
           }
         : null;
@@ -647,7 +663,7 @@ export function applyDrawnSurfaceRules(
 
     /** The renamed pieces, by the surface they were */
     const moved = new Map<TrackSurfaceKind, number[]>();
-    const inside = (x: number, y: number, z: number) => (!region || region.contains(x, z)) && underDrawn(x, y, z);
+    const inside = (x: number, y: number, z: number) => (!region || region.contains(x, y, z)) && underDrawn(x, y, z);
     /** 1: all seven vote points inside, 0: none, -1: they differ (a last piece: its middle alone, 1 or 0) */
     const vote = (g: Corner[], last: boolean): 1 | 0 | -1 => {
       const mx = (g[0][0] + g[1][0] + g[2][0]) / 3, my = (g[0][1] + g[1][1] + g[2][1]) / 3, mz = (g[0][2] + g[1][2] + g[2][2]) / 3;
