@@ -191,6 +191,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     defaultTyreSetup,
     chassisSetup,
     timeTrial,
+    autoQualityLowered,
+    qualityNotice,
   } = useSyncExternalStore(session?.subscribe ?? noSubscribe, session?.getSnapshot ?? (() => idleSnapshot), () => idleSnapshot);
 
   const [aeroPreset, setAeroPreset] =
@@ -1504,6 +1506,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     onAcceptManualOffer: handleAcceptManualOffer,
     onAcceptManualAnswer: handleAcceptManualAnswer,
     onTogglePause: togglePause,
+    // `?perf=1`: the pause menu copies or saves the session's performance report
+    perfReport: session?.perfReport ?? null,
     keyNames,
     // The lap board while driving, with an online board only
     onChangeBoardWidget: boardOn ? handleChangeBoardWidget : undefined,
@@ -1582,6 +1586,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     vrSupported,
     vrActive: vrState === "on",
     onEnterVr: () => session?.enterVr(),
+    autoQualityLowered,
     onRenameDriver: renameFromSettings,
     onOpenSeatPanel:
       phase === "driving"
@@ -1632,6 +1637,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           track={track}
           weather={weatherHud}
           boostLatch={boostLatch}
+          qualityNotice={qualityNotice}
           showLaunchHint={launchHint}
           launchHintText={launchHintText}
           hudToggleButton={settings.padButtons.hud === null ? undefined : padButtonLabel(settings.padButtons.hud)}

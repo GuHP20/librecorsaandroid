@@ -103,6 +103,9 @@ export class SimRuntime {
         this.driving = false;
         this.accumulatorS = 0;
         return;
+      case "perf":
+        // Timed by the worker's entry (sim-worker.ts), which owns the clock
+        return;
     }
   }
 
@@ -117,10 +120,13 @@ export class SimRuntime {
     this.accumulatorS = 0;
   }
 
-  /** Advances by `dtS` of wall-clock time: whole ticks, the rest carried over. Reports the state if any tick ran */
-  advance(dtS: number): void {
+  /**
+   * Advances by `dtS` of wall-clock time: whole ticks, the rest carried over. Reports the state if any tick ran.
+   * Returns the ticks run
+   */
+  advance(dtS: number): number {
     const car = this.car;
-    if (!car || !this.driving || !(dtS > 0)) return;
+    if (!car || !this.driving || !(dtS > 0)) return 0;
     this.accumulatorS = Math.min(this.accumulatorS + dtS, MAX_CATCH_UP_S);
     let ticks = 0;
     while (this.accumulatorS >= SIM_TICK_S) {
@@ -138,6 +144,7 @@ export class SimRuntime {
       ticks++;
     }
     if (ticks > 0) this.report(false);
+    return ticks;
   }
 
   private report(withTelemetry: boolean): void {

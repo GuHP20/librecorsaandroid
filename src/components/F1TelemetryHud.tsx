@@ -49,6 +49,7 @@ import { FfbMeter } from "./hud/FfbMeter";
 import { LapSummary } from "./hud/LapSummary";
 import { RaceResults } from "./hud/RaceResults";
 import { RaceControlBanner } from "./hud/RaceControlBanner";
+import { QualityNotice } from "./hud/QualityNotice";
 import { RaceIncidentFeed } from "./hud/RaceIncidentFeed";
 import { DamageWidget } from "./hud/DamageWidget";
 import { ReplayBar } from "./hud/ReplayBar";
@@ -186,6 +187,10 @@ interface F1TelemetryHudProps extends MultiplayerPanelProps {
   inviteRoom?: string | null;
   /** polish:A — the time trial's target while the weekly challenge is driven (best, fastest, place) */
   challengeTarget?: import("@/lib/net/challenge-target").ChallengeTarget | null;
+  /** The automatic quality's quiet note (drive-session.ts), a new id each time */
+  qualityNotice?: { id: number; kind: "lowered" | "floor" } | null;
+  /** `?perf=1`: the session's performance report, for the pause menu to copy or save */
+  perfReport?: (() => string) | null;
 }
 
 /**
@@ -449,9 +454,11 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           style={{ left: mirrorRect.x, top: mirrorRect.y, width: mirrorRect.w, height: mirrorRect.h }}
         />
       ) : null}
-      {/* Top-centre: start lights and race-control notifications (under the Phone HUD's speed pod) */}
+      {/* Top-centre: start lights and race-control notifications (under the Phone HUD's speed pod). As wide as its
+          widest notice up to the screen's width less a margin: placed at left 50 % it would otherwise get only half
+          the screen, and in portrait the notices wrapped to three lines and spilled out of their pills */}
       <div
-        className={`absolute left-1/2 -translate-x-1/2 ${phone ? "top-[96px] portrait:top-[208px]" : "top-4"}`}
+        className={`absolute left-1/2 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 ${phone ? "top-[96px] portrait:top-[208px]" : "top-4"}`}
         style={mirrorTop !== null ? { top: `calc(${mirrorTop}px - env(safe-area-inset-top, 0px))` } : undefined}
       >
       <div className="flex flex-col items-center gap-2" style={corner("top center")}>
@@ -464,13 +471,15 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
         ) : null}
         {!lightsPhase && race ? <RaceIncidentFeed messages={race.raceControl} yellow={race.yellow} /> : null}
         {aeroNoticeNow ? (
-          <div role="status" className={`inline-flex h-10 items-center gap-2.5 rounded-full pr-5 pl-2 text-lc-chalk ${HUD_GLASS}`}>
+          <div role="status" className={`inline-flex min-h-10 items-center gap-2.5 rounded-full py-1 pr-5 pl-2 text-lc-chalk ${HUD_GLASS}`}>
             <Badge tone={aeroNoticeNow.tone} variant={aeroNoticeNow.variant} size="lg" icon={aeroNoticeNow.icon}>
               {aeroNoticeNow.badge}
             </Badge>
             <span className="lc-disp text-[16px]">{aeroNoticeNow.text}</span>
           </div>
         ) : null}
+        {/* Under the driving notices in the same column: stacked, never over them */}
+        <QualityNotice notice={props.qualityNotice ?? null} />
         {showLaunchHint && !race ? (
           <div className={`inline-flex min-h-11 items-center gap-3 rounded-full py-1.5 pr-5 pl-2 ${HUD_GLASS}`}>
             <span className="inline-flex size-7.5 flex-none items-center justify-center rounded-full bg-lc-line text-lc-chalk">

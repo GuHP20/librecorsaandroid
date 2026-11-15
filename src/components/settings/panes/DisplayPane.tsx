@@ -7,11 +7,13 @@ import { isTouchDevice } from "@/lib/input/touch-input";
 import { keyLabel, padButtonLabel } from "@/lib/input/bindings";
 import type { HudPreset } from "@/lib/settings/player-settings";
 import {
+  autoQuality,
   boardWidget,
   deltaBar,
   defaultView,
   driverBody,
   fieldOfView,
+  frameRate,
   headMovement,
   HUD_LAYOUTS,
   hudAdvanced,
@@ -64,7 +66,7 @@ export function GraphicsTab() {
     ? null
     : "No headset found. VR needs a browser with WebXR and a headset connected";
   return (
-    <SettingsCard title="Graphics" rows={[quality, renderScale, driverBody]} first>
+    <SettingsCard title="Graphics" rows={[quality, renderScale, frameRate, autoQuality, driverBody]} first>
       <SettingRow
         label="VR"
         hint="Drive in a headset. Still experimental: expect rough edges"
