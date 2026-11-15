@@ -161,6 +161,8 @@ export interface LapSummaryData {
   lapTimeMs: number;
   /** False when the lap left the track limits */
   valid: boolean;
+  /** The lap was deleted for barrier contact (riding the wall; on a hill climb, any touch): the card says so */
+  wallContact?: boolean;
   /** The racing-line autopilot drove at some point: the card shows it, but it is never a best, a ghost or uploaded */
   autopilot: boolean;
   /** Against the personal best before this lap (ms, negative = faster); null without one */

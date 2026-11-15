@@ -589,6 +589,7 @@ export class DriveSession {
       this.currentRace = next;
       setRaceKind(next.kind);
       trackLimits.reset(limitsSessionOf(next));
+      wallDeletedLaps.clear();
     };
     this.toggleAutopilot = () => {
       if (disposed || raceNow().kind === "mp" || coolDown.active) return;
@@ -1433,6 +1434,7 @@ export class DriveSession {
       onRunReset(reason);
       // Race control and the cameras start over with the run (the car is about to be put somewhere else)
       trackLimits.reset(limitsSessionOf(raceNow()));
+      wallDeletedLaps.clear();
       cameraRig.reset();
       lapRecorder.reset();
       physics.aiAutopilot = false;
@@ -1483,6 +1485,8 @@ export class DriveSession {
     // Race control: judges every excursion past the track limits (see TrackLimitsMonitor); resetRun and setRace start
     // its session over
     const trackLimits = new TrackLimitsMonitor();
+    /** Laps race control deleted for barrier contact: the lap card says so */
+    const wallDeletedLaps = new Set<number>();
     /** The wheel went while it could not pause the game (menus, loading): it pauses once the car is driven again */
     let wheelLostPending = false;
     const displayExtra: { deltaMs: number | null } = { deltaMs: null };
@@ -1935,10 +1939,19 @@ export class DriveSession {
             deltaS: lapDelta.delta(t),
             racePosition: raceNow?.position,
             active: !physics.aiAutopilot && !mpFrozen && raceNow?.phase !== "lights" && raceNow?.phase !== "finished",
+            // Barriers: a hill climb's run is done on any touch (judged up to its finish line), a circuit's lap only by
+            // riding the wall
+            wallContactS: t.f12026?.wallContactS,
+            wallRule: !track.pointToPoint
+              ? "ride"
+              : physics.sMeters > track.pointToPoint.finishS && physics.sMeters <= track.pointToPoint.endS
+                ? undefined
+                : "touch",
           });
           // A strike also deletes the lap time (it never counts as a best lap)
           if (tlEvent && tlEvent.kind !== "cleared" && tlEvent.kind !== "no_advantage" && tlEvent.lap === t.lapCount) {
             physics.invalidateLap?.();
+            if (tlEvent.reason === "wall_contact") wallDeletedLaps.add(tlEvent.lap);
           }
         }
         physics.trackLimitsHold = trackLimits.judging;
@@ -1977,7 +1990,11 @@ export class DriveSession {
             autopilot: physics.aiAutopilot,
           },
         });
-        if (done) for (const listener of lapListeners) listener(done.summary, done.recording);
+        if (done) {
+          if (!done.summary.valid && wallDeletedLaps.has(done.summary.lapNumber)) done.summary.wallContact = true;
+          for (const lap of wallDeletedLaps) if (lap <= done.summary.lapNumber) wallDeletedLaps.delete(lap);
+          for (const listener of lapListeners) listener(done.summary, done.recording);
+        }
       }
 
       // Telemetry out (UDP via the bridge) for dashboards and motion rigs
