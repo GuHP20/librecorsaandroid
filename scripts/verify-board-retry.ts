@@ -153,6 +153,24 @@ async function main(): Promise<void> {
     check('an upload with no answer: out of reach, the last switches kept', marked?.reach === 'unreachable' && marked.config.board === true && boardStateOf(marked) === 'on');
     await w.advance(6_000);
     check('…and the next retry finds it again', w.source.peek()?.reach === 'ok' && w.calls.length === n + 1);
+    // Uploads that keep getting no answer while the switches do: each wait is longer, a good read doesn't reset it,
+    // an answered upload does (the one marked above counts until then)
+    w.source.markAnswered();
+    const waits: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const from = w.at();
+      const before = w.calls.length;
+      w.source.markUnreachable();
+      while (w.calls.length === before) await w.advance(500);
+      waits.push((w.calls[w.calls.length - 1] - from) / 1000);
+    }
+    w.source.markAnswered();
+    const from = w.at();
+    const before = w.calls.length;
+    w.source.markUnreachable();
+    while (w.calls.length === before) await w.advance(500);
+    check('uploads with no answer back off too: 5, 10, 20, 40, 60 s', waits.join(',') === '5,10,20,40,60', `${waits.join(', ')} s`);
+    check('…and an answered upload starts the count again', (w.calls[w.calls.length - 1] - from) / 1000 === 5);
     stop();
   }
   {
@@ -354,7 +372,7 @@ async function main(): Promise<void> {
     skew += 4_000;
     await bq.flushQueuedLaps(flushOpts(() => null, false));
     check('a lap posting queued by itself waits while posting is off', attempts === 0 && lb.queuedBoardMisses().length === 1);
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < bq.FLUSH_MAX_TRIES + 2; i++) {
       skew += 4_000;
       await bq.flushQueuedLaps(flushOpts());
     }
