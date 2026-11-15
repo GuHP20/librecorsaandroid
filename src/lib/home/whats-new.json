@@ -5,16 +5,18 @@
     "items": [
       "Reworked track limits from marked corner images: Norisring's whole street now counts as track up to the corner kerbs, cutting inside the Red Bull Ring's Turn 1 and Remus over the yellow kerbs now invalidates the lap, and Goodwood's limits follow the road edge instead of the grass verges.",
       "Touching a barrier on a hill climb now ends the run, and riding the wall on a circuit deletes the lap, while a brief brush still keeps it.",
+      "Riding the wall over the finish line now deletes the next lap too, and the F1 car's steering wheel rev lights now match the HUD's instead of turning blue 2,500 rpm early.",
       "Cars now meet barriers with their whole body, measured from each car's model, so thin posts can no longer be driven through and hay bale ends no longer launch the car, and Borgloh's and Goodwood's prop hitboxes are tighter.",
       "2026 cars now show a Straight Mode notice before every straight and an Overtake verdict in races, an X press just before a straight opens the flaps as it starts, and the Red Bull Ring's Turn 1 to Turn 3 zone now runs to the braking for Remus.",
       "Phones now load circuit textures that use about 85% less graphics memory, lower the graphics by themselves when they start to stutter, and can run at 30 fps from Settings to stay cooler.",
       "A crashed graphics driver now shows a message with a way back instead of a blank screen, drives start on your saved graphics from the first frame, and loading is gentler on Intel laptops.",
+      "Laps now reach the online board even when the first connection check fails: the game keeps trying, says so on the lap card, and posts the lap once the board is back.",
       "Downloaded circuits and cars now stay across updates, the menus say when an update is ready, and Your best laps shows which laps never made the online board and why.",
       "Smoothed the bump outside Remus at the Red Bull Ring, sped up circuit loading with decoding off the main thread, and fixed the loading bar on compressed circuits.",
       "Released LibreCorsa apps for Android, Windows, macOS and Linux, moved the code to the AGPL-3.0 licence, and published the circuit converters with a porting guide."
     ],
-    "commits": 117,
-    "lastSha": "cc3b0e2009b2f286f8c543321c7c552479a2e7c5"
+    "commits": 151,
+    "lastSha": "e0f1d44e51d42673c23aaadb196f9d8d302f232c"
   },
   {
     "date": "2026-11-14",
