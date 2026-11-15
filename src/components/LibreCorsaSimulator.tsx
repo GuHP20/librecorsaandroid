@@ -1103,10 +1103,14 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       }
       // The player chose: the next start does not switch the preset by itself
       settleLoss(browserStore(), Date.now());
-      if (lower) {
-        const s = settingsRef.current;
-        savePlayerSettings({ ...s, graphics: { ...s.graphics, quality: "low" } });
+      // The circuit loads again on the title menu: as when leaving the car for it, the player's own assists, realism
+      // and weather come back if a challenge or a scheduled race had the week's in their place
+      let s = settingsRef.current;
+      if (ownRules) {
+        s = { ...s, ...ownRules };
+        ownRules = null;
       }
+      savePlayerSettings(lower ? { ...s, graphics: { ...s.graphics, quality: "low" } } : s);
       if (onRestart) onRestart();
       else window.location.reload();
     },
