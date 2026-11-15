@@ -48,6 +48,7 @@ import { CAMERA_MODES, nextCameraMode } from "@/lib/render/camera-modes";
 import { saveTyreSetup } from "@/lib/sim/tyre-setup";
 import { LoadingScreen } from "@/components/menu/LoadingScreen";
 import { TitleMenu } from "@/components/menu/TitleMenu";
+import { useUpdateAutoReload } from "@/components/menu/UpdateReady";
 import { carBoardTag } from "@/components/menu/menu-content-ui";
 import { FirstRunWizard, type WizardMode, type WizardStepId } from "@/components/menu/FirstRunWizard";
 import { SettingsScreen, type SettingsCategory } from "@/components/settings/SettingsScreen";
@@ -1400,6 +1401,11 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     raceOver: telemetry.race?.phase === "finished",
     input: settings.device === "keyboard" && touchVisible ? "touch" : settings.device,
   });
+  // A newer build out while the game is open: the menus offer the reload (UpdateReady). It happens by itself only on
+  // the first loading screen, or on the title screen with nothing open while the tab is out of view (build-update.ts)
+  useUpdateAutoReload(
+    phase === "loading" ? "loading" : phase === "title" && !settingsOpen && lobby === null && !inScheduledRace ? "idle" : "busy"
+  );
 
   // polish:B after the flag: the podium shot, the race kept in this browser, the next open race
   const podiumUi = useSyncExternalStore(session?.podium.subscribe ?? noSubscribe, session?.podium.getSnapshot ?? idlePodium, idlePodium);

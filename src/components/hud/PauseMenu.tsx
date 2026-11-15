@@ -42,6 +42,7 @@ import { PadGlyph } from "@/components/ui/prompts/PadGlyph";
 import type { Prompt } from "@/components/ui/prompts/PromptBar";
 import { CURSOR_PILL, cx, HOVER_PILL, MOTION, PRESSED_PILL } from "@/components/ui/styles";
 import { LibreCorsaLogo } from "@/components/ui/LibreCorsaLogo";
+import { UpdateReady } from "@/components/menu/UpdateReady";
 
 /**
  * What the HUD and the menus pass along as the player's settings (the old Display panel's props, whose rows now live
@@ -335,7 +336,19 @@ export const PauseMenu: React.FC<PauseMenuProps> = (props) => {
               {mpRace ? <SessionBadge session="online">Online race</SessionBadge> : null}
             </div>
           </div>
-          <LibreCorsaLogo variant="compact" size="sm" />
+          <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-3">
+            {/* A newer build is out: reloading from here ends what is under way, so it asks first */}
+            <UpdateReady
+              endsSession={
+                mpRace
+                  ? "You leave the race. Your settings and saved laps stay."
+                  : props.lobby
+                    ? "You leave the room. Your settings and saved laps stay."
+                    : "This session ends. Your settings and saved laps stay."
+              }
+            />
+            <LibreCorsaLogo variant="compact" size="sm" />
+          </div>
         </header>
 
         <div className="mt-5 grid flex-1 grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(240px,270px)_minmax(0,1fr)] short:mt-3 short:gap-4">

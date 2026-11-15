@@ -46,6 +46,7 @@ import { withBasePath } from "@/lib/base-path";
 import { EmbeddedBadge } from "./EmbeddedBadge";
 import { InstallAppButton } from "./InstallAppButton";
 import { LiveLine } from "./LiveLine";
+import { UpdateReady } from "./UpdateReady";
 
 type TitlePanel = "race" | "circuit" | "car" | "conditions" | "garage" | "multiplayer" | "challenge" | "leaderboard" | "display" | "credits" | "request";
 
@@ -658,6 +659,16 @@ export const TitleMenu: React.FC<TitleMenuProps> = (props) => {
             <EmbeddedBadge />
             {/* Never beside the badge: a framed game offers no install */}
             <InstallAppButton />
+            {/* A newer build is out: from the title screen a reload loses nothing, unless it leaves a room or a race */}
+            <UpdateReady
+              endsSession={
+                props.lobby
+                  ? "You leave the room. Your settings and saved laps stay."
+                  : props.races?.entry.state === "joined" || props.races?.entry.state === "joining"
+                    ? "You leave the race you entered. Your settings and saved laps stay."
+                    : undefined
+              }
+            />
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2">
             <InputHint pad={pad} />
