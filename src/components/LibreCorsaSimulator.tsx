@@ -11,7 +11,7 @@ import { carPhysics, carTakesPhysicsSwitch, subscribeF1ModPhysics } from "@/lib/
 import { type ChassisSetup, saveChassisSetup } from "@/lib/sim/car-setup";
 import { TrackEnvironment } from "@/lib/sim/track-environment";
 import { getMultiplayerManager, type LobbySettings, type LobbyState, type PeerNetStats, type RaceStartInfo, type ScheduledRaceStatus } from "@/lib/sim/multiplayer-sync";
-import { getOnlineConfig } from "@/lib/net/online-config";
+import { boardStateOf, watchOnlineConfig, type BoardState } from "@/lib/net/online-config";
 import { DEFAULT_RACE_SLOT_S } from "@/lib/net/race-schedule";
 import { MultiplayerRace } from "@/lib/sim/race-session";
 import { GhostPlayer } from "@/lib/sim/lap-recorder";
@@ -19,9 +19,7 @@ import { lapBoardClass, lapConditionsNow, type LapConditions, type LapRecording,
 import { exportLapFile, importLapFile, listBestLaps, loadBestLap, saveBestLapIfFaster } from "@/lib/sim/ghost-store";
 import {
   boardKeyOf,
-  boardOnline,
   boardStatusOf,
-  clearBoardMiss,
   fetchRemoteBoard,
   fetchRemoteGhost,
   lapToEntry,
@@ -29,14 +27,12 @@ import {
   loadChallengeBest,
   localLeaderboard,
   renameOnBoard,
-  saveBoardBest,
   saveBoardMiss,
-  saveChallengeBest,
-  submitLap,
   type SubmitResult,
 } from "@/lib/net/leaderboard";
+import { challengeOf, flushQueuedLaps, postLap } from "@/lib/net/board-queue";
 import { exportDriverKeyFile, importDriverKeyFile } from "@/lib/net/driver-key";
-import { challengeAt, fitsChallenge } from "@/lib/net/weekly-challenge";
+import { challengeAt } from "@/lib/net/weekly-challenge";
 import { countUsageLap, useUsageCounter } from "@/lib/net/use-usage-counter"; // polish:E
 import { timeTrialRules } from "@/lib/sim/time-trial";
 import { challengeTarget, type ChallengeTarget } from "@/lib/net/challenge-target";
@@ -91,31 +87,9 @@ const raceCarFor = (vehicle: VehicleModelId, scheduled: boolean) => {
   const race = challengeAt(Date.now()).race;
   return scheduled && race.vehicle === vehicle ? weekCar(race) : carForVehicle(vehicle);
 };
-/** The weekly challenge a lap was driven to (its id), if it fits this week's */
-const challengeOf = (rec: LapRecording): string | undefined => {
-  const week = challengeAt(Date.now());
-  return fitsChallenge(rec, week) ? week.id : undefined;
-};
-/**
- * Uploads a lap, to this week's challenge board too when it fits; remembers the lap each board took (or refused for a
- * faster one of the driver's), so only a faster one is sent next time
- */
-const uploadLap = async (rec: LapRecording, driver: { name: string; code: string }): Promise<SubmitResult> => {
-  // Under the name the driver has now: a lap recorded before a rename must not claim the old name back
-  const named: LapRecording = { ...rec, driverName: driver.name, driverCode: driver.code };
-  const event = challengeOf(named);
-  const res = await submitLap(named, { event }).catch((): SubmitResult => ({ ok: false }));
-  if (res.ok && event && res.eventRank !== undefined) saveChallengeBest(event, rec.lapTimeMs);
-  const board = boardKeyOf(named);
-  if (board && (res.ok || res.notFaster)) {
-    saveBoardBest(board, rec.lapTimeMs);
-    clearBoardMiss(board, rec.lapTimeMs);
-  } else if (!res.ok) {
-    // Your best laps says so, and why, after the lap card is gone
-    saveBoardMiss(rec, res.error ?? "Could not reach the leaderboard");
-  }
-  return res;
-};
+/** The lap card's upload state for a board answer: sent, nothing to show, waiting for the board, or turned down */
+const cardStateOf = (res: SubmitResult, quietNotFaster: boolean): "idle" | "sent" | "error" | "waiting" =>
+  res.ok ? "sent" : res.notFaster && quietNotFaster ? "idle" : res.unreachable ? "waiting" : "error";
 // A lap on a circuit this build no longer lists keeps its id as its name (getTrackInfo would name it after another)
 const trackNameOf = (id: string) => TRACKS.find((t) => t.id === id)?.name ?? id;
 /** A circuit's name for the weekly challenge and its races, with the layout when the venue has more than one */
@@ -263,7 +237,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
 
   // ---- Laps, ghosts, leaderboards
   const [lapSummary, setLapSummary] = useState<{ summary: LapSummaryData; recording: LapRecording } | null>(null);
-  const [submitState, setSubmitState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [submitState, setSubmitState] = useState<"idle" | "sending" | "sent" | "error" | "waiting">("idle");
   /** Place of the uploaded lap on its board, and how many drivers that board has */
   const [submitRank, setSubmitRank] = useState<ReturnType<typeof placeOf>>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -273,6 +247,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
   const uploadingRef = useRef<Promise<unknown> | null>(null);
   /** Bumped by every new or closed lap card and every upload: only the upload of the card still shown may land on it */
   const submitReqRef = useRef(0);
+  /** The card's lap while it waits for the board (and the card's request then): sent later, its answer lands there */
+  const waitingCardRef = useRef<{ req: number; recordedAt: number } | null>(null);
   const [driverKeyNotice, setDriverKeyNotice] = useState<string | null>(null);
   const ghostSourceRef = useRef<"pb" | "other">("pb");
   /** Bumped by every ghost choice, so a slower PB load cannot replace a ghost picked after it started */
@@ -283,26 +259,31 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
   const [localLaps, setLocalLaps] = useState<LeaderboardEntry[]>([]);
   /** Bumped when the online board may have changed (a lap went up), so the panel reads it again */
   const [boardVersion, setBoardVersion] = useState(0);
-  /** This site has an online lap board switched on (asked once at start) */
-  const [boardOn, setBoardOn] = useState(false);
-  const boardOnRef = useRef(false);
+  /**
+   * The online lap board: on, turned off, or not reached yet (null before the first answer). Followed, not asked once:
+   * a read that failed at start used to keep lap posting off for the whole session (issue #122)
+   */
+  const [boardState, setBoardState] = useState<BoardState | null>(null);
+  const boardStateRef = useRef<BoardState | null>(null);
+  const boardOn = boardState === "on";
   /** Scheduled races run on this site, and how often (seconds) */
   const [races, setRaces] = useState<{ on: boolean; slotS: number }>({ on: false, slotS: DEFAULT_RACE_SLOT_S });
   /** This player's entry in the next scheduled race */
   const [raceEntry, setRaceEntry] = useState<ScheduledRaceStatus>({ state: "idle", startsMs: null, text: "" });
-  useEffect(() => {
-    let live = true;
-    void boardOnline().then((on) => {
-      boardOnRef.current = on;
-      if (live) setBoardOn(on);
-    });
-    void getOnlineConfig().then((config) => {
-      if (live) setRaces({ on: config.races, slotS: config.raceSlotS });
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+  /** Sends the laps that couldn't reach the board (set below, once what it needs is there) */
+  const flushQueuedRef = useRef<() => void>(() => {});
+  useEffect(
+    () =>
+      watchOnlineConfig((online) => {
+        const board = boardStateOf(online);
+        boardStateRef.current = board;
+        setBoardState(board);
+        setRaces({ on: online.config.races, slotS: online.config.raceSlotS });
+        // The board answers, at start or after it was out of reach: the laps waiting for it go up
+        if (online.reach === "ok" && board === "on") flushQueuedRef.current();
+      }),
+    []
+  );
 
   // ---- VR, FFB meter
   const [vrSupported, setVrSupported] = useState(false);
@@ -775,7 +756,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           // this week's challenge (which an older, faster lap of the same kind doesn't stand in for), under the
           // player's name, the one the game picked included, unless they turned this off. Measured against the board,
           // not the local personal best: a best set before the board began never went up, and a returning driver's
-          // slower laps still belong on it. A failure offers a retry on the lap card
+          // slower laps still belong on it. A failure offers a retry on the lap card; a board out of reach is asked
+          // again now, and if it still doesn't answer the lap waits and goes up once it does
           const week = challengeOf(recording);
           const weekBest = week ? loadChallengeBest(week) : null;
           const board = boardKeyOf(recording);
@@ -783,7 +765,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           const beatsBoard = board !== null && (boardBest === null || recording.lapTimeMs < boardBest);
           if (!beatsBoard && !(week && (weekBest === null || recording.lapTimeMs < weekBest))) return;
           const profile = settingsRef.current.profile;
-          if (!boardOnRef.current || !profile.autoUpload) return;
+          // Only a board that said it is off keeps a lap here; one that hasn't answered yet is tried
+          if (boardStateRef.current === "off" || !profile.autoUpload) return;
           const shown = () => submitReq === submitReqRef.current;
           // A name the board won't take is not sent again lap after lap: the card says why and offers another
           const refused = nameProblem(profile.name) ?? (refusedNameRef.current?.name === profile.name ? refusedNameRef.current.error : null);
@@ -795,7 +778,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
             return;
           }
           if (shown()) setSubmitState("sending");
-          const upload = uploadLap(recording, profile);
+          const upload = postLap(recording, profile, "auto");
           uploadingRef.current = upload;
           return upload.then((res) => {
             if (res.ok) setBoardVersion((v) => v + 1);
@@ -803,9 +786,10 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
             if (res.taken) refusedNameRef.current = { name: profile.name, error: res.error ?? "This name is taken" };
             if (!shown()) return;
             // The board holding a faster lap of this driver's (from another device) is no failure: nothing to show
-            setSubmitState(res.ok ? "sent" : res.notFaster ? "idle" : "error");
+            setSubmitState(cardStateOf(res, true));
             setSubmitRank(placeOf(res));
             setSubmitError(res.ok || res.notFaster ? null : (res.error ?? null));
+            waitingCardRef.current = res.unreachable ? { req: submitReq, recordedAt: recording.recordedAt } : null;
           });
         })
         .catch(() => {});
@@ -830,7 +814,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       return;
     }
     setSubmitState("sending");
-    const upload = uploadLap(rec, as);
+    const upload = postLap(rec, as, "hand");
     uploadingRef.current = upload;
     const res = await upload;
     if (res.ok) setBoardVersion((v) => v + 1);
@@ -838,9 +822,10 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     if (res.taken) refusedNameRef.current = { name: as.name, error: res.error ?? "This name is taken" };
     // The card was closed or replaced by another lap meanwhile: this answer is not about the one shown
     if (req !== submitReqRef.current) return;
-    setSubmitState(res.ok ? "sent" : "error");
+    setSubmitState(cardStateOf(res, false));
     setSubmitRank(placeOf(res));
     setSubmitError(res.ok ? null : (res.error ?? null));
+    waitingCardRef.current = res.unreachable ? { req, recordedAt: rec.recordedAt } : null;
   }, [lapSummary]);
   /**
    * Posts a saved best that isn't on its online board (Your best laps): one whose upload failed, set while posting was
@@ -856,11 +841,39 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       saveBoardMiss(rec, refused);
       return { ok: false, error: refused };
     }
-    const res = await uploadLap(rec, as);
+    const res = await postLap(rec, as, "hand");
     if (res.ok) setBoardVersion((v) => v + 1);
     if (res.taken) refusedNameRef.current = { name: as.name, error: res.error ?? "This name is taken" };
     return res;
   }, []);
+  /**
+   * Sends the laps that couldn't reach the board (board-queue.ts), when it answers again or the name changes. A lap the
+   * card still shows gets the board's answer there. `as`: a name just taken (the settings don't show it until the next
+   * render)
+   */
+  const flushQueued = useCallback((as?: { name: string; code: string }) => {
+    const flush = flushQueuedLaps({
+      driver: () => {
+        const p = as ?? settingsRef.current.profile;
+        return nameProblem(p.name) || refusedNameRef.current?.name === p.name ? null : { name: p.name, code: p.code };
+      },
+      autoUpload: () => settingsRef.current.profile.autoUpload,
+      loadBest: (trackId, vehicle, board) => loadBestLap(trackId, vehicle, board),
+      onPosted: (rec, res) => {
+        if (res.ok) setBoardVersion((v) => v + 1);
+        if (res.taken) refusedNameRef.current = { name: settingsRef.current.profile.name, error: res.error ?? "This name is taken" };
+        const card = waitingCardRef.current;
+        if (!card || card.recordedAt !== rec.recordedAt || card.req !== submitReqRef.current) return;
+        if (!res.unreachable) waitingCardRef.current = null;
+        setSubmitState(cardStateOf(res, true));
+        setSubmitRank(placeOf(res));
+        setSubmitError(res.ok || res.notFaster ? null : (res.error ?? null));
+      },
+    });
+    // A rename waits for these too, so their laps move with the rest
+    uploadingRef.current = flush;
+  }, []);
+  flushQueuedRef.current = flushQueued;
   /**
    * A new driver name, from the Display settings or the lap card: checked, then claimed on the online board, where the
    * laps and race results under the old name move with it. The name and code once it has taken, else why it didn't.
@@ -876,16 +889,19 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     const code = prev.generated ? codeFromName(name) : prev.code;
     // An upload still on its way goes up under the old name first, so its lap moves with the rest
     await uploadingRef.current?.catch(() => {});
-    if (boardOnRef.current) {
+    // A board that hasn't answered is asked now: the name doesn't change while it is out of reach (renameOnBoard)
+    if (boardStateRef.current !== "off") {
       const res = await renameOnBoard(prev.name, name, code);
       if (!res.ok) return { error: res.error ?? "The name could not be changed" };
     }
     setSettings((s) => ({ ...s, profile: { ...s.profile, name, code, generated: false } }));
     refusedNameRef.current = null;
-    // The boards (the challenge box among them) are read again under the new name
+    // The boards (the challenge box among them) are read again under the new name, and laps held back by the old one go
+    // up (under the new name: the settings don't show it until the next render)
     setBoardVersion((v) => v + 1);
+    if (boardStateRef.current === "on") flushQueued({ name, code });
     return { name, code };
-  }, []);
+  }, [flushQueued]);
   const renameFromSettings = useCallback(async (raw: string) => {
     const res = await renameDriver(raw);
     return "error" in res ? res.error : null;
@@ -1616,6 +1632,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       carTag: carBoardTag,
       local: localLaps,
       remoteEnabled: boardOn,
+      remoteStatus: boardState === null ? ("unknown" as const) : boardState === "unreachable" ? ("unreachable" as const) : ("off" as const),
       boardVersion,
       vehicle: vehicleModel,
       driverName: settings.profile.name,
@@ -1741,12 +1758,13 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
                   summary: lapSummary.summary,
                   onClose: closeLapSummary,
                   onSaveGhost: () => exportLapFile(lapSummary.recording),
-                  // Laps post themselves: the button is there with that turned off, or to retry a failed upload
+                  // Laps post themselves: the button is there with that turned off, or to retry a failed upload (a board
+                  // that hasn't answered yet is asked again by the press)
                   onSubmit:
-                    boardOn &&
+                    (boardState === "on" || boardState === "unreachable") &&
                     lapSummary.summary.valid &&
                     !lapSummary.summary.autopilot &&
-                    (!settings.profile.autoUpload || submitState === "error")
+                    (!settings.profile.autoUpload || submitState === "error" || submitState === "waiting")
                       ? () => void handleSubmitLap()
                       : undefined,
                   submitState,

@@ -8,7 +8,7 @@ import type { AssistPreset, VehicleModelId } from "@/types/f1";
 import { lapConditionsNow, WET_LAP_WATER_MM } from "@/lib/sim/lap-types";
 import type { SimRealism } from "@/lib/sim/sim-realism";
 import { pageBuild } from "@/lib/build-id";
-import { getOnlineConfig } from "./online-config";
+import { getOnlineConfig, watchOnlineConfig } from "./online-config";
 import { sendUsage, UsageClock, type UsageExtras, type UsageMode } from "./usage";
 import { USAGE_BUILD_RE } from "./usage-modes";
 import { challengeAt, challengeCompound, fitsChallenge } from "./weekly-challenge";
@@ -117,6 +117,11 @@ export function useUsageCounter(state: UsageState): void {
     });
     clockRef.current = clock;
     activeClock = clock;
+    // The switch as the server has it, followed: a server out of reach when the stretch began still gets its report
+    // once it answers (a change of state in between reads it again as well)
+    const unwatch = watchOnlineConfig((online) => {
+      usageOn = online.config.usage;
+    });
     // Hidden or closed ends the stretch; back on the page starts a new one
     const onPageHide = () => clock.end();
     document.addEventListener("visibilitychange", apply);
@@ -124,6 +129,7 @@ export function useUsageCounter(state: UsageState): void {
     window.addEventListener("pageshow", apply);
     apply();
     return () => {
+      unwatch();
       document.removeEventListener("visibilitychange", apply);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", apply);

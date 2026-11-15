@@ -6,14 +6,14 @@
  * driven with (assists, realism, dry or wet). The board can be narrowed to laps of one kind ("no assists").
  * Only the LapRecording and the driver key are ever sent; answers are validated before use.
  */
-import type { VehicleModelId } from "@/types/f1";
+import { isVehicleModelId, type VehicleModelId } from "@/types/f1";
 import { listBestLaps } from "@/lib/sim/ghost-store";
 import { lapPlausibilityProblem } from "@/lib/sim/lap-plausibility";
 import { isPointToPointTrack } from "@/lib/track-kinds";
 import { validateLapRecording } from "@/lib/sim/lap-recorder";
 import { lapBoardClass, lapPhysicsVersion, type LapConditions, type LapRecording, type LeaderboardEntry } from "@/lib/sim/lap-types";
 import { getOrCreateDriverKey } from "./driver-key";
-import { getOnlineConfig, onlineUrl } from "./online-config";
+import { getOnlineConfig, markOnlineAnswered, markOnlineUnreachable, onlineUrl, readOnlineConfig } from "./online-config";
 import { cappedString, clampLimit, fetchBoardPage, finiteNumber, parseBoardPage, requestJson, type BoardFilter } from "./board-client";
 
 export { boardLabel, driverNameKey, type BoardFilter } from "./board-client";
@@ -49,7 +49,16 @@ export interface SubmitResult {
   notFaster?: boolean;
   /** Refused because another driver holds the name */
   taken?: boolean;
+  /** Never reached the board (no answer from it): the game sends the lap again once it answers (board-queue.ts) */
+  unreachable?: boolean;
+  /** Turned away for too many uploads from this address: not sent again by itself */
+  limited?: boolean;
 }
+
+/** What the lap card says, and Your best laps, when a lap couldn't reach the board and will go up once it can */
+export const BOARD_UNREACHABLE = "Couldn't reach the online board, I'll keep trying";
+/** The same once the game has stopped trying by itself (Your best laps still has Retry) */
+export const BOARD_UNREACHABLE_GAVE_UP = "Couldn't reach the online board";
 
 export interface RenameResult {
   ok: boolean;
@@ -130,6 +139,23 @@ interface BoardMiss {
   lapTimeMs: number;
   recordedAt: number;
   error: string;
+  /**
+   * The board was out of reach, so the game sends the lap again once it answers: a lap posting sent by itself
+   * (`auto`), or one the player sent (`hand`). Absent for a lap the board (or the game's own check) turned down
+   */
+  retry?: "auto" | "hand";
+}
+
+/** A lap waiting to go up again: its board (circuit, car, class) and which lap it is */
+export interface QueuedMiss {
+  key: string;
+  trackId: string;
+  vehicle: VehicleModelId;
+  /** The board class (`lapBoardClass`) */
+  board: string;
+  lapTimeMs: number;
+  recordedAt: number;
+  retry: "auto" | "hand";
 }
 
 function readBoardMisses(): Record<string, unknown> {
@@ -154,16 +180,47 @@ function writeBoardMisses(misses: Record<string, unknown>): void {
 /**
  * Remembers why a lap didn't go on its board (refused here or by the server, or the board was out of reach), so Your
  * best laps can say so after the lap card is gone. One failure per board is kept: a slower lap's never replaces the
- * reason a faster one (the best shown there) didn't go up
+ * reason a faster one (the best shown there) didn't go up. `retry`: the board was out of reach, and the lap goes up
+ * once it answers
  */
-export function saveBoardMiss(rec: Pick<LapRecording, "trackId" | "vehicle" | "conditions" | "lapTimeMs" | "recordedAt">, error: string): void {
+export function saveBoardMiss(
+  rec: Pick<LapRecording, "trackId" | "vehicle" | "conditions" | "lapTimeMs" | "recordedAt">,
+  error: string,
+  retry?: "auto" | "hand",
+): void {
   const key = boardKeyOf(rec);
   if (!key) return;
   const misses = readBoardMisses();
   const known = misses[key];
   if (isRecord(known) && finiteNumber(known.lapTimeMs) !== null && (known.lapTimeMs as number) < rec.lapTimeMs) return;
   delete misses[key];
-  misses[key] = { lapTimeMs: rec.lapTimeMs, recordedAt: rec.recordedAt, error: error.slice(0, MAX_ERROR_LENGTH) } satisfies BoardMiss;
+  const miss: BoardMiss = { lapTimeMs: rec.lapTimeMs, recordedAt: rec.recordedAt, error: error.slice(0, MAX_ERROR_LENGTH) };
+  if (retry) miss.retry = retry;
+  misses[key] = miss;
+  writeBoardMisses(misses);
+}
+
+/** The laps waiting for the board to answer again, oldest first (board-queue.ts sends them) */
+export function queuedBoardMisses(): QueuedMiss[] {
+  const queued: QueuedMiss[] = [];
+  for (const [key, miss] of Object.entries(readBoardMisses())) {
+    if (!isRecord(miss) || (miss.retry !== "auto" && miss.retry !== "hand")) continue;
+    const lapTimeMs = finiteNumber(miss.lapTimeMs);
+    const recordedAt = finiteNumber(miss.recordedAt);
+    const [trackId, vehicle, board, ...rest] = key.split("|");
+    if (lapTimeMs === null || recordedAt === null || !trackId || !board || rest.length > 0 || !isVehicleModelId(vehicle)) continue;
+    queued.push({ key, trackId, vehicle, board, lapTimeMs, recordedAt, retry: miss.retry });
+  }
+  return queued.sort((a, b) => a.recordedAt - b.recordedAt);
+}
+
+/** A queued lap the game stops sending by itself (it gave up, or the lap is gone): the reason stays, Retry with it */
+export function settleBoardMiss(key: string, recordedAt: number, error: string): void {
+  const misses = readBoardMisses();
+  const miss = misses[key];
+  if (!isRecord(miss) || miss.recordedAt !== recordedAt) return;
+  delete miss.retry;
+  miss.error = error.slice(0, MAX_ERROR_LENGTH);
   writeBoardMisses(misses);
 }
 
@@ -195,7 +252,7 @@ export function boardStatusOf(
   return { posted: false, error: mine ? cappedString(miss.error, MAX_ERROR_LENGTH) : null };
 }
 
-/** True when this site has an online lap board switched on (asked once, then remembered for a while) */
+/** True when this site has an online lap board switched on (online-config.ts keeps the answer for a while) */
 export async function boardOnline(): Promise<boolean> {
   return (await getOnlineConfig()).board;
 }
@@ -274,10 +331,16 @@ function toWirePayload(rec: LapRecording & { conditions: LapConditions }): LapRe
   };
 }
 
-/** Uploads a valid lap with its ghost (POST /api/laps), claiming the driver's name with this browser's key */
+/**
+ * Uploads a valid lap with its ghost (POST /api/laps), claiming the driver's name with this browser's key. A board out
+ * of reach (no answer to the switches, tried again now, or none to the upload) is `unreachable`, never "off"
+ */
 export async function submitLap(rec: LapRecording, opts: { event?: string } = {}): Promise<SubmitResult> {
   const url = onlineUrl("/laps");
-  if (!url || !(await boardOnline())) return { ok: false, error: "The online board is not available right now" };
+  if (!url) return { ok: false, error: "The online board is not available right now" };
+  const online = await readOnlineConfig({ fresh: true });
+  if (online.reach === "unreachable") return { ok: false, unreachable: true, error: BOARD_UNREACHABLE };
+  if (!online.config.board) return { ok: false, error: "The online board is not available right now" };
   const valid = validateLapRecording(rec);
   if (!valid) return { ok: false, error: "The lap recording is invalid" };
   // Without its assists, realism, surface and physics revision a lap can't be shown fairly
@@ -288,7 +351,12 @@ export async function submitLap(rec: LapRecording, opts: { event?: string } = {}
   const body: Record<string, unknown> = { rec: toWirePayload({ ...valid, conditions: valid.conditions }), driverKey: getOrCreateDriverKey() };
   if (opts.event) body.event = opts.event;
   const res = await requestJson(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res) return { ok: false, error: "Could not reach the leaderboard" };
+  if (!res) {
+    // No answer at all: the server is out of reach until a read of the switches gets one (which sends the lap again)
+    markOnlineUnreachable();
+    return { ok: false, unreachable: true, error: BOARD_UNREACHABLE };
+  }
+  markOnlineAnswered();
   const answer: Record<string, unknown> = isRecord(res.body) ? res.body : {};
   if (res.status >= 200 && res.status < 300 && answer.ok === true) {
     const result: SubmitResult = { ok: true };
@@ -302,20 +370,29 @@ export async function submitLap(rec: LapRecording, opts: { event?: string } = {}
   const result: SubmitResult = { ok: false, error: message ?? `Leaderboard rejected the lap (HTTP ${res.status})` };
   if (answer.notFaster === true) result.notFaster = true;
   if (answer.taken === true) result.taken = true;
+  if (res.status === 429) result.limited = true;
   return result;
 }
 
 /**
  * Moves the driver's laps from `from` to `to` on the online boards (POST /api/drivers/rename), claiming `to` with this
  * browser's key, so the boards never list them twice. Without an online board there is nothing to move: the name only
- * changes here.
+ * changes here. With the board out of reach it doesn't change at all: laps sent later under the new name would stand
+ * beside the old ones.
  */
 export async function renameOnBoard(from: string, to: string, code?: string): Promise<RenameResult> {
   const url = onlineUrl("/drivers/rename");
-  if (!url || !(await boardOnline())) return { ok: true };
+  if (!url) return { ok: true };
+  const online = await readOnlineConfig({ fresh: true });
+  if (online.reach === "unreachable") return { ok: false, error: "Couldn't reach the online board. Try again in a moment" };
+  if (!online.config.board) return { ok: true };
   const body = JSON.stringify({ from, to, ...(code ? { code } : {}), driverKey: getOrCreateDriverKey() });
   const res = await requestJson(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
-  if (!res) return { ok: false, error: "Could not reach the leaderboard. Try again" };
+  if (!res) {
+    markOnlineUnreachable();
+    return { ok: false, error: "Couldn't reach the online board. Try again in a moment" };
+  }
+  markOnlineAnswered();
   const answer: Record<string, unknown> = isRecord(res.body) ? res.body : {};
   if (res.status >= 200 && res.status < 300 && answer.ok === true) return { ok: true };
   return {

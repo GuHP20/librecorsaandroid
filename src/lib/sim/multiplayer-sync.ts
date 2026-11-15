@@ -23,7 +23,7 @@ import type { VehicleModelId } from '@/types/f1';
 import type { WeatherSyncState } from './weather';
 import type { TyreVisualState } from './simulator-car';
 import type { GroundQuery } from './f12026-car/TrackColliderQuery';
-import { getOnlineConfig, onlineApiBase, onlineSocketUrl } from '@/lib/net/online-config';
+import { getOnlineConfig, onlineApiBase, onlineSocketUrl, readOnlineConfig } from '@/lib/net/online-config';
 import {
   MAX_STATE_BYTES,
   MAX_STATE_PACKETS_PER_S,
@@ -614,7 +614,8 @@ export class MultiplayerSyncManager {
       return;
     }
     const gen = this.signalGen;
-    void getOnlineConfig().then((config) => {
+    // Asked again now when the last read got no answer: a room opened later in the session still finds the server
+    void getOnlineConfig({ fresh: true }).then((config) => {
       if (gen !== this.signalGen) return;
       this.signalVia = config.rooms ? 'server' : 'broker';
       open(config.rooms);
@@ -1825,9 +1826,14 @@ export class MultiplayerSyncManager {
 
   /** Opens the socket to a race ("next", or the number of the one to get back into) */
   private openRaceServer(which: 'next' | number, attempt: number): void {
-    void getOnlineConfig().then((config) => {
+    // Asked again now when the last read got no answer, which is said as such, not as races being off
+    void readOnlineConfig({ fresh: true }).then(({ config, reach }) => {
       // Left, or another race or room chosen, while the config was read
       if (this.raceStatus.state === 'idle' || this.raceStatus.state === 'error' || this.raceWs) return;
+      if (reach === 'unreachable' && !config.races) {
+        this.failRace("Couldn't reach the race server. Check your connection and try again.");
+        return;
+      }
       const url = config.races
         ? onlineSocketUrl(`/races/${which}?peer=${encodeURIComponent(this.localPeerId)}&token=${this.raceToken}&v=${PROTOCOL_VERSION}`)
         : null;
