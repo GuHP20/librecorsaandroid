@@ -31,7 +31,9 @@ __pycache__/
 /scripts/lc26/
 /scripts/gt3/
 /scripts/rwanda-2026/
-/scripts/tracks/
+# The circuit converters are tracked; where the mod sources sit on your machine is not
+/scripts/tracks/sources.local.json
+/scripts/tracks/*.bak*
 
 # Force-feedback helper, compiled on first `npm run ffb`
 /scripts/ffb-bridge/bin/

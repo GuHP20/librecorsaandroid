@@ -52,9 +52,9 @@ terms, see the asset notice in CREDITS.md) or written permission from the creato
 creator's permission. Credit every asset in [CREDITS.md](CREDITS.md) with its author, link and
 license.
 
-- **Tracks** are converted with `scripts/tracks/build_track.py`, then compressed with
-  `npm run compress-tracks`, which also checks the physics meshes come out bit-exact. Then
-  `npm run home-outlines` draws the new circuit's map for the home page.
+- **Tracks** are converted with `scripts/tracks/port_ac_track.py` (see [Porting circuits](docs/PORTING-TRACKS.md)),
+  which also compresses them. `npm run compress-tracks` compresses any circuit that isn't yet and checks the physics
+  meshes come out bit-exact. Then `npm run home-outlines` draws the new circuit's map for the home page.
 - **Big files**: compress models (meshopt, WebP textures) before committing. The whole site is downloaded by
   players.
 
