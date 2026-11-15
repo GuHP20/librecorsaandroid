@@ -243,8 +243,18 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** A name the board turned down (taken by another driver): laps under it are not sent again until it changes */
   const refusedNameRef = useRef<{ name: string; error: string } | null>(null);
-  /** The upload on its way, which a rename waits for (so its lap moves with the rest) */
+  /** The uploads on their way, which a rename waits for (so their laps move with the rest) */
   const uploadingRef = useRef<Promise<unknown> | null>(null);
+  /** Adds an upload or a flush to what a rename waits for, without dropping one still in flight */
+  const trackUpload = (p: Promise<unknown>) => {
+    const prev = uploadingRef.current;
+    const all: Promise<unknown> = prev ? Promise.allSettled([prev, p]) : p;
+    uploadingRef.current = all;
+    const clear = () => {
+      if (uploadingRef.current === all) uploadingRef.current = null;
+    };
+    all.then(clear, clear);
+  };
   /** Bumped by every new or closed lap card and every upload: only the upload of the card still shown may land on it */
   const submitReqRef = useRef(0);
   /** The card's lap while it waits for the board (and the card's request then): sent later, its answer lands there */
@@ -779,7 +789,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
           }
           if (shown()) setSubmitState("sending");
           const upload = postLap(recording, profile, "auto");
-          uploadingRef.current = upload;
+          trackUpload(upload);
           return upload.then((res) => {
             if (res.ok) setBoardVersion((v) => v + 1);
             if (res.ok && res.rank !== undefined) signalBoardLap({ kind: "result", rank: res.rank, total: res.total ?? null });
@@ -815,7 +825,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     }
     setSubmitState("sending");
     const upload = postLap(rec, as, "hand");
-    uploadingRef.current = upload;
+    trackUpload(upload);
     const res = await upload;
     if (res.ok) setBoardVersion((v) => v + 1);
     if (res.ok && res.rank !== undefined) signalBoardLap({ kind: "result", rank: res.rank, total: res.total ?? null });
@@ -870,8 +880,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
         setSubmitError(res.ok || res.notFaster ? null : (res.error ?? null));
       },
     });
-    // A rename waits for these too, so their laps move with the rest
-    uploadingRef.current = flush;
+    // A rename waits for these too, so their laps move with the rest (and still for an upload already on its way)
+    trackUpload(flush);
   }, []);
   flushQueuedRef.current = flushQueued;
   /**
