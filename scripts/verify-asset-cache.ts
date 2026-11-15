@@ -109,8 +109,11 @@ const keyOf = (r: Request | string) => (typeof r === "string" ? r : r.url);
 
 class FakeCache {
   entries = new Map<string, Stored>();
+  /** Lookups made, to see how much work the clean-up does */
+  matches = 0;
   constructor(private storage: FakeStorage) {}
   async match(r: Request | string): Promise<Response | undefined> {
+    this.matches++;
     const s = this.entries.get(keyOf(r));
     return s ? new Response(s.body.length || s.status === 200 ? s.body.slice() : null, { status: s.status, headers: s.headers }) : undefined;
   }
@@ -342,6 +345,20 @@ async function main() {
   fresh.put("/tracks/e/e.glb", 300 * KB, 14, { headers: { "Content-Encoding": "br" } });
   await sw.get("/tracks/e/e.glb", { client: "p-e" });
   check("Then c, also for a file whose size is only known once kept", box.kept().join() === "/tracks/a/a.glb,/tracks/d/d.glb,/tracks/e/e.glb", box.kept().join());
+
+  // --- Several downloads at once in a new worker: one clean-up pass, not one each ---
+  const busy = new FakeStorage();
+  const busySite = new Site();
+  const names = Array.from({ length: 30 }, (_, i) => `/cars/k/s${i}.ogg`);
+  names.forEach((n, i) => busySite.put(n, 2 * KB, 100 + i, { headers: { "Content-Length": String(2 * KB) } }));
+  sw = startWorker(busySite, busy);
+  for (const n of names.slice(0, 20)) await sw.get(n, { client: "warm" });
+  sw = startWorker(busySite, busy); // within the hour: its first look finds the clean-up not due
+  const used = await busy.open("librecorsa-files-v1-used");
+  const before = used.matches;
+  await Promise.all(names.slice(20).map((n) => sw.get(n, { client: "burst" })));
+  const lookups = used.matches - before;
+  check("Ten downloads at once: one clean-up pass over the records", busy.kept().length === 30 && lookups <= 25, `${lookups} record lookups for 20 kept files`);
 
   // --- Idle files go ---
   clock.now += 46 * DAY;

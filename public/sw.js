@@ -291,6 +291,8 @@ function sweep(need, keepKey, { force = false, ifDue = false }) {
 }
 
 async function runSweep(need, keepKey, force, ifDue) {
+  // Several downloads that queued a clean-up before the first one ran: the first one may have made room for all
+  if (!force && !ifDue && roomFor(need)) return;
   const used = await caches.open(USED);
   const now = Date.now();
   if (ifDue) {
