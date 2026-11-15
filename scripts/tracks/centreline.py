@@ -70,7 +70,9 @@ def route(R, trace, road, start, ahead, waypoints, route_res=1.0, bridge_cost=No
         s = np.array([c0 * route_res + R.lo[0], r0 * route_res + R.lo[1]])
         nrm = np.array([-d[1], d[0]])
         c2 = cost.copy()
-        # the cut spans the whole connected paved width across the start (wide aprons, run-off), then 3 m more
+        # the cut spans the whole connected paved width across the start (wide aprons, run-off), then 3 m more. Paved
+        # is the masks, not a finite cost: with `bridge_cost` every cell is finite, and the cut would run the full
+        # 150 m and sever any other stretch of the circuit beside the start
         for side in (-1.0, 1.0):
             gap = 0.0
             t = 0.0
@@ -79,7 +81,7 @@ def route(R, trace, road, start, ahead, waypoints, route_res=1.0, bridge_cost=No
                 r, c = px_raw(q, R.lo, route_res)
                 if not (0 <= r < c2.shape[0] and 0 <= c < c2.shape[1]):
                     break
-                gap = 0.0 if np.isfinite(cost[r, c]) else gap + 0.25
+                gap = 0.0 if rd[r, c] or tr[r, c] else gap + 0.25
                 for dd in (-1, 0, 1):
                     rr, cc = r + int(round(d[1] * dd)), c + int(round(d[0] * dd))
                     if 0 <= rr < c2.shape[0] and 0 <= cc < c2.shape[1]:
