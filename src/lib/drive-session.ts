@@ -77,6 +77,8 @@ import { assetProgress } from "@/lib/loading/asset-progress";
 import { prefetchSoundBank } from "@/lib/sim/lc26-audio";
 import { CarReflectionProbe } from "@/lib/render/car-reflection-probe";
 import { StartupMonitor } from "@/lib/render/startup-monitor";
+import { browserStore, classifyRenderer, noteRenderer, readLossMemory, recordContextLoss, rendererName, safeStartPlan } from "@/lib/render/gpu-health";
+import { gpuFinished, partsByNewKeys, slicesByBytes, textureBytes } from "@/lib/render/gpu-pace";
 import { SessionPerfMonitor, type PerfPhase } from "@/lib/render/session-perf";
 import { FramePacer } from "@/lib/render/frame-pacer";
 import {
@@ -102,7 +104,7 @@ import { startSimWorker } from "@/lib/sim/runtime/worker-sim-host";
 import { steeringAssistSettings } from "@/lib/sim/steering-assist";
 import { applyTimeTrial, lowestFuelSetup, timeTrialRealism, type TimeTrialRules } from "@/lib/sim/time-trial";
 import { axleSlipFromTelemetry, createAxleSlipSample } from "@/lib/sim/tyre-slip";
-import { clampFov, DEFAULT_KEYBOARD_TUNING, defaultPlayerSettings, type PlayerSettings } from "@/lib/settings/player-settings";
+import { clampFov, DEFAULT_KEYBOARD_TUNING, type PlayerSettings } from "@/lib/settings/player-settings";
 import type { AeroSetupPreset, CameraMode, CarTelemetry, LiveTunerPatch, RadarBlip, TireCompound, TyreSetup, VehicleModelId } from "@/types/f1";
 
 /** Matches the aero package the track's target speeds / braking markers are computed for */
@@ -162,6 +164,16 @@ const MP_CLOCK_UNSYNCED_FRAME: MultiplayerRaceFrame = { phase: "countdown", ligh
 
 /** A loading task with no progress for this long is given up on (the procedural stand-in stays) */
 const ASSET_STALL_MS = 25_000;
+/**
+ * The loading warm-up's texture uploads go to the GPU in runs of about this many bytes, each finished before the next:
+ * a few runs for a circuit on a fast GPU, smaller ones on a gentle start
+ */
+const WARMUP_UPLOAD_BYTES = 96 * 1024 * 1024;
+const WARMUP_UPLOAD_BYTES_GENTLE = 24 * 1024 * 1024;
+/** A context loss heard of this soon after the page came back into view counts as one in the background (ms) */
+const BACKGROUND_LOSS_GRACE_MS = 5000;
+/** On a gentle start the warm-up frame is drawn in parts first, each with this many materials' first draws at most */
+const WARMUP_GENTLE_NEW_MATERIALS = 3;
 
 /** The HUD says the graphics were lowered at most this often (ms); later steps in the meantime go by quietly */
 const QUALITY_NOTICE_GAP_MS = 60_000;
@@ -230,6 +242,17 @@ export interface DriveSnapshot {
    * once when every step is taken and the frames are still slow
    */
   qualityNotice: { id: number; kind: "lowered" | "floor" } | null;
+  /**
+   * The browser took the WebGL context away (a GPU reset, a driver crash, or a phone reclaiming a background tab): the
+   * drive is frozen and draws nothing until the component remounts it. `hidden`: it went while the page was hidden
+   */
+  gpuLost: GpuLoss | null;
+}
+
+/** A lost WebGL context: whether the page was hidden at the time, and where the player was */
+export interface GpuLoss {
+  hidden: boolean;
+  phase: AppPhase;
 }
 
 /** The snapshot before the drive exists: a throwaway LC26's numbers, as the menus need something to show */
@@ -263,7 +286,16 @@ export function idleDriveSnapshot(track: BuiltTrackData): DriveSnapshot {
     timeTrial: null,
     autoQualityLowered: null,
     qualityNotice: null,
+    gpuLost: null,
   };
+}
+
+/** The browser gave no WebGL context: switched off, unsupported, or refused for the page after a GPU reset */
+export class WebGLUnavailableError extends Error {
+  constructor(reason: unknown) {
+    super(`WebGL is not available: ${reason instanceof Error ? reason.message : String(reason)}`);
+    this.name = "WebGLUnavailableError";
+  }
 }
 
 /** A React state setter */
@@ -319,6 +351,11 @@ export interface DriveSessionHost {
   onRunReset: (reason: RunResetReason) => void;
   track: BuiltTrackData;
   trackId: string;
+  /**
+   * The player's saved settings at the start. The renderer, the sky and the warm-up are built for their graphics
+   * preset: started on the defaults (High on a desktop) the physical sky's GPU precompute ran even on Low (issue #123)
+   */
+  settings: PlayerSettings;
 }
 
 /**
@@ -429,6 +466,7 @@ export class DriveSession {
       onRunReset,
       track,
       trackId,
+      settings: initialSettings,
     } = host;
 
     let disposed = false;
@@ -562,11 +600,8 @@ export class DriveSession {
       this.unlockAudio();
       setSettings((prev) => ({ ...prev, audio: { ...prev.audio, muted: !prev.audio.muted } }));
     };
-    /**
-     * The player's preferences (applySettings), and what the frame loop derives from them. Until the save arrives,
-     * this device's defaults: a touch screen starts on Medium graphics rather than building High first
-     */
-    let settings: PlayerSettings = defaultPlayerSettings();
+    /** The player's preferences (applySettings), and what the frame loop derives from them: the saved ones at first */
+    let settings: PlayerSettings = initialSettings;
     let keyLookup = buildKeyLookup(settings.keys);
     let assistSettings = steeringAssistSettings(settings.padTuning, settings.keyboardTuning);
     const liveryFor = (id: string | null) => LIVERIES.find((l) => l.id === id) ?? LIVERIES[0];
@@ -727,6 +762,7 @@ export class DriveSession {
       timeTrial: null,
       autoQualityLowered: null,
       qualityNotice: null,
+      gpuLost: null,
     };
 
     /**
@@ -861,15 +897,59 @@ export class DriveSession {
     // The view camera also draws the driving aids (the racing line), which the probe and mirrors leave out
     camera.layers.enable(OVERLAY_LAYER);
 
-    const renderer = new THREE.WebGLRenderer({
-      // MSAA happens in the post-processing composer's half-float target instead
-      antialias: false,
-      stencil: false,
-      powerPreference: "high-performance",
-      // Float precision across the 0.12 m .. 5.5 km depth range (kerbs, lines and decals stop z-fighting at
-      // distance). three falls back to the standard buffer without EXT_clip_control; ?depth=standard forces it.
-      reversedDepthBuffer: new URLSearchParams(window.location.search).get("depth") !== "standard",
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        // MSAA happens in the post-processing composer's half-float target instead
+        antialias: false,
+        stencil: false,
+        powerPreference: "high-performance",
+        // Float precision across the 0.12 m .. 5.5 km depth range (kerbs, lines and decals stop z-fighting at
+        // distance). three falls back to the standard buffer without EXT_clip_control; ?depth=standard forces it.
+        reversedDepthBuffer: new URLSearchParams(window.location.search).get("depth") !== "standard",
+      });
+    } catch (reason) {
+      // No WebGL (switched off, or refused after a GPU reset): the worker started above goes with the session
+      simHost?.dispose();
+      throw new WebGLUnavailableError(reason);
+    }
+    // The GPU for the bug form, read now: after a context loss the browser may refuse to tell
+    const gpuName = rendererName(renderer.getContext());
+    noteRenderer(gpuName);
+    /**
+     * A gentle start on a CPU rasteriser, an older Intel HD / UHD chip, or within two weeks of a context loss: no
+     * physical sky (its GPU precompute), and a loading warm-up of what the camera sees rather than the whole circuit
+     */
+    const gpuClass = classifyRenderer(gpuName);
+    const { gentle } = safeStartPlan(readLossMemory(browserStore(), Date.now()), gpuClass);
+    console.info(`[gpu] ${gpuName ?? "renderer not named"} (${gpuClass})${gentle ? ": gentle start" : ""}`);
+    /**
+     * The context is gone: the frame loop keeps the network and the menus going but draws nothing and moves nothing,
+     * and the component offers to load the circuit again on a new context. The old one is never reused: the sky's
+     * lookup tables, the environment bake, the probe and the post-processing targets exist only on the GPU, and no
+     * library here rebuilds its own.
+     */
+    let gpuLost = false;
+    /** When the page last came back into view (performance.now()): a suspended tab may only hear of its loss then */
+    let shownAtMs = -Infinity;
+    const onContextLost = (event: Event) => {
+      // The browser may give the context back only when asked to (three asks too)
+      event.preventDefault();
+      if (disposed || gpuLost) return;
+      gpuLost = true;
+      // Lost in the background (or heard of just after coming back): the browser reclaimed it, nothing to remember
+      const hidden = document.visibilityState === "hidden" || performance.now() - shownAtMs < BACKGROUND_LOSS_GRACE_MS;
+      recordContextLoss(browserStore(), Date.now(), hidden);
+      console.warn(`[gpu] WebGL context lost (${appPhaseNow}${hidden ? ", page hidden" : ""}): the drive is paused`);
+      releaseHeldKeys();
+      this.silenceFeedback();
+      this.publish({ gpuLost: { hidden, phase: appPhaseNow } });
+    };
+    const onContextRestored = () => {
+      if (!disposed) console.info("[gpu] WebGL context restored; the circuit loads again on a new one when the player asks");
+    };
+    renderer.domElement.addEventListener("webglcontextlost", onContextLost);
+    renderer.domElement.addEventListener("webglcontextrestored", onContextRestored);
     // AgX exposure, pixel ratio clamp and shadow type; set before the composer is created
     configureRenderer(renderer);
     // The GPU formats the circuit's KTX2 textures transcode to (render/ktx2.ts)
@@ -881,9 +961,11 @@ export class DriveSession {
 
     // Golden-hour sky dome, its baked PMREM environment, horizon fog and the cascaded sun shadow. On Medium and High
     // the physically based sky with volumetric clouds replaces the dome (physical-sky.ts); `?sky=classic` keeps the
-    // dome on every preset
+    // dome on every preset, and so does a gentle start. It is built once the loading's warm-up is done (settleWarmup),
+    // so its precompute never shares the GPU with the circuit's uploads
     const env = createGoldenHourEnvironment(renderer, scene, {
-      physicalSky: new URLSearchParams(window.location.search).get("sky") !== "classic",
+      physicalSky: !gentle && new URLSearchParams(window.location.search).get("sky") !== "classic",
+      deferPhysicalSky: true,
     });
     // Rain streaks around the camera (one GPU-animated draw, hidden in the dry)
     const rainFx = createRainFx(scene);
@@ -1451,7 +1533,10 @@ export class DriveSession {
 
     // A hidden tab stops the frame loop: zero the wheel rather than leave it holding the last force
     const onVisibilityChange = () => {
-      if (!document.hidden) return;
+      if (!document.hidden) {
+        shownAtMs = performance.now();
+        return;
+      }
       wheelFfb.stop();
       releaseHeldKeys();
       // The first frames back are no measure of the frame rate
@@ -1657,6 +1742,11 @@ export class DriveSession {
       if (warmupSettled || disposed) return;
       warmupSettled = true;
       setAssetsReady(true);
+      // The loading's GPU work is done: the physical sky may start its precompute (Medium and High)
+      if (!gpuLost) {
+        env.startPhysicalSky();
+        this.applyGraphics();
+      }
     };
     let loggedFirstFrame = false;
     const checkAssets = () => {
@@ -1670,7 +1760,9 @@ export class DriveSession {
       assetProgress.begin("shaders");
       // One frame later the car model has been swapped in by its own (earlier) listener
       requestAnimationFrame(() => {
-        if (disposed) return;
+        // No context to compile on: the circuit loads again on a new one (a compile started on a lost context polls
+        // for programs that never finish)
+        if (disposed || gpuLost) return;
         // The scene is drawn into the composer's half-float target (no tone mapping, linear output), and three keys
         // its programs on the bound target: compiled with none bound, every shader would be the wrong variant and
         // recompile on the first frame after the player presses start. The program build runs synchronously inside
@@ -1683,10 +1775,11 @@ export class DriveSession {
         }
         compiled
           .then(
-            () => {
+            async () => {
               // Given up on already: the first frames compile what is left
-              if (disposed || warmupSettled) return;
-              warmUpGpu();
+              if (disposed || warmupSettled || gpuLost) return;
+              await warmUpGpu();
+              if (disposed) return;
               visualFx.hidePrewarmed();
               assetProgress.done("shaders");
             },
@@ -1708,14 +1801,19 @@ export class DriveSession {
       }
     }
     /**
-     * Behind the opaque loading screen: upload the textures of everything shown, then draw one full frame through the
-     * composer with frustum culling off, so the shadow-map and post-processing programs and every vertex buffer are
-     * ready before the first visible frame instead of stalling it
+     * Behind the opaque loading screen: upload the textures of everything shown, give the reflection probe its first
+     * turn, then draw one full frame through the composer, so the shadow-map and post-processing programs and every
+     * vertex buffer are ready before the first visible frame instead of stalling it. Handed to the GPU in pieces, each
+     * finished before the next goes (gpu-pace.ts): the textures in runs of WARMUP_UPLOAD_BYTES, then the probe, then
+     * the frame. The probe and the frame have frustum culling off, the whole circuit at once, except on a gentle start:
+     * there they draw what the camera sees, the frame in parts of a few materials each, and the rest comes in as it
+     * shows. It stops where it is once the session goes, the context is lost or the loading screen was let go anyway.
      */
-    const warmUpGpu = () => {
+    const warmUpGpu = async (): Promise<void> => {
       const t0 = performance.now();
+      const gl = renderer.getContext();
+      const stop = () => disposed || gpuLost || warmupSettled;
       const textures = new Set<THREE.Texture>();
-      const unculled: THREE.Object3D[] = [];
       // What this frame draws: a hidden object (or one under a hidden parent) is left for the frame that shows it,
       // rather than putting its textures on the GPU for nothing
       scene.traverseVisible((o) => {
@@ -1723,23 +1821,78 @@ export class DriveSession {
         for (const m of Array.isArray(mat) ? mat : mat ? [mat] : []) {
           for (const v of Object.values(m)) if (v instanceof THREE.Texture) textures.add(v);
         }
-        if (o.frustumCulled) {
-          o.frustumCulled = false;
-          unculled.push(o);
-        }
       });
+      /** Runs `draw` with every shown object's frustum culling off (not on a gentle start) */
+      const unculled = (draw: () => void) => {
+        const objects: THREE.Object3D[] = [];
+        if (!gentle) {
+          scene.traverseVisible((o) => {
+            if (!o.frustumCulled) return;
+            o.frustumCulled = false;
+            objects.push(o);
+          });
+        }
+        try {
+          draw();
+        } finally {
+          for (const o of objects) o.frustumCulled = true;
+        }
+      };
+      const slices = slicesByBytes([...textures], textureBytes, gentle ? WARMUP_UPLOAD_BYTES_GENTLE : WARMUP_UPLOAD_BYTES);
+      let step = "textures";
       try {
-        for (const tex of textures) renderer.initTexture(tex);
-        // The reflection probe's first full turn and prefilter (their shaders compile here, not on lap one)
-        reflectionProbe.update(physics.worldPosition, carRig.root, scene.environmentIntensity);
-        postFx.render(0);
+        for (const slice of slices) {
+          if (stop()) return;
+          for (const tex of slice) renderer.initTexture(tex);
+          await gpuFinished(gl);
+        }
+        if (stop()) return;
+        // The reflection probe's first full turn and prefilter: their programs differ from the main view's (another
+        // target), so they compile here, not on lap one
+        step = "probe";
+        unculled(() => reflectionProbe.update(physics.worldPosition, carRig.root, scene.environmentIntensity));
+        await gpuFinished(gl);
+        if (stop()) return;
+        // A gentle start draws the camera's view in parts first, each finished before the next: an object's first draw
+        // with a material is the costly one (its shader specialised, its textures bound), so each part holds a few
+        // materials' first draws at most rather than one submission holding them all
+        if (gentle) {
+          step = "parts";
+          const drawn: THREE.Object3D[] = [];
+          scene.traverseVisible((o) => {
+            if ((o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints || (o as THREE.Line).isLine) drawn.push(o);
+          });
+          const materialsOf = (o: THREE.Object3D) => {
+            const m = (o as THREE.Mesh).material;
+            return Array.isArray(m) ? m : m ? [m] : [];
+          };
+          for (const run of partsByNewKeys(drawn, materialsOf, WARMUP_GENTLE_NEW_MATERIALS)) {
+            if (stop()) return;
+            const part = new Set(run);
+            const hidden = drawn.filter((o) => !part.has(o));
+            for (const o of hidden) o.visible = false;
+            const prevTarget = renderer.getRenderTarget();
+            try {
+              renderer.setRenderTarget(postFx.composer.inputBuffer);
+              renderer.render(scene, camera);
+            } finally {
+              renderer.setRenderTarget(prevTarget);
+              for (const o of hidden) o.visible = true;
+            }
+            await gpuFinished(gl);
+          }
+          if (stop()) return;
+        }
+        step = "frame";
+        unculled(() => postFx.render(0));
+        await gpuFinished(gl);
       } catch (err) {
-        console.warn("GPU warm-up frame failed (the first frame will do it instead)", err);
-      } finally {
-        for (const o of unculled) o.frustumCulled = true;
+        console.warn(`GPU warm-up failed at the ${step} (the first frames will do it instead)`, err);
       }
       if (process.env.NODE_ENV !== "production") {
-        console.info(`[load] GPU warm-up: ${textures.size} textures, ${(performance.now() - t0).toFixed(0)} ms`);
+        console.info(
+          `[load] GPU warm-up: ${textures.size} textures in ${slices.length} run(s)${gentle ? ", camera's view only" : ""}, ${(performance.now() - t0).toFixed(0)} ms`
+        );
       }
     };
     const unsubscribeAssets = assetProgress.subscribe(checkAssets);
@@ -1767,8 +1920,9 @@ export class DriveSession {
       displayRate.add(nowMs - lastTimeMs);
       lastTimeMs = nowMs;
       // The frame-rate cap: this frame draws, or only runs input, the simulation, the network and the laps. The
-      // drawing catches up with the time since the last drawn frame. Never in a headset, which sets its own rate.
-      const draw = renderer.xr.isPresenting || pacer.shouldDraw(nowMs);
+      // drawing catches up with the time since the last drawn frame. Never in a headset, which sets its own rate. With
+      // the GPU context lost nothing is drawn at all.
+      const draw = !gpuLost && (renderer.xr.isPresenting || pacer.shouldDraw(nowMs));
       pendingDrawS += dtSeconds;
       const drawDtS = draw ? pendingDrawS : 0;
       const drawIntervalMs = draw ? nowMs - lastDrawMs : 0;
@@ -1809,8 +1963,8 @@ export class DriveSession {
         if (!this.snapshot.paused) this.togglePause();
         setPauseNotice("Steering wheel disconnected. Reconnect it, or resume to drive with what's left.");
       }
-      // The pause menu or the seat panel: the car waits
-      const frozen = this.snapshot.paused || this.snapshot.seatPanel;
+      // The pause menu, the seat panel or a lost GPU context: the car waits
+      const frozen = this.snapshot.paused || this.snapshot.seatPanel || gpuLost;
       const driving = !inMenu && !frozen && !replaying && !device.wheelLost;
       const padTuning = settingsNow.padTuning;
       const kbTuning = settingsNow.keyboardTuning;
@@ -1825,7 +1979,8 @@ export class DriveSession {
           ? undefined
           : shapeStick(device.padSteer, padTuning.deadzone, padTuning.outerDeadzone, padTuning.linearity);
       const gamepadBoost = driving && device.boostHeld;
-      if (!inMenu) {
+      // With the GPU lost the notice over the game has the buttons: the pad's Menu must not open the pause menu under it
+      if (!inMenu && !gpuLost) {
         for (const action of device.pressed) {
           // polish:B any pad button skips the podium shot
           if (podium.playing) {
@@ -2162,9 +2317,10 @@ export class DriveSession {
         lapLengthM: track.totalLengthM,
         offTrack: physics.telemetry.offTrack,
       });
+      // With the GPU lost no state goes out: the others see this car go, not parked where it stopped
       const interpolatedPeers = multiplayerSync.update(
         nowMs,
-        {
+        gpuLost ? null : {
           driverCode: settingsNow.profile.code,
           teamColorHex: settingsNow.profile.color,
           name: settingsNow.profile.name,
@@ -2540,8 +2696,8 @@ export class DriveSession {
         }
       }
 
-      // Nothing to draw behind the opaque loading screen (the shaders are compiled separately)
-      if (appPhase === "loading") return;
+      // Nothing to draw behind the opaque loading screen (the shaders are compiled separately), or with no GPU context
+      if (appPhase === "loading" || gpuLost) return;
 
       // Weather: sun, sky, fill and fog, the wet look of the road, spray, and rain around the camera
       const wx = trackEnv.weather;
@@ -2721,6 +2877,10 @@ export class DriveSession {
 
     this.teardown = () => {
       disposed = true;
+      // A context the browser gave back after a loss holds none of this session's GPU objects: let go of it first, and
+      // the disposals below are no-ops instead of a WebGL warning each
+      const gl = renderer.getContext();
+      if (gpuLost && !gl.isContextLost()) gl.getExtension("WEBGL_lose_context")?.loseContext();
       unsubscribeAssets();
       window.clearInterval(assetWatchdog);
       renderer.setAnimationLoop(null);
@@ -2731,6 +2891,8 @@ export class DriveSession {
       wheelFfb.dispose();
       simHost?.dispose();
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", onPageShow);
       window.removeEventListener("blur", onWindowBlur);
