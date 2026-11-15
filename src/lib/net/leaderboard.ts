@@ -11,7 +11,7 @@ import { listBestLaps } from "@/lib/sim/ghost-store";
 import { lapPlausibilityProblem } from "@/lib/sim/lap-plausibility";
 import { isPointToPointTrack } from "@/lib/track-kinds";
 import { validateLapRecording } from "@/lib/sim/lap-recorder";
-import { lapBoardClass, type LapConditions, type LapRecording, type LeaderboardEntry } from "@/lib/sim/lap-types";
+import { lapBoardClass, lapPhysicsVersion, type LapConditions, type LapRecording, type LeaderboardEntry } from "@/lib/sim/lap-types";
 import { getOrCreateDriverKey } from "./driver-key";
 import { getOnlineConfig, onlineUrl } from "./online-config";
 import { cappedString, clampLimit, fetchBoardPage, finiteNumber, parseBoardPage, requestJson, type BoardFilter } from "./board-client";
@@ -121,6 +121,78 @@ export function saveBoardBest(key: string, lapTimeMs: number): void {
   } catch {
     // Storage blocked: the next lap is simply sent again, and the board keeps the faster one
   }
+}
+
+const BOARD_MISS_KEY = "lc.boardMiss";
+
+/** A lap that didn't go on its board, and why: the last failed upload per board */
+interface BoardMiss {
+  lapTimeMs: number;
+  recordedAt: number;
+  error: string;
+}
+
+function readBoardMisses(): Record<string, unknown> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(BOARD_MISS_KEY) ?? "null");
+    return isRecord(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeBoardMisses(misses: Record<string, unknown>): void {
+  try {
+    const keys = Object.keys(misses);
+    for (const old of keys.slice(0, Math.max(0, keys.length - MAX_BOARD_BESTS))) delete misses[old];
+    localStorage.setItem(BOARD_MISS_KEY, JSON.stringify(misses));
+  } catch {
+    // Storage blocked: the lap still shows as not on the board, without the reason
+  }
+}
+
+/**
+ * Remembers why a lap didn't go on its board (refused here or by the server, or the board was out of reach), so Your
+ * best laps can say so after the lap card is gone. One failure per board is kept: a slower lap's never replaces the
+ * reason a faster one (the best shown there) didn't go up
+ */
+export function saveBoardMiss(rec: Pick<LapRecording, "trackId" | "vehicle" | "conditions" | "lapTimeMs" | "recordedAt">, error: string): void {
+  const key = boardKeyOf(rec);
+  if (!key) return;
+  const misses = readBoardMisses();
+  const known = misses[key];
+  if (isRecord(known) && finiteNumber(known.lapTimeMs) !== null && (known.lapTimeMs as number) < rec.lapTimeMs) return;
+  delete misses[key];
+  misses[key] = { lapTimeMs: rec.lapTimeMs, recordedAt: rec.recordedAt, error: error.slice(0, MAX_ERROR_LENGTH) } satisfies BoardMiss;
+  writeBoardMisses(misses);
+}
+
+/** Forgets a board's failed upload once a lap as fast or faster has gone on it */
+export function clearBoardMiss(key: string, lapTimeMs: number): void {
+  const misses = readBoardMisses();
+  const miss = misses[key];
+  if (miss === undefined) return;
+  if (isRecord(miss) && finiteNumber(miss.lapTimeMs) !== null && (miss.lapTimeMs as number) < lapTimeMs) return;
+  delete misses[key];
+  writeBoardMisses(misses);
+}
+
+/**
+ * Whether a saved best is on its online board, as far as this browser knows: `posted` once the board took it (or has a
+ * faster lap of the driver's), else not, with the reason its last upload failed when it was this lap's. Null for a lap
+ * that can't go on a current board (no conditions, or an older physics revision)
+ */
+export function boardStatusOf(
+  lap: Pick<LeaderboardEntry, "trackId" | "vehicle" | "conditions" | "lapTimeMs" | "recordedAt">,
+): { posted: true } | { posted: false; error: string | null } | null {
+  if (!lap.conditions || lap.conditions.physicsVersion !== lapPhysicsVersion(lap.vehicle)) return null;
+  const key = boardKeyOf(lap);
+  if (!key) return null;
+  const best = loadBoardBest(key);
+  if (best !== null && best <= lap.lapTimeMs) return { posted: true };
+  const miss = readBoardMisses()[key];
+  const mine = isRecord(miss) && miss.lapTimeMs === lap.lapTimeMs && miss.recordedAt === lap.recordedAt;
+  return { posted: false, error: mine ? cappedString(miss.error, MAX_ERROR_LENGTH) : null };
 }
 
 /** True when this site has an online lap board switched on (asked once, then remembered for a while) */

@@ -25,6 +25,8 @@ export interface BoardRow {
   detail?: string;
   /** Full date for the detail's tooltip */
   detailTitle?: string;
+  /** A line under the detail that needs the player's eye (a best lap that isn't on the online board) */
+  note?: React.ReactNode;
   lapMs: number;
   /** The fastest lap of the list: best colour and an underline (colour is not alone) */
   fastest?: boolean;
@@ -99,46 +101,56 @@ export const BoardTable: React.FC<{
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr
-              key={r.key}
-              aria-current={r.mine ? "true" : undefined}
-              className={`h-13 border-b border-white/5 last:border-b-0 ${r.mine ? "bg-lc-volt/8 shadow-[inset_2px_0_0_var(--color-lc-volt)]" : ""}`}
-            >
-              <td className="px-2">
-                <PositionBadge position={r.rank} player={r.mine} size="sm" className="min-w-10" />
-              </td>
-              <td className="max-w-0 px-2 py-1.5">
-                <span className="flex min-w-0 items-center gap-2">
-                  {/* The code gives way to the name in a narrow list (a phone) */}
-                  {r.code ? <span className="lc-mono hidden w-8 shrink-0 text-[12px] font-bold tracking-[0.08em] text-lc-slate @sm:inline">{r.code}</span> : null}
-                  <span className="truncate text-[14px] font-semibold text-lc-chalk" title={r.title}>
-                    {r.title}
-                  </span>
-                  {r.mine ? <PlayerTag size="sm" /> : null}
-                </span>
-                {r.tag || r.detail ? (
+            <React.Fragment key={r.key}>
+              <tr
+                aria-current={r.mine ? "true" : undefined}
+                className={`h-13 ${r.note ? "" : "border-b border-white/5 last:border-b-0"} ${r.mine ? "bg-lc-volt/8 shadow-[inset_2px_0_0_var(--color-lc-volt)]" : ""}`}
+              >
+                <td className="px-2">
+                  <PositionBadge position={r.rank} player={r.mine} size="sm" className="min-w-10" />
+                </td>
+                <td className="max-w-0 px-2 py-1.5">
                   <span className="flex min-w-0 items-center gap-2">
-                    {r.tag ? <span className="flex shrink-0">{r.tag}</span> : null}
-                    {r.detail ? (
-                      <span className="lc-hint block min-w-0 truncate" title={r.detailTitle ?? r.detail}>
-                        {r.detail}
-                      </span>
-                    ) : null}
+                    {/* The code gives way to the name in a narrow list (a phone) */}
+                    {r.code ? <span className="lc-mono hidden w-8 shrink-0 text-[12px] font-bold tracking-[0.08em] text-lc-slate @sm:inline">{r.code}</span> : null}
+                    <span className="truncate text-[14px] font-semibold text-lc-chalk" title={r.title}>
+                      {r.title}
+                    </span>
+                    {r.mine ? <PlayerTag size="sm" /> : null}
                   </span>
-                ) : null}
-              </td>
-              <td className="px-2 text-right">
-                <Timed ms={r.lapMs} best={Boolean(r.fastest)} lap />
-              </td>
-              {sectors
-                ? [0, 1, 2].map((k) => (
-                    <td key={k} className={`px-2 ${SECTOR}`}>
-                      {r.sectorsMs?.[k] ? <Timed ms={r.sectorsMs[k]} best={Boolean(r.bestSectors?.[k])} /> : null}
-                    </td>
-                  ))
-                : null}
-              {actions ? <td className="py-1.5 pl-2 text-right whitespace-nowrap">{r.action}</td> : null}
-            </tr>
+                  {r.tag || r.detail ? (
+                    <span className="flex min-w-0 items-center gap-2">
+                      {r.tag ? <span className="flex shrink-0">{r.tag}</span> : null}
+                      {r.detail ? (
+                        <span className="lc-hint block min-w-0 truncate" title={r.detailTitle ?? r.detail}>
+                          {r.detail}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-2 text-right">
+                  <Timed ms={r.lapMs} best={Boolean(r.fastest)} lap />
+                </td>
+                {sectors
+                  ? [0, 1, 2].map((k) => (
+                      <td key={k} className={`px-2 ${SECTOR}`}>
+                        {r.sectorsMs?.[k] ? <Timed ms={r.sectorsMs[k]} best={Boolean(r.bestSectors?.[k])} /> : null}
+                      </td>
+                    ))
+                  : null}
+                {actions ? <td className="py-1.5 pl-2 text-right whitespace-nowrap">{r.action}</td> : null}
+              </tr>
+              {/* The note gets a line of its own under the row, wide enough to read on a phone */}
+              {r.note ? (
+                <tr className="border-b border-white/5 last:border-b-0">
+                  <td />
+                  <td colSpan={2 + (sectors ? 3 : 0) + (actions ? 1 : 0)} className="px-2 pb-2 text-[12px] leading-[1.4]">
+                    {r.note}
+                  </td>
+                </tr>
+              ) : null}
+            </React.Fragment>
           ))}
         </tbody>
       </table>

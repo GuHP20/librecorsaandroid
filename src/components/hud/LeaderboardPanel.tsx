@@ -42,6 +42,10 @@ export interface LeaderboardPanelProps {
   /** The player's name, to mark their row */
   driverName?: string;
   onRaceGhost?: (entry: LeaderboardEntry) => void;
+  /** Whether a saved best is on its online board (leaderboard.ts `boardStatusOf`); null for a lap that can't go on one */
+  boardStatus?: (entry: LeaderboardEntry) => { posted: true } | { posted: false; error: string | null } | null;
+  /** Posts a saved best that isn't on its online board; resolves with the board's answer */
+  onPostLap?: (entry: LeaderboardEntry) => Promise<{ ok: boolean; error?: string }>;
   onImportGhost?: (file: File) => void;
   onExportBest?: () => void;
   /** Driver key (claims the name on the online board): export to a file, import from one, and the last result */
@@ -72,6 +76,8 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
   vehicle,
   driverName = "",
   onRaceGhost,
+  boardStatus,
+  onPostLap,
   onImportGhost,
   onExportBest,
   onExportDriverKey,
@@ -80,6 +86,29 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
 }) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const keyFileRef = useRef<HTMLInputElement | null>(null);
+  // Laps on their way to the online board from here, by lap. An answer redraws the rows (their state is in storage);
+  // a refusal also stays here, for one that never reached storage (the lap no longer saved)
+  const [posting, setPosting] = useState<ReadonlySet<string>>(() => new Set());
+  const [postErrors, setPostErrors] = useState<Readonly<Record<string, string>>>({});
+  const postLap = (e: LeaderboardEntry, id: string) => {
+    if (!onPostLap || posting.has(id)) return;
+    setPosting((s) => new Set(s).add(id));
+    void onPostLap(e)
+      .catch((): { ok: boolean; error?: string } => ({ ok: false, error: "Could not reach the leaderboard" }))
+      .then((res) => {
+        setPosting((s) => {
+          const next = new Set(s);
+          next.delete(id);
+          return next;
+        });
+        setPostErrors((m) => {
+          const next = { ...m };
+          if (res.ok || !res.error) delete next[id];
+          else next[id] = res.error;
+          return next;
+        });
+      });
+  };
 
   // Every saved best, reloaded when this circuit's list changes (a new lap was saved)
   const [allLocal, setAllLocal] = useState<LeaderboardEntry[] | null>(null);
@@ -158,6 +187,35 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
 
   const localRows: BoardRow[] = rows.map((e, i) => {
     const board = e.conditions ? boardLabel(e.conditions) : null;
+    // A best that never made its online board says so, and why its last upload failed, with a button to send it
+    const status = remoteEnabled && boardStatus ? boardStatus(e) : null;
+    const id = `${e.trackId}|${e.vehicle}|${e.recordedAt}`;
+    const unposted = status && !status.posted ? { error: status.error ?? postErrors[id] ?? null } : null;
+    const sending = posting.has(id);
+    const ghost = Boolean(onRaceGhost) && e.trackId === here ? <RaceGhost of={`your ${vehicleLabel(e.vehicle)} lap`} onClick={() => onRaceGhost?.(e)} /> : null;
+    // Worded where the list has room, an icon in a narrow one (a phone), where the ghost button must still fit
+    const post =
+      unposted && onPostLap ? (
+        <>
+          <span className="hidden @lg:inline-flex">
+            <Button size="sm" variant="secondary" loading={sending} disabled={sending} onClick={() => postLap(e, id)}>
+              {unposted.error ? "Retry" : "Post"}
+            </Button>
+          </span>
+          <span className="inline-flex @lg:hidden">
+            <IconButton
+              size="sm"
+              variant="secondary"
+              icon={<Icon name={unposted.error ? "refresh" : "online"} />}
+              aria-label={unposted.error ? "Retry posting this lap online" : "Post this lap online"}
+              title={unposted.error ? "Retry" : "Post online"}
+              disabled={sending}
+              aria-busy={sending || undefined}
+              onClick={() => postLap(e, id)}
+            />
+          </span>
+        </>
+      ) : null;
     return {
       key: `${e.trackId}-${e.vehicle}-${e.recordedAt}-${i}`,
       rank: i + 1,
@@ -168,7 +226,20 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
       fastest: i === 0 && rows.length > 1,
       sectorsMs: e.sectorTimesMs,
       bestSectors: e.sectorTimesMs.map((s, k) => s > 0 && s === bestSector[k] && rows.length > 1),
-      action: Boolean(onRaceGhost) && e.trackId === here ? <RaceGhost of={`your ${vehicleLabel(e.vehicle)} lap`} onClick={() => onRaceGhost?.(e)} /> : undefined,
+      note: unposted ? (
+        unposted.error ? (
+          <span className="text-lc-amber">Not on the online board: {unposted.error}</span>
+        ) : (
+          <span className="text-lc-slate">Not on the online board yet</span>
+        )
+      ) : undefined,
+      action:
+        post || ghost ? (
+          <span className="inline-flex items-center gap-1.5">
+            {post}
+            {ghost}
+          </span>
+        ) : undefined,
     };
   });
 
