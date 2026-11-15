@@ -61,6 +61,12 @@ export const THIRD_PARTY_HUD_LAYOUTS = [
     detail: "The cars ahead and behind, gaps and lap deltas",
     credit: { author: "emilioSp", repoUrl: "https://github.com/emilioSp/h2h-iracing", license: "MIT" },
   },
+  {
+    id: "retro",
+    label: "Retro UI",
+    detail: "Warm instruments: round dial, delta bar, laps",
+    credit: { author: "toastbuilds", repoUrl: "https://github.com/toastbuilds/assetto-corsa-retro-engineering-hud", license: "MIT" },
+  },
 ] as const satisfies readonly HudLayoutInfo[];
 
 export type HudPreset = (typeof BUILT_IN_HUD_LAYOUTS)[number]["id"] | (typeof THIRD_PARTY_HUD_LAYOUTS)[number]["id"];
