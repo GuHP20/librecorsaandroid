@@ -77,7 +77,8 @@ import { assetProgress } from "@/lib/loading/asset-progress";
 import { prefetchSoundBank } from "@/lib/sim/lc26-audio";
 import { CarReflectionProbe } from "@/lib/render/car-reflection-probe";
 import { StartupMonitor } from "@/lib/render/startup-monitor";
-import { browserStore, noteRenderer, recordContextLoss, rendererName } from "@/lib/render/gpu-health";
+import { browserStore, classifyRenderer, noteRenderer, readLossMemory, recordContextLoss, rendererName, safeStartPlan } from "@/lib/render/gpu-health";
+import { gpuFinished, partsByNewKeys, slicesByBytes, textureBytes } from "@/lib/render/gpu-pace";
 import { SessionPerfMonitor, type PerfPhase } from "@/lib/render/session-perf";
 import { FramePacer } from "@/lib/render/frame-pacer";
 import {
@@ -163,6 +164,14 @@ const MP_CLOCK_UNSYNCED_FRAME: MultiplayerRaceFrame = { phase: "countdown", ligh
 
 /** A loading task with no progress for this long is given up on (the procedural stand-in stays) */
 const ASSET_STALL_MS = 25_000;
+/**
+ * The loading warm-up's texture uploads go to the GPU in runs of about this many bytes, each finished before the next:
+ * a few runs for a circuit on a fast GPU, smaller ones on a gentle start
+ */
+const WARMUP_UPLOAD_BYTES = 96 * 1024 * 1024;
+const WARMUP_UPLOAD_BYTES_GENTLE = 24 * 1024 * 1024;
+/** On a gentle start the warm-up frame is drawn in parts first, each with this many materials' first draws at most */
+const WARMUP_GENTLE_NEW_MATERIALS = 3;
 
 /** The HUD says the graphics were lowered at most this often (ms); later steps in the meantime go by quietly */
 const QUALITY_NOTICE_GAP_MS = 60_000;
@@ -903,7 +912,15 @@ export class DriveSession {
       throw new WebGLUnavailableError(reason);
     }
     // The GPU for the bug form, read now: after a context loss the browser may refuse to tell
-    noteRenderer(rendererName(renderer.getContext()));
+    const gpuName = rendererName(renderer.getContext());
+    noteRenderer(gpuName);
+    /**
+     * A gentle start on a CPU rasteriser, an older Intel HD / UHD chip, or within two weeks of a context loss: no
+     * physical sky (its GPU precompute), and a loading warm-up of what the camera sees rather than the whole circuit
+     */
+    const gpuClass = classifyRenderer(gpuName);
+    const { gentle } = safeStartPlan(readLossMemory(browserStore(), Date.now()), gpuClass);
+    console.info(`[gpu] ${gpuName ?? "renderer not named"} (${gpuClass})${gentle ? ": gentle start" : ""}`);
     /**
      * The context is gone: the frame loop keeps the network and the menus going but draws nothing and moves nothing,
      * and the component offers to load the circuit again on a new context. The old one is never reused: the sky's
@@ -939,9 +956,11 @@ export class DriveSession {
 
     // Golden-hour sky dome, its baked PMREM environment, horizon fog and the cascaded sun shadow. On Medium and High
     // the physically based sky with volumetric clouds replaces the dome (physical-sky.ts); `?sky=classic` keeps the
-    // dome on every preset
+    // dome on every preset, and so does a gentle start. It is built once the loading's warm-up is done (settleWarmup),
+    // so its precompute never shares the GPU with the circuit's uploads
     const env = createGoldenHourEnvironment(renderer, scene, {
-      physicalSky: new URLSearchParams(window.location.search).get("sky") !== "classic",
+      physicalSky: !gentle && new URLSearchParams(window.location.search).get("sky") !== "classic",
+      deferPhysicalSky: true,
     });
     // Rain streaks around the camera (one GPU-animated draw, hidden in the dry)
     const rainFx = createRainFx(scene);
@@ -1715,6 +1734,11 @@ export class DriveSession {
       if (warmupSettled || disposed) return;
       warmupSettled = true;
       setAssetsReady(true);
+      // The loading's GPU work is done: the physical sky may start its precompute (Medium and High)
+      if (!gpuLost) {
+        env.startPhysicalSky();
+        this.applyGraphics();
+      }
     };
     let loggedFirstFrame = false;
     const checkAssets = () => {
@@ -1743,10 +1767,11 @@ export class DriveSession {
         }
         compiled
           .then(
-            () => {
+            async () => {
               // Given up on already: the first frames compile what is left
               if (disposed || warmupSettled || gpuLost) return;
-              warmUpGpu();
+              await warmUpGpu();
+              if (disposed) return;
               visualFx.hidePrewarmed();
               assetProgress.done("shaders");
             },
@@ -1768,14 +1793,19 @@ export class DriveSession {
       }
     }
     /**
-     * Behind the opaque loading screen: upload the textures of everything shown, then draw one full frame through the
-     * composer with frustum culling off, so the shadow-map and post-processing programs and every vertex buffer are
-     * ready before the first visible frame instead of stalling it
+     * Behind the opaque loading screen: upload the textures of everything shown, give the reflection probe its first
+     * turn, then draw one full frame through the composer, so the shadow-map and post-processing programs and every
+     * vertex buffer are ready before the first visible frame instead of stalling it. Handed to the GPU in pieces, each
+     * finished before the next goes (gpu-pace.ts): the textures in runs of WARMUP_UPLOAD_BYTES, then the probe, then
+     * the frame. The probe and the frame have frustum culling off, the whole circuit at once, except on a gentle start:
+     * there they draw what the camera sees, the frame in parts of a few materials each, and the rest comes in as it
+     * shows. It stops where it is once the session goes, the context is lost or the loading screen was let go anyway.
      */
-    const warmUpGpu = () => {
+    const warmUpGpu = async (): Promise<void> => {
       const t0 = performance.now();
+      const gl = renderer.getContext();
+      const stop = () => disposed || gpuLost || warmupSettled;
       const textures = new Set<THREE.Texture>();
-      const unculled: THREE.Object3D[] = [];
       // What this frame draws: a hidden object (or one under a hidden parent) is left for the frame that shows it,
       // rather than putting its textures on the GPU for nothing
       scene.traverseVisible((o) => {
@@ -1783,23 +1813,78 @@ export class DriveSession {
         for (const m of Array.isArray(mat) ? mat : mat ? [mat] : []) {
           for (const v of Object.values(m)) if (v instanceof THREE.Texture) textures.add(v);
         }
-        if (o.frustumCulled) {
-          o.frustumCulled = false;
-          unculled.push(o);
-        }
       });
+      /** Runs `draw` with every shown object's frustum culling off (not on a gentle start) */
+      const unculled = (draw: () => void) => {
+        const objects: THREE.Object3D[] = [];
+        if (!gentle) {
+          scene.traverseVisible((o) => {
+            if (!o.frustumCulled) return;
+            o.frustumCulled = false;
+            objects.push(o);
+          });
+        }
+        try {
+          draw();
+        } finally {
+          for (const o of objects) o.frustumCulled = true;
+        }
+      };
+      const slices = slicesByBytes([...textures], textureBytes, gentle ? WARMUP_UPLOAD_BYTES_GENTLE : WARMUP_UPLOAD_BYTES);
+      let step = "textures";
       try {
-        for (const tex of textures) renderer.initTexture(tex);
-        // The reflection probe's first full turn and prefilter (their shaders compile here, not on lap one)
-        reflectionProbe.update(physics.worldPosition, carRig.root, scene.environmentIntensity);
-        postFx.render(0);
+        for (const slice of slices) {
+          if (stop()) return;
+          for (const tex of slice) renderer.initTexture(tex);
+          await gpuFinished(gl);
+        }
+        if (stop()) return;
+        // The reflection probe's first full turn and prefilter: their programs differ from the main view's (another
+        // target), so they compile here, not on lap one
+        step = "probe";
+        unculled(() => reflectionProbe.update(physics.worldPosition, carRig.root, scene.environmentIntensity));
+        await gpuFinished(gl);
+        if (stop()) return;
+        // A gentle start draws the camera's view in parts first, each finished before the next: an object's first draw
+        // with a material is the costly one (its shader specialised, its textures bound), so each part holds a few
+        // materials' first draws at most rather than one submission holding them all
+        if (gentle) {
+          step = "parts";
+          const drawn: THREE.Object3D[] = [];
+          scene.traverseVisible((o) => {
+            if ((o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints || (o as THREE.Line).isLine) drawn.push(o);
+          });
+          const materialsOf = (o: THREE.Object3D) => {
+            const m = (o as THREE.Mesh).material;
+            return Array.isArray(m) ? m : m ? [m] : [];
+          };
+          for (const run of partsByNewKeys(drawn, materialsOf, WARMUP_GENTLE_NEW_MATERIALS)) {
+            if (stop()) return;
+            const part = new Set(run);
+            const hidden = drawn.filter((o) => !part.has(o));
+            for (const o of hidden) o.visible = false;
+            const prevTarget = renderer.getRenderTarget();
+            try {
+              renderer.setRenderTarget(postFx.composer.inputBuffer);
+              renderer.render(scene, camera);
+            } finally {
+              renderer.setRenderTarget(prevTarget);
+              for (const o of hidden) o.visible = true;
+            }
+            await gpuFinished(gl);
+          }
+          if (stop()) return;
+        }
+        step = "frame";
+        unculled(() => postFx.render(0));
+        await gpuFinished(gl);
       } catch (err) {
-        console.warn("GPU warm-up frame failed (the first frame will do it instead)", err);
-      } finally {
-        for (const o of unculled) o.frustumCulled = true;
+        console.warn(`GPU warm-up failed at the ${step} (the first frames will do it instead)`, err);
       }
       if (process.env.NODE_ENV !== "production") {
-        console.info(`[load] GPU warm-up: ${textures.size} textures, ${(performance.now() - t0).toFixed(0)} ms`);
+        console.info(
+          `[load] GPU warm-up: ${textures.size} textures in ${slices.length} run(s)${gentle ? ", camera's view only" : ""}, ${(performance.now() - t0).toFixed(0)} ms`
+        );
       }
     };
     const unsubscribeAssets = assetProgress.subscribe(checkAssets);
