@@ -192,7 +192,31 @@ async function claimName(deps: BoardDeps, nameKey: string, keyHash: string, nowM
 
 const NAME_TAKEN = "This name is taken. Import your driver key under Lap Times, or race under another name";
 
+/**
+ * What a refused upload said about itself, as sent (unchecked, capped): enough to match a player's report to it by
+ * circuit, car and lap time. No name: a refused one was never public
+ */
+interface LapSeen {
+  track?: string;
+  vehicle?: string;
+  lapTimeMs?: number;
+}
+
+/**
+ * Takes an uploaded lap (POST /api/laps). A refusal goes to the Workers Logs with its reason and the lap it was about,
+ * so a "my lap isn't on the board" report can be answered; a faster lap already on the board is no refusal
+ */
 export async function submitLap(deps: BoardDeps, request: Request): Promise<Answer> {
+  const seen: LapSeen = {};
+  const answer = await takeLap(deps, request, seen);
+  const body = answer.body as { error?: unknown; notFaster?: unknown };
+  if (answer.status >= 400 && body.notFaster !== true) {
+    console.warn(JSON.stringify({ event: "lap_refused", status: answer.status, error: body.error, ...seen }));
+  }
+  return answer;
+}
+
+async function takeLap(deps: BoardDeps, request: Request, seen: LapSeen): Promise<Answer> {
   const nowMs = deps.now();
   if (await overPostLimit(deps, request, nowMs)) return fail("Too many uploads, try again later", 429);
 
@@ -206,6 +230,12 @@ export async function submitLap(deps: BoardDeps, request: Request): Promise<Answ
     return fail("Body is not valid JSON");
   }
   if (typeof body !== "object" || body === null) return fail("Body is not valid JSON");
+  if (typeof body.rec === "object" && body.rec !== null) {
+    const raw = body.rec as Record<string, unknown>;
+    if (typeof raw.trackId === "string") seen.track = raw.trackId.slice(0, 64);
+    if (typeof raw.vehicle === "string") seen.vehicle = raw.vehicle.slice(0, 32);
+    if (typeof raw.lapTimeMs === "number") seen.lapTimeMs = raw.lapTimeMs;
+  }
 
   const checked = checkLap(body.rec);
   if (!checked.ok) return fail(checked.error);

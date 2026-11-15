@@ -20,6 +20,8 @@ import { exportLapFile, importLapFile, listBestLaps, loadBestLap, saveBestLapIfF
 import {
   boardKeyOf,
   boardOnline,
+  boardStatusOf,
+  clearBoardMiss,
   fetchRemoteBoard,
   fetchRemoteGhost,
   lapToEntry,
@@ -28,6 +30,7 @@ import {
   localLeaderboard,
   renameOnBoard,
   saveBoardBest,
+  saveBoardMiss,
   saveChallengeBest,
   submitLap,
   type SubmitResult,
@@ -102,7 +105,13 @@ const uploadLap = async (rec: LapRecording, driver: { name: string; code: string
   const res = await submitLap(named, { event }).catch((): SubmitResult => ({ ok: false }));
   if (res.ok && event && res.eventRank !== undefined) saveChallengeBest(event, rec.lapTimeMs);
   const board = boardKeyOf(named);
-  if (board && (res.ok || res.notFaster)) saveBoardBest(board, rec.lapTimeMs);
+  if (board && (res.ok || res.notFaster)) {
+    saveBoardBest(board, rec.lapTimeMs);
+    clearBoardMiss(board, rec.lapTimeMs);
+  } else if (!res.ok) {
+    // Your best laps says so, and why, after the lap card is gone
+    saveBoardMiss(rec, res.error ?? "Could not reach the leaderboard");
+  }
   return res;
 };
 // A lap on a circuit this build no longer lists keeps its id as its name (getTrackInfo would name it after another)
@@ -825,6 +834,25 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     setSubmitError(res.ok ? null : (res.error ?? null));
   }, [lapSummary]);
   /**
+   * Posts a saved best that isn't on its online board (Your best laps): one whose upload failed, set while posting was
+   * off, or set before the board began. Resolves with the board's answer; a refusal is remembered with its reason
+   */
+  const handlePostBest = useCallback(async (entry: LeaderboardEntry): Promise<SubmitResult> => {
+    const rec = entry.conditions ? await loadBestLap(entry.trackId, entry.vehicle, lapBoardClass(entry.conditions)).catch(() => null) : null;
+    // A faster lap saved meanwhile replaced this one: the list reloads with it
+    if (!rec || rec.lapTimeMs !== entry.lapTimeMs || rec.recordedAt !== entry.recordedAt) return { ok: false, error: "This lap is no longer saved here" };
+    const as = settingsRef.current.profile;
+    const refused = nameProblem(as.name) ?? (refusedNameRef.current?.name === as.name ? refusedNameRef.current.error : null);
+    if (refused) {
+      saveBoardMiss(rec, refused);
+      return { ok: false, error: refused };
+    }
+    const res = await uploadLap(rec, as);
+    if (res.ok) setBoardVersion((v) => v + 1);
+    if (res.taken) refusedNameRef.current = { name: as.name, error: res.error ?? "This name is taken" };
+    return res;
+  }, []);
+  /**
    * A new driver name, from the Display settings or the lap card: checked, then claimed on the online board, where the
    * laps and race results under the old name move with it. The name and code once it has taken, else why it didn't.
    * Nothing changes here until the board has said yes.
@@ -1530,6 +1558,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       vehicle: vehicleModel,
       driverName: settings.profile.name,
       onRaceGhost: (entry: LeaderboardEntry) => void handleRaceGhostEntry(entry),
+      boardStatus: boardStatusOf,
+      onPostLap: handlePostBest,
       onImportGhost: (file: File) => void handleImportGhost(file),
       onExportBest: () => void handleExportBest(),
       onExportDriverKey: handleExportDriverKey,
