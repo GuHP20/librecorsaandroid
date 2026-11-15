@@ -11,6 +11,7 @@ import { AI_LINE_WIDTH_SCALE, brakingZoneLevel, computeSpeedProfile, createLc26P
 import { resolveSurfaceTable, type SurfaceTable, type SurfaceTableOverrides } from "./sim/track-surfaces";
 import type { SceneryCutBox } from "./scenery-cuts";
 import type { LapStretches } from "./sim/course-limits";
+import { correctedDrsZones } from "./drs-zone-fixes";
 
 /** Raw `track_data.json` layout shared by every circuit (the bundled circuit's file is the reference schema) */
 export type RawTrackJson = typeof rawTrackJson;
@@ -122,8 +123,12 @@ export interface BuiltTrackData {
   ) => { i0: number; i1: number; t: number; s: number; lateralH: number };
 }
 
-/** DRS zones of the active circuit (the name predates other circuits) */
-export const RWANDA_DRS_ZONES: DrsZoneDef[] = [...(rawTrackJson.drsZones as DrsZoneDef[])];
+/** DRS zones of the active circuit (the name predates other circuits), with their corrections (`drs-zone-fixes.ts`) */
+export const RWANDA_DRS_ZONES: DrsZoneDef[] = correctedDrsZones(
+  DEFAULT_TRACK_ID,
+  rawTrackJson.metadata.lengthMeters,
+  rawTrackJson.drsZones as DrsZoneDef[]
+);
 /** Broadcast cameras of the active circuit */
 export const RWANDA_TV_CAMERAS: TracksideTvCameraDef[] = [...(rawTrackJson.cameras as TracksideTvCameraDef[])];
 
@@ -348,7 +353,8 @@ export function setActiveTrack(id: string, raw: RawTrackJson = rawTrackJson): vo
   // Everything is read from `raw` before anything changes: malformed data throws with the previous circuit whole
   const meta = raw.metadata as RawTrackJson["metadata"] & TrackMetaExtras;
   const rawDs = meta.lengthMeters / raw.samples.length;
-  const drsZones = [...(raw.drsZones as DrsZoneDef[])];
+  // Every car, the AI and the HUD read the zones from here: their corrections are made once, before anything sees them
+  const drsZones = correctedDrsZones(id, meta.lengthMeters, raw.drsZones as DrsZoneDef[]);
   const cameras = [...(raw.cameras as TracksideTvCameraDef[])];
   const spawnGrid = [...(raw.spawnGrid as GridSlotDef[])];
   const turns = turnsOf(raw);
