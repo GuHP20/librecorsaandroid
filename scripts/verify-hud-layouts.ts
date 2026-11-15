@@ -11,8 +11,10 @@ import {
   HUD_LAYOUTS,
   HUD_PRESETS,
   THIRD_PARTY_HUD_LAYOUTS,
+  HUD_LICENSE_URL,
   hudLayout,
   parseHudPreset,
+  showsPhoneHud,
 } from '../src/lib/settings/hud-layouts';
 import { DEFAULT_PLAYER_SETTINGS, parsePlayerSettings } from '../src/lib/settings/player-settings';
 
@@ -59,6 +61,22 @@ for (const l of THIRD_PARTY_HUD_LAYOUTS as readonly (typeof HUD_LAYOUTS)[number]
   check(`"${l.id}": links its source repository`, Boolean(c && /^https:\/\/github\.com\/[^/]+\/[^/]+$/.test(c.repoUrl)), c?.repoUrl);
   check(`"${l.id}": the author is the repository's owner`, Boolean(c && c.repoUrl.split('/')[3]?.toLowerCase() === c.author.toLowerCase()));
   check(`"${l.id}": names a licence the game can take in`, c?.license === 'MIT' || c?.license === 'GPL-3.0');
+  check(`"${l.id}": its licence has a page to link`, Boolean(c && /^https:\/\//.test(HUD_LICENSE_URL[c.license])));
+}
+
+// ---- Which screens show the chosen layout
+
+const desktop = { phone: false, touchControls: false };
+const tablet = { phone: false, touchControls: true };
+const phoneScreen = { phone: true, touchControls: true };
+const phoneWithPad = { phone: true, touchControls: false };
+for (const l of HUD_LAYOUTS) {
+  check(`"${l.id}": drawn as chosen on a desktop`, !showsPhoneHud(l.id, desktop));
+  check(`"${l.id}": a phone-sized screen gets the Phone HUD`, showsPhoneHud(l.id, phoneScreen) && showsPhoneHud(l.id, phoneWithPad));
+  check(
+    `"${l.id}": on a tablet with touch, ${l.credit ? 'keeps its look' : 'gives way to the Phone HUD'}`,
+    showsPhoneHud(l.id, tablet) === !l.credit,
+  );
 }
 
 console.log(`\n${HUD_LAYOUTS.length} layouts (${THIRD_PARTY_HUD_LAYOUTS.length} third-party)`);
