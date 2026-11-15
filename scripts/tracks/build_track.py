@@ -511,7 +511,8 @@ def build(args, cfg, scale, fit_pass, xz_fixed=None, recentre=True):
         # (the paved edge distance is capped at 20 m: past it the paving reaches at least that far)
         flush = np.isfinite(wallR) & ((np.abs(wallR - ed[:, 1]) < 2.5) | (ed[:, 1] >= 19.5)) & (on_oval > 0.5)
         flush = ndimage.binary_closing(ndimage.binary_opening(flush, np.ones(5)), np.ones(9))
-        sh = np.where(flush, np.nan_to_num(wallR) - lane_w / 2 - cfg.get('wallLaneGapM', 0.3), sh)
+        # the closing bridges holes in the wall where none was found (wallR NaN): carry the wall across them, not 0 m
+        sh = np.where(flush, periodic_interp_nan(wallR) - lane_w / 2 - cfg.get('wallLaneGapM', 0.3), sh)
         # the lane widens on its inside where `wallLaneWiden` says so: the centre moves in by half the extra width
         sh = sh - lane_widen(xz, cfg) / 2
         sh = ndimage.gaussian_filter1d(ndimage.median_filter(sh, 9, mode='wrap'), 3.0, mode='wrap')
