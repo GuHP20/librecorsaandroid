@@ -135,7 +135,7 @@ const DriverInfo: React.FC<{ name: string; place: string; bestMs: number | null 
 
 /** The gap to a neighbour (under the best lap) and the last-lap delta to it (under the last lap) */
 const GapRow: React.FC<{ gapS: number | null; deltaS: number | null; lapS: number }> = ({ gapS, deltaS, lapS }) => {
-  const deltaPulse = usePulse(deltaS === null ? null : Math.round(deltaS * 1000) || "0");
+  const deltaPulse = usePulse(deltaS === null ? null : String(Math.round(deltaS * 1000)));
   return (
     <div className={`grid h-full ${COLS}`}>
       <span />
@@ -179,8 +179,8 @@ const RaceStack: React.FC<{ t: CarTelemetry }> = ({ t }) => {
     me && ahead ? (splits?.ahead?.driverCode === ahead.driverCode ? splits.ahead.gapS : me.gapToLeaderS - ahead.gapToLeaderS) : null;
   const gapBehind =
     me && behind ? (splits?.behind?.driverCode === behind.driverCode ? splits.behind.gapS : behind.gapToLeaderS - me.gapToLeaderS) : null;
-  const aheadKey = ahead ? ahead.driverCode + (ahead.name ?? "") : "none";
-  const behindKey = behind ? behind.driverCode + (behind.name ?? "") : "none";
+  const aheadKey = "a:" + (ahead ? ahead.driverCode + (ahead.name ?? "") : "");
+  const behindKey = "b:" + (behind ? behind.driverCode + (behind.name ?? "") : "");
   return (
     <>
       <div className={`${CARD} border-b`}>
@@ -192,7 +192,7 @@ const RaceStack: React.FC<{ t: CarTelemetry }> = ({ t }) => {
       </div>
       <div className="grid h-28 grid-rows-[1fr_2fr_1fr] xl:h-34 border-y border-(--tp-border-player) bg-(--tp-player-a) py-1">
         <GapRow key={aheadKey} gapS={gapAhead} deltaS={ahead ? lapDelta(myLast, ahead.lastLapMs) : null} lapS={lapS} />
-        <DriverInfo name={me ? shortName(me) : "You"} place={`P${t.race?.position ?? i + 1}`} bestMs={myBest} lastMs={myLast} />
+        <DriverInfo key="me" name={me ? shortName(me) : "You"} place={`P${t.race?.position ?? i + 1}`} bestMs={myBest} lastMs={myLast} />
         <GapRow key={behindKey} gapS={gapBehind} deltaS={behind ? lapDelta(myLast, behind.lastLapMs) : null} lapS={lapS} />
       </div>
       <div className={`${CARD} border-t`}>
