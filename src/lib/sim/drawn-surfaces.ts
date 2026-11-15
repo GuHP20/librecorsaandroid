@@ -6,7 +6,11 @@
  *   barriers (20 m and more across), and the bands past the edge called it run-off and grass. A car using the street
  *   was off the track (and on grass grip) on drawn asphalt. Every drawn road and kerb between the barriers is the
  *   track, except past a kerb's outer edge (the car parks, escape roads and the island behind the hairpins' kerbs);
- *   paving past the barriers stays as it is.
+ *   paving past the barriers stays as it is. At turns 2-6 the areas marked on the reviewed corner images
+ *   (norisring-marked-areas.ts) apply on top: street marked as track that the street rule misses (past the lap's
+ *   barrier distances, which run short at the Schöller S, or paving it doesn't read as road) is the track, and the
+ *   back straight's promenades, the curb strips behind the Schöller S's inside wall and road faces jutting past the
+ *   start-finish straight's edge are off it, except where an area marked as track overlaps them.
  * - Red Bull Ring: its physics counts the yellow kerbs and kerb cubes inside Castrol Edge (turn 1) and Remus (turn 2)
  *   as kerb and road, out to the grass: a car with all four wheels past the red and white kerb, on the yellow kerb and
  *   the cubes, stayed on the track (players' board laps went 8.4-8.9 m inside the line there). The yellow kerb and the
@@ -24,7 +28,8 @@
  */
 import * as THREE from "three";
 import type { BuiltTrackData } from "@/lib/track-data";
-import type { SurfaceTable, TrackSurfaceKind } from "./track-surfaces";
+import { NORISRING_MARKED_AREAS } from "./norisring-marked-areas";
+import { isTrackSurfaceKind, type SurfaceTable, type TrackSurfaceKind } from "./track-surfaces";
 
 export interface DrawnSurfaceRule {
   /**
@@ -38,12 +43,14 @@ export interface DrawnSurfaceRule {
   from?: readonly TrackSurfaceKind[];
   /**
    * Where it applies: lap stretches [from, to] (m) on a side (-1 left, +1 right); lap bands [from, to, side, near,
-   * far], a stretch's side from `near` to `far` m off the centre line; or anywhere between the lap's barriers (each
-   * side's barrier distance at that point of the lap, `wallLeftM` / `wallRightM`)
+   * far], a stretch's side from `near` to `far` m off the centre line; areas, world outlines (x, z pairs) less any
+   * `except` outline over them; or anywhere between the lap's barriers (each side's barrier distance at that point of
+   * the lap, `wallLeftM` / `wallRightM`)
    */
   within:
     | { stretches: readonly (readonly [number, number, -1 | 1])[] }
     | { bands: readonly (readonly [number, number, -1 | 1, number, number])[] }
+    | { areas: readonly (readonly number[])[]; except?: readonly (readonly number[])[] }
     | "barriers";
   /**
    * Also lays the rule's surface over the road collider (`Track_Collider_Road`) where it applies, as a copy of its
@@ -60,6 +67,8 @@ export interface DrawnSurfaceRule {
    * of the barrier (past a corner's kerb is off the track, however much asphalt is drawn)
    */
   kerbsLimit?: boolean;
+  /** Never inside the lap's road (its track-data width, the street there in any case) */
+  offTheRoad?: boolean;
   /** How fine a face across the drawn edge is cut (m; default `PIECE_M`) */
   pieceM?: number;
   note: string;
@@ -69,6 +78,9 @@ const OFF_ROAD: readonly TrackSurfaceKind[] = ["runoff", "gravel", "grass"];
 const ON_TRACK: readonly TrackSurfaceKind[] = ["road", "kerb", "pitlane"];
 /** Norisring's drawn grass and sand (grassa, SandVariation, grassouttemp, 3dgrasb) */
 const NORISRING_COVERS = ["grassa", "sanda", "grassout", "dteichgrass"];
+/** The areas marked on Norisring's corner images (turns 2-6) as track, and as off it */
+const NORISRING_MARKED_TRACK = NORISRING_MARKED_AREAS.filter((a) => a.legal).map((a) => a.outline);
+const NORISRING_MARKED_OFF = NORISRING_MARKED_AREAS.filter((a) => !a.legal).map((a) => a.outline);
 /**
  * The Red Bull Ring's sausage kerbs: curb_yellow, curb_cubes (two), curb_cubes_red and the anti-cut rumble (rmblsafe).
  * Its names here are the same in the venue pair and the full GLB.
@@ -106,6 +118,24 @@ export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceR
     { materials: "roadMaterials", surface: "road", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn street between the barriers" },
     // curbrubber and the drain strip by the kerbs
     { materials: ["CurbRubber", "rmblb"], surface: "kerb", from: OFF_ROAD, within: "barriers", kerbsLimit: true, covers: NORISRING_COVERS, pieceM: 0.5, note: "the drawn kerbs between the barriers" },
+    // The corner images of turns 2-6 as marked (cut to 0.5 m, about the pen's line): street the rules above leave off
+    // the track (past the lap's barrier distances, which run 1-2 m short at the Schöller S, paving the street rule
+    // doesn't read as road)...
+    { materials: null, surface: "road", from: OFF_ROAD, within: { areas: NORISRING_MARKED_TRACK }, pieceM: 0.5, note: "the areas marked as track on the corner images" },
+    // ...and what is off it although drawn as street or kerb (the back straight's promenades, the curb strips behind the
+    // Schöller S's inside wall, road faces jutting past the start-finish straight's edge), where no area marked as
+    // track overlaps it (the finer image's marks win)
+    {
+      materials: null,
+      surface: "runoff",
+      from: ON_TRACK,
+      overRoadCollider: true,
+      within: { areas: NORISRING_MARKED_OFF, except: NORISRING_MARKED_TRACK },
+      // (the marks on the coarser turn 4 image reach up to 1.5 m onto the start-finish straight's road)
+      offTheRoad: true,
+      pieceM: 0.5,
+      note: "the areas marked off the track on the corner images",
+    },
   ],
   spielberg: [
     {
@@ -180,11 +210,132 @@ function isRoadCollider(o: THREE.Object3D, root: THREE.Object3D): boolean {
   return false;
 }
 
-/** The surface of the physics node a mesh belongs to (itself or the nearest named ancestor), or null */
+/**
+ * The surface of the physics node a mesh belongs to (itself or the nearest named ancestor, or a node an earlier rule
+ * made: a later rule may rename its pieces again), or null
+ */
 function nodeSurface(o: THREE.Object3D, root: THREE.Object3D): TrackSurfaceKind | null {
-  for (let p: THREE.Object3D | null = o; p && p !== root; p = p.parent) if (SURFACE_NODES[p.name]) return SURFACE_NODES[p.name];
+  for (let p: THREE.Object3D | null = o; p && p !== root; p = p.parent) {
+    if (SURFACE_NODES[p.name]) return SURFACE_NODES[p.name];
+    if (p.userData?.rule !== undefined && isTrackSurfaceKind(p.userData.surface)) return p.userData.surface;
+  }
   return null;
 }
+
+/**
+ * A strip of triangles (x, z of three corners each, 6 numbers a triangle) on an XZ grid: `contains(x, z)`, and
+ * `touches(x0, z0, x1, z1)` when some triangle's box overlaps the box
+ */
+function stripRegion(strip: readonly number[]) {
+  const grid = new Map<number, number[]>();
+  const key = (cx: number, cz: number) => cx * 73856093 + cz * 19349663;
+  for (let t = 0; t < strip.length / 6; t++) {
+    const o = t * 6;
+    const x0 = Math.floor(Math.min(strip[o], strip[o + 2], strip[o + 4]) / CELL_M), x1 = Math.floor(Math.max(strip[o], strip[o + 2], strip[o + 4]) / CELL_M);
+    const z0 = Math.floor(Math.min(strip[o + 1], strip[o + 3], strip[o + 5]) / CELL_M), z1 = Math.floor(Math.max(strip[o + 1], strip[o + 3], strip[o + 5]) / CELL_M);
+    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) (grid.get(key(cx, cz)) ?? grid.set(key(cx, cz), []).get(key(cx, cz))!).push(t);
+  }
+  const contains = (x: number, z: number): boolean => {
+    for (const t of grid.get(key(Math.floor(x / CELL_M), Math.floor(z / CELL_M))) ?? []) {
+      const o = t * 6;
+      const v0x = strip[o + 2] - strip[o], v0z = strip[o + 3] - strip[o + 1], v1x = strip[o + 4] - strip[o], v1z = strip[o + 5] - strip[o + 1];
+      const den = v0x * v1z - v1x * v0z;
+      if (Math.abs(den) < 1e-12) continue;
+      const px = x - strip[o], pz = z - strip[o + 1];
+      const u = (px * v1z - v1x * pz) / den, v = (v0x * pz - px * v0z) / den;
+      if (u >= 0 && v >= 0 && u + v <= 1) return true;
+    }
+    return false;
+  };
+  const touches = (x0: number, z0: number, x1: number, z1: number): boolean => {
+    for (let cx = Math.floor(x0 / CELL_M); cx <= Math.floor(x1 / CELL_M); cx++) {
+      for (let cz = Math.floor(z0 / CELL_M); cz <= Math.floor(z1 / CELL_M); cz++) {
+        for (const t of grid.get(key(cx, cz)) ?? []) {
+          const o = t * 6;
+          if (Math.max(strip[o], strip[o + 2], strip[o + 4]) < x0 || Math.min(strip[o], strip[o + 2], strip[o + 4]) > x1) continue;
+          if (Math.max(strip[o + 1], strip[o + 3], strip[o + 5]) < z0 || Math.min(strip[o + 1], strip[o + 3], strip[o + 5]) > z1) continue;
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  return { contains, touches };
+}
+
+/** The lap's road, each sample's track-data width, as a strip of triangles */
+function lapRoadStrip(track: BuiltTrackData): number[] {
+  const S = track.samples;
+  const ends = S.map((q) => {
+    const bl = Math.hypot(q.binormal.x, q.binormal.z) || 1;
+    const bx = q.binormal.x / bl, bz = q.binormal.z / bl, hw = q.width / 2;
+    return [q.position.x - bx * hw, q.position.z - bz * hw, q.position.x + bx * hw, q.position.z + bz * hw];
+  });
+  const strip: number[] = [];
+  for (let i = 0; i < S.length; i++) {
+    const a = ends[i], b = ends[(i + 1) % S.length];
+    strip.push(a[0], a[1], a[2], a[3], b[2], b[3], a[0], a[1], b[2], b[3], b[0], b[1]);
+  }
+  return strip;
+}
+
+/** The cell (m) of the grid an area's outline is filled on */
+const AREA_CELL_M = 0.2;
+interface AreaMask {
+  x0: number;
+  z0: number;
+  w: number;
+  h: number;
+  bits: Uint8Array;
+  /** Filled cells summed over [0, c) x [0, r), (w + 1) x (h + 1): a box's count in four reads */
+  sums: Int32Array;
+}
+/** An outline (x, z pairs) filled on a grid of `AREA_CELL_M` cells, row by row (even-odd) */
+function areaMask(outline: readonly number[]): AreaMask {
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < outline.length; i += 2) {
+    x0 = Math.min(x0, outline[i]);
+    x1 = Math.max(x1, outline[i]);
+    z0 = Math.min(z0, outline[i + 1]);
+    z1 = Math.max(z1, outline[i + 1]);
+  }
+  const w = Math.ceil((x1 - x0) / AREA_CELL_M) + 1, h = Math.ceil((z1 - z0) / AREA_CELL_M) + 1;
+  const bits = new Uint8Array(w * h);
+  const n = outline.length / 2;
+  const xs: number[] = [];
+  for (let r = 0; r < h; r++) {
+    const z = z0 + (r + 0.5) * AREA_CELL_M;
+    xs.length = 0;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const zi = outline[i * 2 + 1], zj = outline[j * 2 + 1];
+      if (zi > z !== zj > z) xs.push(outline[i * 2] + ((z - zi) / (zj - zi)) * (outline[j * 2] - outline[i * 2]));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const c1 = Math.min(w - 1, Math.floor((xs[k + 1] - x0) / AREA_CELL_M - 0.5));
+      for (let c = Math.max(0, Math.ceil((xs[k] - x0) / AREA_CELL_M - 0.5)); c <= c1; c++) bits[r * w + c] = 1;
+    }
+  }
+  const sums = new Int32Array((w + 1) * (h + 1));
+  for (let r = 0; r < h; r++) {
+    for (let c = 0; c < w; c++) sums[(r + 1) * (w + 1) + c + 1] = bits[r * w + c] + sums[r * (w + 1) + c + 1] + sums[(r + 1) * (w + 1) + c] - sums[r * (w + 1) + c];
+  }
+  return { x0, z0, w, h, bits, sums };
+}
+const inMask = (m: AreaMask, x: number, z: number): boolean => {
+  const c = Math.floor((x - m.x0) / AREA_CELL_M), r = Math.floor((z - m.z0) / AREA_CELL_M);
+  return c >= 0 && r >= 0 && c < m.w && r < m.h && m.bits[r * m.w + c] === 1;
+};
+/** Some filled cell of the mask lies in the box x0..x1, z0..z1 */
+const maskTouches = (m: AreaMask, x0: number, z0: number, x1: number, z1: number): boolean => {
+  const c0 = Math.max(0, Math.floor((x0 - m.x0) / AREA_CELL_M)), c1 = Math.min(m.w - 1, Math.floor((x1 - m.x0) / AREA_CELL_M));
+  const r0 = Math.max(0, Math.floor((z0 - m.z0) / AREA_CELL_M)), r1 = Math.min(m.h - 1, Math.floor((z1 - m.z0) / AREA_CELL_M));
+  if (c0 > c1 || r0 > r1) return false;
+  const W = m.w + 1;
+  return m.sums[(r1 + 1) * W + c1 + 1] - m.sums[r0 * W + c1 + 1] - m.sums[(r1 + 1) * W + c0] + m.sums[r0 * W + c0] > 0;
+};
+const maskBox = (m: AreaMask): THREE.Box3 =>
+  new THREE.Box3(new THREE.Vector3(m.x0, -1e4, m.z0), new THREE.Vector3(m.x0 + m.w * AREA_CELL_M, 1e4, m.z0 + m.h * AREA_CELL_M));
 
 type V3 = THREE.Vector3;
 /** Each triangle of a mesh in world space (its vertices moved once each) */
@@ -387,21 +538,26 @@ export function applyDrawnSurfaceRules(
   root.updateMatrixWorld(true);
   // (the physics kerbs' outer edges, read once, when the first rule that stops at them runs)
   let kerbEdges: ReturnType<typeof kerbOuterEdges> | null = null;
+  let roadBand: ReturnType<typeof stripRegion> | null = null;
   for (const rule of rules) {
     const from = rule.from ? new Set(rule.from) : null;
     const within = rule.within;
     const barriers = within === "barriers";
     const stretches = !barriers && "stretches" in within ? within.stretches : null;
     const bands = !barriers && "bands" in within ? within.bands : null;
+    const areas = !barriers && "areas" in within ? within.areas.map(areaMask) : null;
+    const except = !barriers && "areas" in within ? (within.except ?? []).map(areaMask) : [];
     const lapLen = (s0: number, s1: number) => (((s1 - s0) % track.totalLengthM) + track.totalLengthM) % track.totalLengthM;
 
-    // Where the rule applies: within its stretches (judged once per drawn face, by its middle), or within its bands or
-    // between the barriers (judged per point, from a strip of the lap)
-    const stretchBoxes = (stretches ?? bands ?? []).map(([s0, s1]) => {
-      const bx = new THREE.Box3();
-      for (let d = 0; d <= lapLen(s0, s1); d += 5) bx.expandByPoint(track.getSampleAtDistance(s0 + d).position);
-      return bx.expandByScalar(40);
-    });
+    // Where the rule applies: within its stretches (judged once per drawn face, by its middle), or within its bands,
+    // its areas or between the barriers (judged per point, from a strip of the lap or the areas' grids)
+    const stretchBoxes = areas
+      ? areas.map(maskBox)
+      : (stretches ?? bands ?? []).map(([s0, s1]) => {
+          const bx = new THREE.Box3();
+          for (let d = 0; d <= lapLen(s0, s1); d += 5) bx.expandByPoint(track.getSampleAtDistance(s0 + d).position);
+          return bx.expandByScalar(40);
+        });
     const inStretch = (x: number, z: number): boolean => {
       if (barriers) return true;
       const k = stretchBoxes.findIndex((bx) => x >= bx.min.x && x <= bx.max.x && z >= bx.min.z && z <= bx.max.z);
@@ -447,54 +603,32 @@ export function applyDrawnSurfaceRules(
         strip.push(a[0], a[1], a[2], a[3], b[2], b[3], a[0], a[1], b[2], b[3], b[0], b[1]);
       }
     }
-    const stripGrid = new Map<number, number[]>();
-    for (let t = 0; t < strip.length / 6; t++) {
-      const o = t * 6;
-      const x0 = Math.floor(Math.min(strip[o], strip[o + 2], strip[o + 4]) / CELL_M), x1 = Math.floor(Math.max(strip[o], strip[o + 2], strip[o + 4]) / CELL_M);
-      const z0 = Math.floor(Math.min(strip[o + 1], strip[o + 3], strip[o + 5]) / CELL_M), z1 = Math.floor(Math.max(strip[o + 1], strip[o + 3], strip[o + 5]) / CELL_M);
-      for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) (stripGrid.get(cx * 73856093 + cz * 19349663) ?? stripGrid.set(cx * 73856093 + cz * 19349663, []).get(cx * 73856093 + cz * 19349663)!).push(t);
-    }
-    const inStrip = (x: number, z: number): boolean => {
-      for (const t of stripGrid.get(Math.floor(x / CELL_M) * 73856093 + Math.floor(z / CELL_M) * 19349663) ?? []) {
-        const o = t * 6;
-        const v0x = strip[o + 2] - strip[o], v0z = strip[o + 3] - strip[o + 1], v1x = strip[o + 4] - strip[o], v1z = strip[o + 5] - strip[o + 1];
-        const den = v0x * v1z - v1x * v0z;
-        if (Math.abs(den) < 1e-12) continue;
-        const px = x - strip[o], pz = z - strip[o + 1];
-        const u = (px * v1z - v1x * pz) / den, v = (v0x * pz - px * v0z) / den;
-        if (u >= 0 && v >= 0 && u + v <= 1) return true;
-      }
-      return false;
-    };
-    /** Some strip triangle's box overlaps the box x0..x1, z0..z1 */
-    const stripTouches = (x0: number, z0: number, x1: number, z1: number): boolean => {
-      for (let cx = Math.floor(x0 / CELL_M); cx <= Math.floor(x1 / CELL_M); cx++) {
-        for (let cz = Math.floor(z0 / CELL_M); cz <= Math.floor(z1 / CELL_M); cz++) {
-          for (const t of stripGrid.get(cx * 73856093 + cz * 19349663) ?? []) {
-            const o = t * 6;
-            if (Math.max(strip[o], strip[o + 2], strip[o + 4]) < x0 || Math.min(strip[o], strip[o + 2], strip[o + 4]) > x1) continue;
-            if (Math.max(strip[o + 1], strip[o + 3], strip[o + 5]) < z0 || Math.min(strip[o + 1], strip[o + 3], strip[o + 5]) > z1) continue;
-            return true;
+    // The rule's region, judged per point: the strip, or its areas less the areas excepted (and less the lap's road,
+    // with `offTheRoad`)
+    const road = rule.offTheRoad ? (roadBand ??= stripRegion(lapRoadStrip(track))) : null;
+    const region = strip.length
+      ? stripRegion(strip)
+      : areas
+        ? {
+            contains: (x: number, z: number) => areas.some((m) => inMask(m, x, z)) && !except.some((m) => inMask(m, x, z)) && !(road?.contains(x, z) ?? false),
+            touches: (x0: number, z0: number, x1: number, z1: number) => areas.some((m) => maskTouches(m, x0, z0, x1, z1)),
           }
-        }
-      }
-      return false;
-    };
+        : null;
 
     // The drawn ground of the rule's materials (upward faces) within where it applies, and its covers near it
     const drawn = rule.materials === null ? null : drawnGround(root, new Set(rule.materials === "roadMaterials" ? roadMaterials : rule.materials), inStretch, barriers ? null : stretchBoxes);
-    if (drawn ? !drawn.tris.length : !strip.length) continue;
+    if (drawn ? !drawn.tris.length : !region) continue;
     const covers = rule.covers?.length ? drawnGround(root, new Set(rule.covers), () => true) : null;
     const underDrawn = (x: number, y: number, z: number): boolean =>
       (drawn ? drawn.covers(x, y, z, UNDER_DRAWN_M) : true) && !(covers?.covers(x, y, z, COVER_M) ?? false);
     /**
-     * The face's box overlaps some drawn face's box (and the strip's, where the rule has one): it may hold drawn ground
+     * The face's box overlaps some drawn face's box (and the region's, where the rule has one): it may hold drawn ground
      * no vote point lands on
      */
     const touchesFace = (f: number[][]): boolean => {
       const x0 = Math.min(f[0][0], f[1][0], f[2][0]), x1 = Math.max(f[0][0], f[1][0], f[2][0]);
       const z0 = Math.min(f[0][2], f[1][2], f[2][2]), z1 = Math.max(f[0][2], f[1][2], f[2][2]);
-      if (strip.length && !stripTouches(x0, z0, x1, z1)) return false;
+      if (region && !region.touches(x0, z0, x1, z1)) return false;
       return !drawn || drawn.touches(x0, z0, x1, z1, Math.min(f[0][1], f[1][1], f[2][1]) - UNDER_DRAWN_M, Math.max(f[0][1], f[1][1], f[2][1]) + UNDER_DRAWN_M);
     };
 
@@ -504,15 +638,16 @@ export function applyDrawnSurfaceRules(
     const mid = (p: Corner, q: Corner): Corner => p.map((v, k) => (v + q[k]) / 2);
     const longest = (f: Corner[]) => Math.max(...[0, 1, 2].map((k) => Math.hypot(f[(k + 1) % 3][0] - f[k][0], f[(k + 1) % 3][2] - f[k][2])));
     const areaXZ = (f: Corner[]) => Math.abs((f[1][0] - f[0][0]) * (f[2][2] - f[0][2]) - (f[2][0] - f[0][0]) * (f[1][2] - f[0][2])) / 2;
-    // The footprint (drawn ground, or the strip at any height)
+    // The footprint (drawn ground, or the strip or areas at any height)
     const box = new THREE.Box3();
     if (drawn) for (let i = 0; i < drawn.tris.length; i += 3) box.expandByPoint(new THREE.Vector3(drawn.tris[i], drawn.tris[i + 1], drawn.tris[i + 2]));
+    else if (areas) for (const bx of stretchBoxes) box.union(bx);
     else for (let i = 0; i < strip.length; i += 2) box.expandByPoint(new THREE.Vector3(strip[i], 0, strip[i + 1])).expandByPoint(new THREE.Vector3(strip[i], 1e4, strip[i + 1])).expandByPoint(new THREE.Vector3(strip[i], -1e4, strip[i + 1]));
     box.expandByScalar(UNDER_DRAWN_M);
 
     /** The renamed pieces, by the surface they were */
     const moved = new Map<TrackSurfaceKind, number[]>();
-    const inside = (x: number, y: number, z: number) => (!strip.length || inStrip(x, z)) && underDrawn(x, y, z);
+    const inside = (x: number, y: number, z: number) => (!region || region.contains(x, z)) && underDrawn(x, y, z);
     /** 1: all seven vote points inside, 0: none, -1: they differ (a last piece: its middle alone, 1 or 0) */
     const vote = (g: Corner[], last: boolean): 1 | 0 | -1 => {
       const mx = (g[0][0] + g[1][0] + g[2][0]) / 3, my = (g[0][1] + g[1][1] + g[2][1]) / 3, mz = (g[0][2] + g[1][2] + g[2][2]) / 3;
