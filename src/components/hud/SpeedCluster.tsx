@@ -135,7 +135,7 @@ export const SpeedCluster: React.FC<SpeedClusterProps> = ({
           title={
             telemetry.overtakingRules === "drs-rear"
               ? "DRS (X): rear flap, in a DRS zone; in a race only within 1 s of the car ahead at the detection point, from lap 3"
-              : "Straight Mode (X): both flaps open in any DRS zone"
+              : "Straight Mode (X): both flaps open on the straights; a press just before one opens them as it starts"
           }
         >
           <AeroBadge open={aero.open} armed={aero.armed} label={aero.label} size="md" />
