@@ -80,8 +80,10 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
             .then((m) => {
               if (!live) return;
               unwatch = m.watchOnlineConfig((online) => {
-                // Out of reach says so (not a loading card for good); a later "on" replaces it
-                setState(m.boardStateOf(online));
+                // Out of reach says so (not a loading card for good); a later "on" replaces it. A board already showing
+                // stays up through a failed refresh.
+                const next = m.boardStateOf(online);
+                setState((s) => (next === "unreachable" && s === "on" ? s : next));
               });
             })
             .catch(() => {
