@@ -27,9 +27,14 @@ export function QualityNotice({ notice }: { notice: Notice | null }) {
     if (!notice || seen.has(notice)) return;
     seen.add(notice);
     setShown(notice);
+  }, [notice]);
+  // The hide timer goes with the note on screen, not with the prop: the prop going back to null, or an effect run
+  // twice (dev Strict Mode), must not leave the note up for good
+  useEffect(() => {
+    if (!shown) return;
     const timer = window.setTimeout(() => setShown(null), SHOWN_MS);
     return () => window.clearTimeout(timer);
-  }, [notice]);
+  }, [shown]);
   return (
     <div role="status" aria-live="polite" className="contents">
       {shown ? (
