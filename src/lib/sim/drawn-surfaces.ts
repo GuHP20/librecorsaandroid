@@ -21,6 +21,9 @@
  *   run-off and grass; and the road collider's asphalt past the white line on the pit exit before Castrol Edge, and
  *   on the gore island past its apex, is run-off.
  *
+ * - Goodwood (the hill climb): its road collider reaches 1-2.5 m past the asphalt over the verges, the ground under
+ *   the hay bales, the flint wall and the side-road mouths, and at Turn 2 and Molecomb it is shifted off the road.
+ *   The areas marked on its reviewed corner images (marked-areas.ts) make the track the asphalt, out to its edge.
  *
  * Each rule takes the circuit's physics faces lying under the drawn meshes of its materials, where it applies, and
  * moves them to a `Track_Surface_<Kind>` node at their own heights: the ground the car drives on is unchanged, only
@@ -29,7 +32,7 @@
  */
 import * as THREE from "three";
 import type { BuiltTrackData } from "@/lib/track-data";
-import { NORISRING_MARKED_AREAS, type MarkedArea } from "./marked-areas";
+import { GOODWOOD_MARKED_AREAS, NORISRING_MARKED_AREAS, type MarkedArea } from "./marked-areas";
 import { isTrackSurfaceKind, type SurfaceTable, type TrackSurfaceKind } from "./track-surfaces";
 
 export interface DrawnSurfaceRule {
@@ -149,6 +152,12 @@ export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceR
     // to 1.5 m onto that straight's road)
     ...markedAreaRules(NORISRING_MARKED_AREAS, "the areas marked as track on the corner images", "the areas marked off the track on the corner images"),
   ],
+  // The hill climb's marked images, all of the course: the track is the asphalt, out to its edge. Its road collider
+  // reached 1-2.5 m past the asphalt over the verges, the ground under the hay bales, the flint wall and the
+  // shoulders; it ran over side-road and driveway mouths blocked by bales; and at Turn 2 and Molecomb it is shifted
+  // off the road, leaving asphalt on the outside off the track (Molecomb's entry up to the bales; at Turn 2's
+  // Y-junction the main road through)
+  goodwood: markedAreaRules(GOODWOOD_MARKED_AREAS, "the asphalt marked as track on the corner images", "the verges, shoulders and side-road mouths marked off the track on the corner images"),
   spielberg: [
     {
       materials: RED_BULL_RING_SAUSAGES,
