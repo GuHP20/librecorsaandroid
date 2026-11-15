@@ -176,6 +176,11 @@ async function verifyMonacoBarrierHitboxes() {
         const track1 = (lat: number, s: number) => {
           const wall = wallAt(s, side);
           const excess = Math.abs(lat) - Math.max(wall + 2.5, 9.5);
+          // NaN never beats `worst`, so a car whose state goes NaN would pass: fail on the step it happens
+          assert.ok(
+            Number.isFinite(lat) && Number.isFinite(s) && Number.isFinite(excess),
+            `[monaco/${carKind}] Car state not finite from s=${s0}m on the ${side < 0 ? 'left' : 'right'} (lat=${lat}, s=${s}, wallDist there=${wall})`
+          );
           if (excess > worst.excess) worst = { lat: Math.abs(lat), wall, s, excess };
         };
 

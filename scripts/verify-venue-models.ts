@@ -221,15 +221,19 @@ function shadowCasters(root: THREE.Object3D): string[] {
 
 // ---------------------------------------------------------------------------------------------------------------
 
-async function verifyLayout(id: string, files: VenuePair, ktx2: boolean) {
+/** A layout's own full GLB */
+const fullGlb = (id: string) => `public/tracks/${id}/${id}.glb`;
+
+/** Checks one pair against the layout's own GLB; false when this copy lacks one of their files (skipped) */
+async function verifyLayout(id: string, files: VenuePair, ktx2: boolean): Promise<boolean> {
   const build = files.build;
-  const fullPath = `public/tracks/${id}/${id}.glb`;
+  const fullPath = fullGlb(id);
   const layoutPath = `public${files.layoutUrl}`;
   const sharedPath = `public${files.sharedUrl}`;
   const missing = [`public/tracks/${id}/track_data.json`, fullPath, layoutPath, sharedPath].find((f) => !existsSync(f));
   if (missing) {
     noteSkip(id, missing);
-    return;
+    return false;
   }
   console.log(`\n${id} (build ${build}${ktx2 ? ', KTX2' : ''})`);
   const full = statSync(fullPath).size;
@@ -303,6 +307,7 @@ async function verifyLayout(id: string, files: VenuePair, ktx2: boolean) {
   const tvA = tvStations(track, rootA, readTrackGltfJson(fullPath));
   const tvB = tvStations(track, rootB, readTrackGltfJson(layoutPath, sharedPath));
   check('TV director: same stations moved, same dollies', tvA.moved === tvB.moved && firstDifference(tvA.points, tvB.points) === '', `${tvA.moved} moved, ${tvA.points.length} dollies`);
+  return true;
 }
 
 /** The TV director's dollies after its occlusion pass, with each mesh's side from its glTF material */
@@ -330,19 +335,21 @@ async function main() {
     const files = venueModelFiles(id)!;
     return [{ id, files: files as VenuePair, ktx2: false }, ...(files.ktx2 ? [{ id, files: files.ktx2, ktx2: true }] : [])];
   });
-  for (const { id, files, ktx2 } of pairs) await verifyLayout(id, files, ktx2);
+  const verified: typeof pairs = [];
+  for (const pair of pairs) if (await verifyLayout(pair.id, pair.files, pair.ktx2)) verified.push(pair);
 
-  // Control: a pair merged with two children swapped must not pass as the same scene
-  const control = pairs.find((x) => existsSync(`public${x.files.layoutUrl}`) && existsSync(`public${x.files.sharedUrl}`));
+  // Control: a pair merged with two children swapped must not pass as the same scene. It runs on a pair checked above,
+  // so this copy has the layout's full GLB and both files of the pair
+  const control = verified[0];
+  console.log('\ncontrol');
   if (control) {
     const { l, s } = await loadSplitParts(`public${control.files.layoutUrl}`, `public${control.files.sharedUrl}`);
     const order = (l.userData.lcVenueLayout as { order: number[] }).order;
     [order[0], order[1]] = [order[1], order[0]];
     const swapped = describeLoaded(mergeVenueLayout(l, s), control.ktx2);
-    const a = describeLoaded(await loadFull(`public/tracks/${control.id}/${control.id}.glb`), control.ktx2);
-    console.log('\ncontrol');
+    const a = describeLoaded(await loadFull(fullGlb(control.id)), control.ktx2);
     check(`${control.id} with two Track_Model children swapped is caught`, firstDifference(a, swapped) !== '');
-  }
+  } else console.log('  SKIP  control: no layout above had its full GLB and both files of its pair in this copy');
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll venue model checks passed');
   if (failures) process.exitCode = 1;
