@@ -4,7 +4,8 @@
  * 1. The race-control notice in the car's era's words: a 2026 car never hears "DRS (not) enabled" (its flaps open on
  *    every straight for every car); it is told of each straight ahead, and in a race of its Overtake verdict.
  * 2. A press made before a zone (or in it, off the throttle) is kept for that zone and opens the flaps as it starts, and
- *    lapses on the brake in the zone, on leaving it, on a second press, or after `FLAP_PRESS_MAX_WAIT_S`.
+ *    lapses on the brake in the zone, on leaving it, on a second press, or after `FLAP_PRESS_MAX_WAIT_S`. It is never
+ *    kept where the flaps can't open on that pass: too wet, or a DRS zone not earned at its detection point.
  * 3. The same on the game's car on a circuit, stepped directly and through the simulation worker's runtime.
  * 4. The corrected zones (`drs-zone-fixes.ts`): the Red Bull Ring's Turn 1 to Turn 3 zone reaches the braking for
  *    Turn 3, and no zone has a corner in it.
@@ -107,7 +108,7 @@ const DT = 1 / 120;
 const ZONE = { id: 'Z', detection: 0.09, start: 0.12, end: 0.24 };
 const sOf = (car: VehiclePhysics) => car.trackProgress * LAP;
 type Phase = (s: number) => Partial<VehicleInputs>;
-function flatRun(opts: { gated?: boolean; eligible?: boolean; startMs?: number; script: Phase; untilS?: number; maxT?: number }) {
+function flatRun(opts: { gated?: boolean; eligible?: boolean; startMs?: number; wetness?: number; script: Phase; untilS?: number; maxT?: number }) {
   const events: VehicleEvent[] = [];
   const car = new VehiclePhysics({
     ground: new FlatGroundQuery(0),
@@ -121,6 +122,7 @@ function flatRun(opts: { gated?: boolean; eligible?: boolean; startMs?: number; 
   car.drsGatedByDetection = opts.gated ?? false;
   car.drsFlaps = opts.gated ? 'rear' : 'front-rear';
   car.reset(0, 0, 0, opts.startMs ?? 40);
+  car.wetness = opts.wetness ?? 0;
   const log: { s: number; open: boolean; queued: boolean; t: number }[] = [];
   let t = 0;
   const untilS = opts.untilS ?? 1400;
@@ -215,7 +217,26 @@ const pressAt = (at: number) => {
   const p12 = pressAt(zoneStart - 100);
   const l = flatRun({ gated: true, eligible: false, script: (s) => ({ drs: p12(s) }) });
   check('DRS: kept for an earned zone, opens as it starts', k.openAt !== null && k.openAt < zoneStart + 6, `open at ${k.openAt?.toFixed(1)} m`);
-  check('DRS: kept for a zone not earned, never opens it', l.openAt === null);
+  check('DRS: a zone not earned never opens', l.openAt === null);
+  // Its detection point already passed without earning it: nothing to keep, so the HUD never says queued
+  const lQueued = l.log.filter((r) => r.queued);
+  check('DRS: a press after the detection point, for a zone not earned, is not kept', lQueued.length === 0, lQueued.length ? `queued from ${lQueued[0].s.toFixed(0)} m to ${lQueued[lQueued.length - 1].s.toFixed(0)} m` : 'never queued');
+  // Before the detection point it is not known yet: kept to it, and let go there when the zone is not earned
+  const detectionM = ZONE.detection * LAP;
+  const p13 = pressAt(detectionM - 30);
+  const kn = flatRun({ gated: true, eligible: false, script: (s) => ({ drs: p13(s) }) });
+  const p14 = pressAt(detectionM - 30);
+  const ke = flatRun({ gated: true, eligible: true, script: (s) => ({ drs: p14(s) }) });
+  check(
+    'DRS: a press before the detection point is kept to it, then let go when the zone is not earned',
+    kn.openAt === null && kn.log.some((r) => r.queued) && !kn.log.some((r) => r.s > detectionM + 2 && r.queued),
+    `queued to ${kn.log.findLast((r) => r.queued)?.s.toFixed(0)} m, detection at ${detectionM} m`,
+  );
+  check('DRS: and opens the zone as it starts when it is earned', ke.openAt !== null && ke.openAt < zoneStart + 6, `open at ${ke.openAt?.toFixed(1)} m`);
+  // Too wet for the flaps: a press is not kept either (2026 and DRS alike)
+  const p15 = pressAt(zoneStart - 100);
+  const wet = flatRun({ wetness: 1, script: (s) => ({ drs: p15(s) }) });
+  check('Too wet for the flaps: a press is not kept, and they stay shut', wet.openAt === null && !wet.log.some((r) => r.queued), `queued ${wet.log.filter((r) => r.queued).length} steps`);
 
   // 9. The notice: 2026 only, `STRAIGHT_NOTICE_M` before the zone
   const ungated = flatRun({ script: () => ({}) });

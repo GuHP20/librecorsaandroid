@@ -4,12 +4,14 @@
  * The home page's lap times: the game's online board (src/components/board/OnlineBoard.tsx) in its own Lap times section,
  * every car's by default (the home page drives no car), with its circuit picker and pages. Nothing of it loads with
  * the page: once the page has finished loading and the section comes near the view, the online side is asked whether
- * its boards are on, and only then are the board's code and its first page fetched. With the boards off, out of reach
- * or no online side at all, the section is not there.
+ * its boards are on, and only then are the board's code and its first page fetched. Until then it shows a loading
+ * card; with the boards off, out of reach or no online side at all, it says the lap times are offline.
  */
 import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { VehicleModelId } from "@/types/f1";
 import type { BoardCarTag } from "@/components/board/OnlineBoard";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Icon } from "@/components/ui/icons";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 const OnlineBoard = lazy(() => import("@/components/board/OnlineBoard").then((m) => ({ default: m.OnlineBoard })));
@@ -96,11 +98,12 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
     onShown?.(state === "on");
   }, [state, onShown]);
 
-  if (!HAS_API || state === "off") return null;
   return (
     // A timing list reads best at a list's width, not a wall's: centred under the tiles on a wide screen
     <div ref={sentinelRef} className="mx-auto min-h-px w-full max-w-[1200px]">
-      {state === "on" ? (
+      {!HAS_API || state === "off" ? (
+        <EmptyState icon={<Icon name="offline" size="lg" />}>Lap times are offline right now. Try again later.</EmptyState>
+      ) : state === "on" ? (
         <Suspense fallback={<LoadingCard />}>
           <OnlineBoard
             title="Lap times"
@@ -111,7 +114,9 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
             carTag={(v) => carTags[v] ?? { label: v, color: "slate" }}
           />
         </Suspense>
-      ) : null}
+      ) : (
+        <LoadingCard />
+      )}
     </div>
   );
 };

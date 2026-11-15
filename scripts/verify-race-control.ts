@@ -312,6 +312,63 @@ console.log("Track limits · barrier contact");
   check("the autopilot is not judged", walls(p, 1, 1, "ride", { lapCount: 3, active: false }).length === 0);
   check("the contact the autopilot had is not counted when the driver takes over", walls(p, 0.2, 0, "ride", { lapCount: 3 }).length === 0);
 
+  // A circuit's wall-ride in the last sector is as an excursion there: the lap that starts next goes too
+  const w = new TrackLimitsMonitor();
+  w.reset("practice");
+  walls(w, 0.5, 0, "ride", { sector: 3 });
+  const lastCorner = walls(w, 1.0, 0.4, "ride", { sector: 3 });
+  check(
+    "a circuit: riding the wall in the last sector deletes the lap and the next",
+    lastCorner.length === 1 && lastCorner[0].reason === "wall_contact" && lastCorner[0].lap === 1 && w.nextLapForfeit && w.snapshot(clock * 1000).message?.detail === "Next lap too",
+    JSON.stringify({ lastCorner, forfeit: w.nextLapForfeit, said: w.snapshot(clock * 1000).message }),
+  );
+  const overLine = walls(w, 1.0, 0.4, "ride", { lapCount: 2, sector: 1 });
+  check("held over the line, the new lap is deleted from its start, for the wall", overLine.length === 1 && overLine[0].kind === "lap_invalid" && overLine[0].reason === "wall_contact" && overLine[0].lap === 2 && !w.nextLapForfeit, JSON.stringify(overLine));
+  const saidAtLine = w.snapshot(clock * 1000).message;
+  check("and the banner says why", saidAtLine?.text === "Wall contact · lap deleted" && saidAtLine?.detail === "Rode the wall before the line", JSON.stringify(saidAtLine));
+  walls(w, 3.2, 0, "ride", { lapCount: 2, sector: 1 });
+  check("the lap after that is clean", walls(w, 0.5, 0, "ride", { lapCount: 3, sector: 1 }).length === 0);
+
+  w.reset("practice");
+  walls(w, 0.5, 0, "ride", { sector: 3 });
+  walls(w, 1.0, 0.4, "ride", { sector: 3 });
+  walls(w, 3.2, 0, "ride", { sector: 3 });
+  const nextAfterRide = walls(w, 0.3, 0, "ride", { lapCount: 2, sector: 1 });
+  check("a ride in the last sector over before the line still deletes the next lap", nextAfterRide.length === 1 && nextAfterRide[0].lap === 2 && nextAfterRide[0].reason === "wall_contact", JSON.stringify(nextAfterRide));
+
+  w.reset("practice");
+  walls(w, 0.5, 0, "ride", { sector: 2 });
+  walls(w, 1.0, 0.4, "ride", { sector: 2 });
+  walls(w, 3.2, 0, "ride", { sector: 3 });
+  check("a ride before the last sector leaves the next lap alone", !w.nextLapForfeit && walls(w, 0.5, 0, "ride", { lapCount: 2, sector: 1 }).length === 0);
+
+  // A frame with no sector: a breach still running as the lap starts deletes that lap too
+  w.reset("practice");
+  walls(w, 0.5, 0, "ride", { sector: undefined });
+  walls(w, 1.0, 0.4, "ride", { sector: undefined });
+  const noSector = walls(w, 0.5, 0.4, "ride", { lapCount: 2, sector: undefined });
+  check("with no sector, a ride still going at the line deletes the new lap", noSector.length === 1 && noSector[0].lap === 2 && noSector[0].reason === "wall_contact", JSON.stringify(noSector));
+  // With sectors, only the last one's riding carries: the lap clock going back mid-ride (a restart's first crossing)
+  // deletes nothing more for a ride before it
+  w.reset("practice");
+  walls(w, 0.5, 0, "ride", { lapTimeMs: 20_000 });
+  walls(w, 1.0, 0.4, "ride", { lapTimeMs: 21_000 });
+  const clockBack = walls(w, 0.3, 0, "ride", { lapTimeMs: 10 });
+  check("with sectors, a ride before the last sector carries nothing to a lap clock starting over", clockBack.length === 0 && !w.nextLapForfeit, JSON.stringify(clockBack));
+
+  w.reset("practice");
+  walls(w, 0.5, 0, "ride", { sector: 3 });
+  walls(w, 1.0, 0.4, "ride", { sector: 3 });
+  walls(w, 0.2, 0, "ride", { lapCount: 2, sector: 1, active: false });
+  check("a lap the autopilot starts takes the wall's next-lap deletion with it", !w.nextLapForfeit && walls(w, 0.5, 0, "ride", { lapCount: 3, sector: 1 }).length === 0);
+
+  // A hill climb's run ends at its finish: a touch before it is that run's, and the return road is not the next run
+  w.reset("practice");
+  walls(w, 0.5, 0, "touch", { sector: 3 });
+  const bale = walls(w, DT, 0.1, "touch", { sector: 3 });
+  const nextRun = walls(w, 0.5, 0, "touch", { lapCount: 2, sector: 1 });
+  check("a hill climb: a touch before the finish deletes that run only", bale.length === 1 && !w.nextLapForfeit && nextRun.length === 0, JSON.stringify({ bale, nextRun }));
+
   // In a race, riding the wall is judged as time off the track: an excursion, warnings and penalties as any other
   const r = new TrackLimitsMonitor();
   r.reset("race");
@@ -334,6 +391,20 @@ console.log("Track limits · barrier contact");
   }
   bounced.push(...walls(b, 0.4, 0, "ride", { deltaS: -0.5 }), ...walls(b, 8, 0, "ride", { deltaS: -0.5 }));
   check("a race: bouncing along the wall is one excursion under review, then one verdict", reviewed && bounced.length === 1 && bounced[0].kind === "warning", JSON.stringify(bounced));
+  // A ride from the last corner held over the line, as an excursion over it: under review as the lap ends (so that
+  // lap can't count), then one verdict, for the lap it began on; the new lap is not deleted for it
+  const o = new TrackLimitsMonitor();
+  o.reset("race");
+  walls(o, 0.5, 0, "ride", { deltaS: 0, sector: 3 });
+  walls(o, 1.0, 1, "ride", { deltaS: 0, lateralM: 4, sector: 3 });
+  const overTheLine = walls(o, 0.5, 1, "ride", { lapCount: 2, deltaS: 0, lateralM: 4, sector: 1 });
+  const reviewedAtLine = o.judging;
+  overTheLine.push(...walls(o, 0.4, 0, "ride", { lapCount: 2, deltaS: 0, sector: 1 }), ...walls(o, 8, 0, "ride", { lapCount: 2, deltaS: 0, sector: 1 }));
+  check(
+    "a race: a ride over the line is under review at the line, then one verdict for the lap it began on",
+    reviewedAtLine && overTheLine.length === 1 && overTheLine[0].kind === "warning" && overTheLine[0].lap === 1,
+    JSON.stringify(overTheLine),
+  );
 }
 
 console.log("Track limits · every engine honours strict and judged");
