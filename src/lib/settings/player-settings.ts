@@ -260,7 +260,17 @@ export interface GraphicsSettings {
   renderScale: number;
   /** The drivers' bodies and arms in the cars that have them (their helmets always show) */
   driverBody: boolean;
+  /**
+   * Lower the graphics a step at a time when the frames stay slow while driving (render/adaptive-quality.ts); on by
+   * default on touch screens, whose phones slow down as they heat up
+   */
+  autoQuality: boolean;
+  /** Frames drawn per second at most: 0 = as many as the screen shows, 30 = every other frame of a 60 Hz screen */
+  fpsCap: FpsCap;
 }
+
+export type FpsCap = 0 | 30;
+export const FPS_CAPS: readonly FpsCap[] = [0, 30];
 
 export type TouchMode = "auto" | "on" | "off";
 
@@ -377,15 +387,29 @@ export const LIBRARY_RECENT_MAX = 12;
 const LIBRARY_ID_MAX_LENGTH = 64;
 
 /** The graphics defaults the page is prerendered with (no device to ask on the server); see defaultGraphicsSettings */
-export const DEFAULT_GRAPHICS_SETTINGS: GraphicsSettings = { quality: "high", renderScale: 1, driverBody: false };
+export const DEFAULT_GRAPHICS_SETTINGS: GraphicsSettings = {
+  quality: "high",
+  renderScale: 1,
+  driverBody: false,
+  autoQuality: false,
+  fpsCap: 0,
+};
 
 /**
- * The graphics a player starts on until they pick their own: Medium on a touch screen (phones and tablets: no bloom,
- * half the MSAA, fewer trees), High elsewhere. It asks the device, so call it in the browser (on the server it is
- * DEFAULT_GRAPHICS_SETTINGS); a saved choice always wins over it.
+ * The graphics a player starts on until they pick their own: on a touch screen (phones and tablets) Medium (no bloom,
+ * half the MSAA, fewer trees) with automatic quality on, elsewhere High with it off. It asks the device, so call it in
+ * the browser (on the server it is DEFAULT_GRAPHICS_SETTINGS); a saved choice always wins over it.
+ *
+ * Automatic quality is off on desktops: their GPUs don't slow down with heat the way a phone's do, their players pick
+ * a preset on purpose, and a desktop's stutters mostly come from stalls (shader compiles, uploads, Firefox's startup)
+ * that a lower resolution doesn't cure. A laptop that struggles can switch it on.
+ *
+ * The frame rate is the screen's everywhere: 60 fps feels better while a phone is cool, and the step-down handles the
+ * heat; 30 fps is the player's choice for long sessions.
  */
 export function defaultGraphicsSettings(): GraphicsSettings {
-  return { ...DEFAULT_GRAPHICS_SETTINGS, quality: isTouchDevice() ? "medium" : DEFAULT_GRAPHICS_SETTINGS.quality };
+  const touch = isTouchDevice();
+  return { ...DEFAULT_GRAPHICS_SETTINGS, quality: touch ? "medium" : DEFAULT_GRAPHICS_SETTINGS.quality, autoQuality: touch };
 }
 
 export const DEFAULT_TOUCH_SETTINGS: TouchSettings = { mode: "auto", tiltSteer: false, tiltRangeDeg: 30 };
@@ -687,6 +711,9 @@ function parseGraphics(v: unknown): GraphicsSettings {
     quality: oneOf(v.quality, ["low", "medium", "high"] as const, d.quality),
     renderScale: num(v.renderScale, 0.5, 1.5, d.renderScale),
     driverBody: bool(v.driverBody, d.driverBody),
+    // Saves from before these two take this device's defaults
+    autoQuality: bool(v.autoQuality, d.autoQuality),
+    fpsCap: FPS_CAPS.includes(v.fpsCap as FpsCap) ? (v.fpsCap as FpsCap) : d.fpsCap,
   };
 }
 

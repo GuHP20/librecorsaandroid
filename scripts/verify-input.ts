@@ -608,12 +608,19 @@ check('a touch screen starts on Medium graphics until the player picks; a saved 
     assert.equal(loadPlayerSettings().graphics.quality, 'low', 'a saved Low is kept');
     assert.equal(resetAllSettings(loadPlayerSettings()).graphics.quality, 'medium', 'Reset all settings');
     assert.equal(DEFAULT_PLAYER_SETTINGS.graphics.quality, 'high', 'the prerendered defaults stay as they were');
+    assert.equal(defaultGraphicsSettings().autoQuality, true, 'automatic quality is on for touch screens');
+    assert.equal(defaultGraphicsSettings().fpsCap, 0, 'the frame rate is the screen\'s on touch screens too');
+    assert.equal(parsePlayerSettings({ graphics: { quality: 'high' } }).graphics.autoQuality, true, 'a save from before it takes the device default');
+    assert.equal(parsePlayerSettings({ graphics: { autoQuality: false, fpsCap: 30 } }).graphics.autoQuality, false, 'a saved off is kept');
+    assert.equal(parsePlayerSettings({ graphics: { fpsCap: 30 } }).graphics.fpsCap, 30, 'a saved 30 fps is kept');
+    assert.equal(parsePlayerSettings({ graphics: { fpsCap: 45 } }).graphics.fpsCap, 0, 'an unknown cap is none');
   } finally {
     delete g.window;
     if (prevStorage === undefined) delete g.localStorage;
     else g.localStorage = prevStorage;
   }
   assert.equal(defaultGraphicsSettings().quality, 'high', 'no touch screen (or no window): High');
+  assert.equal(defaultGraphicsSettings().autoQuality, false, 'no touch screen: automatic quality off');
 });
 
 check('direction test: right then left (left first inverted), zero in the gap and after', () => {
