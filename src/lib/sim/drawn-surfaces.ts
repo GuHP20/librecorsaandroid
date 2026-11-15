@@ -124,28 +124,49 @@ function nodeSurface(o: THREE.Object3D, root: THREE.Object3D): TrackSurfaceKind 
 }
 
 type V3 = THREE.Vector3;
-function forEachTri(mesh: THREE.Mesh, fn: (p: V3, q: V3, r: V3, i: number[]) => void): void {
+/** Each triangle of a mesh in world space (its vertices moved once each) */
+function forEachTri(mesh: THREE.Mesh, fn: (p: V3, q: V3, r: V3) => void): void {
   const g = mesh.geometry as THREE.BufferGeometry;
   const pos = g.getAttribute("position");
   if (!pos) return;
   const idx = g.getIndex();
   const n = idx ? idx.count : pos.count;
+  const W = new Float64Array(pos.count * 3);
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    a.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+    W[i * 3] = a.x;
+    W[i * 3 + 1] = a.y;
+    W[i * 3 + 2] = a.z;
+  }
   for (let k = 0; k + 2 < n; k += 3) {
-    const i = [0, 1, 2].map((j) => (idx ? idx.getX(k + j) : k + j));
-    fn(a.fromBufferAttribute(pos, i[0]).applyMatrix4(mesh.matrixWorld), b.fromBufferAttribute(pos, i[1]).applyMatrix4(mesh.matrixWorld), c.fromBufferAttribute(pos, i[2]).applyMatrix4(mesh.matrixWorld), i);
+    const i0 = (idx ? idx.getX(k) : k) * 3, i1 = (idx ? idx.getX(k + 1) : k + 1) * 3, i2 = (idx ? idx.getX(k + 2) : k + 2) * 3;
+    fn(a.set(W[i0], W[i0 + 1], W[i0 + 2]), b.set(W[i1], W[i1 + 1], W[i1 + 2]), c.set(W[i2], W[i2 + 1], W[i2 + 2]));
   }
 }
 
+/** The XZ box overlaps one of these (their heights aside) */
+const overlapsXZ = (boxes: readonly THREE.Box3[], x0: number, z0: number, x1: number, z1: number): boolean =>
+  boxes.some((b) => x1 >= b.min.x && x0 <= b.max.x && z1 >= b.min.z && z0 <= b.max.z);
+
 /**
- * The upward faces of the drawn meshes with these materials, where `keep` takes their middle, on an XZ grid;
- * `covers(x, y, z, dy)` = one of them lies over (x, z) within `dy` of height y
+ * The upward faces of the drawn meshes with these materials, where `keep` takes their middle (and, given `boxes`, only
+ * meshes and faces over one of them are read), on an XZ grid; `covers(x, y, z, dy)` = one of them lies over (x, z)
+ * within `dy` of height y
  */
-function drawnGround(root: THREE.Object3D, mats: ReadonlySet<string>, keep: (x: number, z: number) => boolean) {
+function drawnGround(root: THREE.Object3D, mats: ReadonlySet<string>, keep: (x: number, z: number) => boolean, boxes: readonly THREE.Box3[] | null = null) {
   const tris: number[] = [];
+  const wb = new THREE.Box3();
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !mats.has(materialName(o)) || isPhysics(o, root)) return;
+    if (boxes) {
+      const g = o.geometry as THREE.BufferGeometry;
+      if (!g.boundingBox) g.computeBoundingBox();
+      wb.copy(g.boundingBox!).applyMatrix4(o.matrixWorld);
+      if (!overlapsXZ(boxes, wb.min.x, wb.min.z, wb.max.x, wb.max.z)) return;
+    }
     forEachTri(o, (p, q, r) => {
+      if (boxes && !overlapsXZ(boxes, Math.min(p.x, q.x, r.x), Math.min(p.z, q.z, r.z), Math.max(p.x, q.x, r.x), Math.max(p.z, q.z, r.z))) return;
       const ny = (q.z - p.z) * (r.x - p.x) - (q.x - p.x) * (r.z - p.z);
       const len = Math.hypot((q.y - p.y) * (r.z - p.z) - (q.z - p.z) * (r.y - p.y), ny, (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
       if (len < 1e-9 || Math.abs(ny) / len < 0.5) return;
@@ -254,8 +275,19 @@ export function kerbOuterEdges(root: THREE.Object3D, track: BuiltTrackData): { l
   };
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || o.name !== "Track_Surface_Kerb") return;
-    forEachTri(o, (a, b, c) => {
-      const pr = [a, b, c].map((v) => track.projectWorldToTrack(v.x, v.z, hintAt(v.x, v.z)));
+    const g = o.geometry as THREE.BufferGeometry;
+    const posAttr = g.getAttribute("position");
+    if (!posAttr) return;
+    const idx = g.getIndex();
+    // Each vertex placed on the lap once (s, lateral offset)
+    const v = new THREE.Vector3();
+    const P = Array.from({ length: posAttr.count }, (_, i) => {
+      v.fromBufferAttribute(posAttr, i).applyMatrix4(o.matrixWorld);
+      const p = track.projectWorldToTrack(v.x, v.z, hintAt(v.x, v.z));
+      return { s: p.s, lateralOffset: p.lateralOffset };
+    });
+    for (let k = 0; k + 2 < (idx ? idx.count : posAttr.count); k += 3) {
+      const pr = [0, 1, 2].map((j) => P[idx ? idx.getX(k + j) : k + j]);
       const side = pr[0].lateralOffset + pr[1].lateralOffset + pr[2].lateralOffset >= 0 ? 1 : -1;
       const out = Math.max(...pr.map((p) => Math.abs(p.lateralOffset)));
       // The face's span along the lap (the shorter way round), every sample in it
@@ -265,13 +297,13 @@ export function kerbOuterEdges(root: THREE.Object3D, track: BuiltTrackData): { l
         s0 = Math.min(s0, pr[0].s + d);
         s1 = Math.max(s1, pr[0].s + d);
       }
-      if (s1 - s0 > 50) return;
+      if (s1 - s0 > 50) continue;
       const edge = side > 0 ? right : left;
       for (let i = Math.floor((s0 / L) * n); i <= Math.ceil((s1 / L) * n); i++) {
-        const k = ((i % n) + n) % n;
-        edge[k] = Math.max(edge[k], out);
+        const j = ((i % n) + n) % n;
+        edge[j] = Math.max(edge[j], out);
       }
-    });
+    }
   });
   return { left, right };
 }
@@ -290,6 +322,8 @@ export function applyDrawnSurfaceRules(
   const done: Record<string, number> = {};
   if (!rules?.length) return done;
   root.updateMatrixWorld(true);
+  // (the physics kerbs' outer edges, read once, when the first rule that stops at them runs)
+  let kerbEdges: ReturnType<typeof kerbOuterEdges> | null = null;
   for (const rule of rules) {
     const from = rule.from ? new Set(rule.from) : null;
     const within = rule.within;
@@ -318,7 +352,7 @@ export function applyDrawnSurfaceRules(
       const S = track.samples;
       const wallL = (i: number) => S[i].wallLeftM ?? S[i].width / 2;
       const wallR = (i: number) => S[i].wallRightM ?? S[i].width / 2;
-      const kerb = rule.kerbsLimit ? kerbOuterEdges(root, track) : null;
+      const kerb = rule.kerbsLimit ? (kerbEdges ??= kerbOuterEdges(root, track)) : null;
       const limL = kerb ? kerbLimits(kerb.left, wallL, track) : null;
       const limR = kerb ? kerbLimits(kerb.right, wallR, track) : null;
       const ends = S.map((q, i) => {
@@ -353,23 +387,37 @@ export function applyDrawnSurfaceRules(
       }
       return false;
     };
+    /** Some strip triangle's box overlaps the box x0..x1, z0..z1 */
+    const stripTouches = (x0: number, z0: number, x1: number, z1: number): boolean => {
+      for (let cx = Math.floor(x0 / CELL_M); cx <= Math.floor(x1 / CELL_M); cx++) {
+        for (let cz = Math.floor(z0 / CELL_M); cz <= Math.floor(z1 / CELL_M); cz++) {
+          for (const t of stripGrid.get(cx * 73856093 + cz * 19349663) ?? []) {
+            const o = t * 6;
+            if (Math.max(strip[o], strip[o + 2], strip[o + 4]) < x0 || Math.min(strip[o], strip[o + 2], strip[o + 4]) > x1) continue;
+            if (Math.max(strip[o + 1], strip[o + 3], strip[o + 5]) < z0 || Math.min(strip[o + 1], strip[o + 3], strip[o + 5]) > z1) continue;
+            return true;
+          }
+        }
+      }
+      return false;
+    };
 
     // The drawn ground of the rule's materials (upward faces) within where it applies, and its covers near it
-    const drawn = drawnGround(root, new Set(rule.materials === "roadMaterials" ? roadMaterials : rule.materials), (x, z) => inStretch(x, z));
+    const drawn = drawnGround(root, new Set(rule.materials === "roadMaterials" ? roadMaterials : rule.materials), inStretch, within === "barriers" ? null : stretchBoxes);
     if (!drawn.tris.length) continue;
     const covers = rule.covers?.length ? drawnGround(root, new Set(rule.covers), () => true) : null;
     const underDrawn = (x: number, y: number, z: number): boolean =>
       drawn.covers(x, y, z, UNDER_DRAWN_M) && !(covers?.covers(x, y, z, COVER_M) ?? false);
-    /** The face's box overlaps some drawn face's box: it may hold drawn ground no vote point lands on */
-    const touchesFace = (f: number[][]): boolean =>
-      drawn.touches(
-        Math.min(f[0][0], f[1][0], f[2][0]),
-        Math.min(f[0][2], f[1][2], f[2][2]),
-        Math.max(f[0][0], f[1][0], f[2][0]),
-        Math.max(f[0][2], f[1][2], f[2][2]),
-        Math.min(f[0][1], f[1][1], f[2][1]) - UNDER_DRAWN_M,
-        Math.max(f[0][1], f[1][1], f[2][1]) + UNDER_DRAWN_M
-      );
+    /**
+     * The face's box overlaps some drawn face's box (and the strip's, where the rule has one): it may hold drawn ground
+     * no vote point lands on
+     */
+    const touchesFace = (f: number[][]): boolean => {
+      const x0 = Math.min(f[0][0], f[1][0], f[2][0]), x1 = Math.max(f[0][0], f[1][0], f[2][0]);
+      const z0 = Math.min(f[0][2], f[1][2], f[2][2]), z1 = Math.max(f[0][2], f[1][2], f[2][2]);
+      if (strip.length && !stripTouches(x0, z0, x1, z1)) return false;
+      return drawn.touches(x0, z0, x1, z1, Math.min(f[0][1], f[1][1], f[2][1]) - UNDER_DRAWN_M, Math.max(f[0][1], f[1][1], f[2][1]) + UNDER_DRAWN_M);
+    };
 
     // Split each physics face by where the rule applies: its middle, corners and side middles (a tenth of the way in)
     // vote; a face they don't agree on is quartered until its pieces are under PIECE_M, then its middle decides
@@ -383,18 +431,19 @@ export function applyDrawnSurfaceRules(
 
     /** The renamed pieces, by the surface they were */
     const moved = new Map<TrackSurfaceKind, number[]>();
-    const inside = (x: number, y: number, z: number) => underDrawn(x, y, z) && (within !== "barriers" || betweenBarriers(x, z));
-    const vote = (g: Corner[]) => {
+    const inside = (x: number, y: number, z: number) => (within !== "barriers" || betweenBarriers(x, z)) && underDrawn(x, y, z);
+    /** 1: all seven vote points inside, 0: none, -1: they differ (a last piece: its middle alone, 1 or 0) */
+    const vote = (g: Corner[], last: boolean): 1 | 0 | -1 => {
       const mx = (g[0][0] + g[1][0] + g[2][0]) / 3, my = (g[0][1] + g[1][1] + g[2][1]) / 3, mz = (g[0][2] + g[1][2] + g[2][2]) / 3;
       const middle = inside(mx, my, mz);
-      let n = middle ? 1 : 0;
+      if (last) return middle ? 1 : 0;
       for (let k = 0; k < 3; k++) {
         const a = g[k], b = g[(k + 1) % 3];
-        if (inside(a[0] + 0.1 * (mx - a[0]), a[1] + 0.1 * (my - a[1]), a[2] + 0.1 * (mz - a[2]))) n++;
+        if (inside(a[0] + 0.1 * (mx - a[0]), a[1] + 0.1 * (my - a[1]), a[2] + 0.1 * (mz - a[2])) !== middle) return -1;
         const sx = (a[0] + b[0]) / 2, sy = (a[1] + b[1]) / 2, sz = (a[2] + b[2]) / 2;
-        if (inside(sx + 0.1 * (mx - sx), sy + 0.1 * (my - sy), sz + 0.1 * (mz - sz))) n++;
+        if (inside(sx + 0.1 * (mx - sx), sy + 0.1 * (my - sy), sz + 0.1 * (mz - sz)) !== middle) return -1;
       }
-      return { all: n === 7, none: n === 0, middle };
+      return middle ? 1 : 0;
     };
     const targets: THREE.Mesh[] = [];
     root.traverse((o) => {
@@ -428,15 +477,17 @@ export function applyDrawnSurfaceRules(
         return i * 3;
       };
       const vi = (t: number, k: number) => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
-      const clear = (i: number) => {
-        const x = pos.getX(i), z = pos.getZ(i);
-        return x < lbox.min.x || x > lbox.max.x || z < lbox.min.z || z > lbox.max.z;
-      };
-      // Faces near the drawn ground (a corner or the middle under it, inside its box); the rest stay as they are
+      /** The face's box (in the mesh's space) is clear of the footprint's (a face wider than it may have no corner in it) */
+      const clear = (i0: number, i1: number, i2: number) =>
+        Math.max(pos.getX(i0), pos.getX(i1), pos.getX(i2)) < lbox.min.x ||
+        Math.min(pos.getX(i0), pos.getX(i1), pos.getX(i2)) > lbox.max.x ||
+        Math.max(pos.getZ(i0), pos.getZ(i1), pos.getZ(i2)) < lbox.min.z ||
+        Math.min(pos.getZ(i0), pos.getZ(i1), pos.getZ(i2)) > lbox.max.z;
+      // Faces near the drawn ground (their box overlapping a drawn face's box); the rest stay as they are
       const near = new Uint8Array(nTri);
       let any = false;
       for (let t = 0; t < nTri; t++) {
-        if (clear(vi(t, 0)) && clear(vi(t, 1)) && clear(vi(t, 2))) continue;
+        if (clear(vi(t, 0), vi(t, 1), vi(t, 2))) continue;
         const a = world(vi(t, 0)), b = world(vi(t, 1)), c = world(vi(t, 2));
         if (touchesFace([[W[a], W[a + 1], W[a + 2]], [W[b], W[b + 1], W[b + 2]], [W[c], W[c + 1], W[c + 2]]])) {
           near[t] = 1;
@@ -448,23 +499,24 @@ export function applyDrawnSurfaceRules(
         const o = world(i);
         return [W[o], W[o + 1], W[o + 2], uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0];
       };
+      // The pieces kept of the faces near it (the faces clear of it are kept as they are, by number)
       const kept: Corner[][] = [];
+      const keptFaces: number[] = [];
       let changed = false;
       for (let t = 0; t < nTri; t++) {
-        const f: Corner[] = [corner(vi(t, 0)), corner(vi(t, 1)), corner(vi(t, 2))];
         if (!near[t]) {
-          kept.push(f);
+          keptFaces.push(t);
           continue;
         }
-        let todo: Corner[][] = [f];
+        let todo: Corner[][] = [[corner(vi(t, 0)), corner(vi(t, 1)), corner(vi(t, 2))]];
         for (let depth = 0; depth <= 12 && todo.length; depth++) {
           const next: Corner[][] = [];
           for (const g of todo) {
-            const vt = vote(g);
             const last = depth === 12 || longest(g) < (rule.pieceM ?? PIECE_M);
+            const vt = vote(g, last);
             // (a face its votes miss may still hold a narrow drawn strip: split it while it touches one)
-            if ((vt.none && (last || !touchesFace(g))) || (last && !vt.all && !vt.middle)) kept.push(g);
-            else if (vt.all || last) {
+            if (vt === 0 && (last || !touchesFace(g))) kept.push(g);
+            else if (vt === 1) {
               for (const c of g) out.push(c[0], c[1], c[2]);
               done[rule.surface] = (done[rule.surface] ?? 0) + areaXZ(g);
               changed = true;
@@ -478,23 +530,34 @@ export function applyDrawnSurfaceRules(
       }
       if (!changed) continue;
       // Rebuilt unindexed in the mesh's own space, keeping its texture coordinates (the kerb ripple reads them)
-      const keptPos = new Float32Array(kept.length * 9);
+      const nf = keptFaces.length;
+      const keptPos = new Float32Array((nf + kept.length) * 9);
+      const uvs = uv ? new Float32Array((nf + kept.length) * 6) : null;
+      keptFaces.forEach((t, i) => {
+        for (let k = 0; k < 3; k++) {
+          const j = vi(t, k);
+          keptPos[i * 9 + k * 3] = pos.getX(j);
+          keptPos[i * 9 + k * 3 + 1] = pos.getY(j);
+          keptPos[i * 9 + k * 3 + 2] = pos.getZ(j);
+          if (uvs && uv) {
+            uvs[i * 6 + k * 2] = uv.getX(j);
+            uvs[i * 6 + k * 2 + 1] = uv.getY(j);
+          }
+        }
+      });
       kept.forEach((f, i) => f.forEach((p, k) => {
         v.set(p[0], p[1], p[2]).applyMatrix4(toLocal);
-        keptPos[i * 9 + k * 3] = v.x;
-        keptPos[i * 9 + k * 3 + 1] = v.y;
-        keptPos[i * 9 + k * 3 + 2] = v.z;
+        keptPos[(nf + i) * 9 + k * 3] = v.x;
+        keptPos[(nf + i) * 9 + k * 3 + 1] = v.y;
+        keptPos[(nf + i) * 9 + k * 3 + 2] = v.z;
+        if (uvs) {
+          uvs[(nf + i) * 6 + k * 2] = p[3];
+          uvs[(nf + i) * 6 + k * 2 + 1] = p[4];
+        }
       }));
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.BufferAttribute(keptPos, 3));
-      if (uv) {
-        const uvs = new Float32Array(kept.length * 6);
-        kept.forEach((f, i) => f.forEach((p, k) => {
-          uvs[i * 6 + k * 2] = p[3];
-          uvs[i * 6 + k * 2 + 1] = p[4];
-        }));
-        g.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
-      }
+      if (uvs) g.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
       mesh.geometry = g;
     }
     for (const [fromKind, pieces] of moved) {
