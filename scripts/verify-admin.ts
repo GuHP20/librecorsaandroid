@@ -266,6 +266,7 @@ async function main(): Promise<void> {
     check('races: cars, finishes, proven names and how many drivers', r?.cars === 5 && r.dnf === 2 && r.proven === 3 && r.drivers === 2, JSON.stringify({ cars: r?.cars, dnf: r?.dnf, proven: r?.proven, drivers: r?.drivers }));
     check('races: the smallest and largest grid', r?.fieldMin === 2 && r.fieldMax === 3);
     check('races: per day, with cars and DNFs', r?.perDay.map((d) => `${d.day}:${d.races}/${d.cars}/${d.dnf}`).join() === '2026-11-13:1/3/1,2026-11-14:1/2/1', JSON.stringify(r?.perDay));
+    check('races: cars with no name of their own are not one "Driver" in the table', r?.topDrivers.map((d) => d.name).sort().join() === 'Ana,Bo,Cy', r?.topDrivers.map((d) => d.name).join());
 
     // The 7, 30 and 90 day ranges all read
     const ranges = await Promise.all(['?days=7', '?days=30', '?days=90'].map((q) => read(db, q)));

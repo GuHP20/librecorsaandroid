@@ -301,7 +301,8 @@ export async function adminStats(deps: AdminDeps, url: URL): Promise<Answer> {
         sinceMs,
       ),
       all<{ name: string; races: number; wins: number; podiums: number }>(
-        "SELECT MAX(race_cars.name) AS name, COUNT(*) AS races, SUM(CASE WHEN race_cars.position = 1 AND race_cars.dnf = 0 THEN 1 ELSE 0 END) AS wins, SUM(CASE WHEN race_cars.position <= 3 AND race_cars.dnf = 0 THEN 1 ELSE 0 END) AS podiums FROM race_cars JOIN races ON races.id = race_cars.race_id WHERE races.finished_ms >= ? GROUP BY COALESCE(race_cars.name_key, race_cars.name) ORDER BY wins DESC, podiums DESC, races DESC, name LIMIT 10",
+        // A car with no name of its own (or a refused one) races as "Driver": those are many people, not one driver
+        "SELECT MAX(race_cars.name) AS name, COUNT(*) AS races, SUM(CASE WHEN race_cars.position = 1 AND race_cars.dnf = 0 THEN 1 ELSE 0 END) AS wins, SUM(CASE WHEN race_cars.position <= 3 AND race_cars.dnf = 0 THEN 1 ELSE 0 END) AS podiums FROM race_cars JOIN races ON races.id = race_cars.race_id WHERE races.finished_ms >= ? AND NOT (race_cars.name_key IS NULL AND race_cars.name = 'Driver') GROUP BY COALESCE(race_cars.name_key, race_cars.name) ORDER BY wins DESC, podiums DESC, races DESC, name LIMIT 10",
         sinceMs,
       ),
     ]),
