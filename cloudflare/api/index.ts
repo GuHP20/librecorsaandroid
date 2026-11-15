@@ -7,7 +7,7 @@
  *   GET /api/races/next, /api/races/<n>                 WebSocket to a scheduled race's server (race.ts)
  *   GET /api/races/waiting                              who is waiting for the next race (race.ts, read only)
  *   POST /api/usage               one stretch of driving for the anonymous daily totals (usage.ts)
- *   GET /api/admin/stats          the owner's numbers, with the X-Admin-Key header (admin.ts)
+ *   GET /api/admin/stats          the owner's numbers, with the admin key as `Authorization: Bearer <key>` (admin.ts)
  *   GET /api/admin/cloudflare     Cloudflare's numbers for the site, the same way, once an analytics token is set (analytics.ts)
  *   GET /api/races/results, GET /api/drivers/record     the open races' results (results.ts)
  *   GET /api/stats, GET /api/stats/circuit              tabs in view and drivers to date; a circuit's laps and drivers (stats.ts)
@@ -30,7 +30,7 @@ import { analyticsConfigured, cloudflareStats } from "./analytics";
 import { turnConfigured } from "./turn";
 import { recordUsage } from "./usage";
 import { circuitStats, driversToDate } from "./stats";
-import type { DurableObjectNamespace, Env } from "./types";
+import type { DurableObjectNamespace, Env, RateLimit } from "./types";
 
 export { RaceServer } from "./race";
 export { RoomServer } from "./room";
@@ -91,7 +91,7 @@ function headersFor(origin: string | null, sharedForS = 0): Record<string, strin
   if (origin) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type, X-Admin-Key";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
     headers["Access-Control-Max-Age"] = "86400";
   }
   return headers;
@@ -103,6 +103,24 @@ export function json(body: unknown, status: number, origin: string | null, share
     status,
     headers: { ...headersFor(origin, status === 200 ? sharedForS : 0), "Content-Type": "application/json; charset=utf-8" },
   });
+}
+
+/** The answer to any path the API doesn't serve, and to the admin routes without the right key or with a fault */
+const notFound = (origin: string | null): Response => json({ ok: false, error: "Not found" }, 404, origin);
+/** Past ADMIN_LIMIT: the same answer on an admin route and on any unknown path */
+const tooMany = (origin: string | null): Response => json({ ok: false, error: "Too many requests" }, 429, origin);
+
+/** True when this address is past `limit` (a Workers rate-limit binding); without the binding nothing is limited */
+async function overLimit(limit: RateLimit | undefined, request: Request): Promise<boolean> {
+  if (!limit) return false;
+  const { success } = await limit.limit({ key: request.headers.get("CF-Connecting-IP") ?? "unknown" });
+  return !success;
+}
+
+/** The admin key a request carries: `Authorization: Bearer <key>` (a header Cloudflare's logs redact), else null */
+export function bearerKey(request: Request): string | null {
+  const m = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "");
+  return m ? m[1] : null;
 }
 
 /** The next scheduled race and who is waiting for it: a read of its server, no socket */
@@ -226,6 +244,8 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
   if (path === "/api/drivers/rename" && request.method === "POST") {
     const deps = config.board ? boardDeps(env, challengeProblem) : null;
     if (!deps) return json({ ok: false, error: "The lap boards are off" }, 404, origin);
+    // A flood is turned away here, before the hourly count on the database (board.ts) is written to
+    if (await overLimit(env.BOARD_LIMIT, request)) return json({ ok: false, error: "Too many changes, try again later" }, 429, origin);
     try {
       const answer = await renameDriver(deps, request);
       return json(answer.body, answer.status, origin);
@@ -241,6 +261,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     if (!deps) return json({ ok: false, error: "The lap boards are off" }, 404, origin);
     try {
       if (path === "/api/laps" && request.method === "POST") {
+        if (await overLimit(env.BOARD_LIMIT, request)) return json({ ok: false, error: "Too many uploads, try again later" }, 429, origin);
         const answer = await submitLap(deps, request);
         return json(answer.body, answer.status, origin);
       }
@@ -276,35 +297,39 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     }
   }
 
-  // The owner's numbers: without the right key this falls through to the plain "Not found" below
-  if (path === "/api/admin/stats" && request.method === "GET" && env.BOARD_DB && (await adminKeyMatches(request.headers.get("X-Admin-Key"), env.ADMIN_KEY))) {
-    const races = config.races ? env.RACES : undefined;
-    try {
-      const nextRace = races ? async () => (({ startsMs, waiting }) => ({ startsMs, waiting }))(await raceWaiting(races, config.raceSlotS, url)) : undefined;
-      const answer = await adminStats({ db: env.BOARD_DB, now: Date.now, nextRace }, url);
-      return json(answer.body, answer.status, origin);
-    } catch (err) {
-      console.error("admin stats", err);
-      return json({ ok: false, error: "The numbers could not be read" }, 500, origin);
+  // The owner's numbers. Every try counts against ADMIN_LIMIT before the key is looked at (a right key too, so a
+  // guesser past the limit learns nothing from the answer), and anything short of the numbers is the plain
+  // "Not found" every unknown path gets, which counts against the same limit: no key, a wrong one, a route that is
+  // off, and a fault while reading
+  if (path === "/api/admin" || path.startsWith("/api/admin/")) {
+    if (await overLimit(env.ADMIN_LIMIT, request)) return tooMany(origin);
+    if (request.method !== "GET" || !(await adminKeyMatches(bearerKey(request), env.ADMIN_KEY))) return notFound(origin);
+    if (path === "/api/admin/stats" && env.BOARD_DB) {
+      const races = config.races ? env.RACES : undefined;
+      try {
+        const nextRace = races ? async () => (({ startsMs, waiting }) => ({ startsMs, waiting }))(await raceWaiting(races, config.raceSlotS, url)) : undefined;
+        const answer = await adminStats({ db: env.BOARD_DB, now: Date.now, nextRace }, url);
+        return json(answer.body, answer.status, origin);
+      } catch (err) {
+        // The message only: the request (and so the key) stays out of the logs
+        console.error("admin stats failed:", err instanceof Error ? err.message : "error");
+        return notFound(origin);
+      }
     }
+    // Cloudflare's own numbers for the site (analytics.ts), once an analytics token is set
+    if (path === "/api/admin/cloudflare" && analyticsConfigured(env)) {
+      try {
+        // Called as a plain function: the runtime's fetch refuses to run as another object's method
+        const answer = await cloudflareStats(env, Date.now(), (input, init) => fetch(input, init));
+        return json(answer, 200, origin);
+      } catch (err) {
+        console.error("cloudflare stats failed:", err instanceof Error ? err.message : "error");
+        return notFound(origin);
+      }
+    }
+    return notFound(origin);
   }
 
-  // Cloudflare's own numbers for the site (analytics.ts): only with the admin key and an analytics token set
-  if (
-    path === "/api/admin/cloudflare" &&
-    request.method === "GET" &&
-    analyticsConfigured(env) &&
-    (await adminKeyMatches(request.headers.get("X-Admin-Key"), env.ADMIN_KEY))
-  ) {
-    try {
-      // Called as a plain function: the runtime's fetch refuses to run as another object's method
-      const answer = await cloudflareStats(env, Date.now(), (input, init) => fetch(input, init));
-      return json(answer, 200, origin);
-    } catch (err) {
-      console.error("cloudflare stats", err);
-      return json({ ok: false, error: "Cloudflare's numbers could not be read" }, 500, origin);
-    }
-  }
-
-  return json({ ok: false, error: "Not found" }, 404, origin);
+  if (await overLimit(env.ADMIN_LIMIT, request)) return tooMany(origin);
+  return notFound(origin);
 }

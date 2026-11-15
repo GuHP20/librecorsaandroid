@@ -388,9 +388,12 @@ export async function renameDriver(deps: BoardDeps, request: Request): Promise<A
   const nowMs = deps.now();
   if (await overPostLimit(deps, request, nowMs)) return fail("Too many changes, try again later", 429);
   if (Number(request.headers.get("Content-Length") ?? 0) > MAX_RENAME_BYTES) return fail("Body is too large", 413);
+  // A body sent without a length (chunked) is measured once read
+  const text = await request.text();
+  if (text.length > MAX_RENAME_BYTES) return fail("Body is too large", 413);
   let body: { from?: unknown; to?: unknown; code?: unknown; driverKey?: unknown };
   try {
-    body = JSON.parse(await request.text());
+    body = JSON.parse(text);
   } catch {
     return fail("Body is not valid JSON");
   }

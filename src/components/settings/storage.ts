@@ -6,7 +6,10 @@ import { defaultPlayerSettings, type PlayerSettings } from "@/lib/settings/playe
  */
 export const STORAGE_PREFIXES = ["bugesera.", "librecorsa.", "lc."] as const;
 
-/** Under a game prefix but not the player's game data: the admin page's key for this tab (`src/app/admin`) */
+/**
+ * Under a game prefix but not the player's game data: the key older builds of the admin page kept for their tab
+ * (`src/app/admin` now keeps it in memory only; a tab opened before that may still hold it until it closes)
+ */
 const NOT_GAME_DATA: readonly string[] = ["librecorsa.adminKey"];
 
 /** The IndexedDB database of lap history and ghosts (`src/lib/sim/ghost-store.ts`) */

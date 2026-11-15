@@ -34,6 +34,7 @@ import {
   sanitizePacket,
   stateInfoJson,
   type LobbyPlayer, type LobbyState, type OfficialResultRow, type RaceStartInfo } from "../../src/lib/net/wire";
+import { nameProblem } from "../../src/lib/net/name-filter";
 import { driverNameKey, sha256Hex } from "./board";
 import { storeRaceResult, type RaceEntrant } from "./results";
 import { workers, type D1Database, type DurableObjectState, type Env, type ServerSocket } from "./types";
@@ -313,7 +314,10 @@ export class RaceServer {
       const to = typeof data.to === "string" && PEER_ID_RE.test(data.to) ? data.to : undefined;
       switch (msg.type) {
         case "hello": {
-          ws.serializeAttachment({ ...who, name: msg.name, code: msg.code, color: msg.color, vehicle: msg.vehicle, trackId: msg.trackId } satisfies Entrant);
+          // The lobby, the Races card's look at who is waiting and the stored result all show this name: one the
+          // boards would refuse races as "Driver"
+          const name = nameProblem(msg.name) ? "Driver" : msg.name;
+          ws.serializeAttachment({ ...who, name, code: msg.code, color: msg.color, vehicle: msg.vehicle, trackId: msg.trackId } satisfies Entrant);
           await this.broadcastLobby();
           break;
         }

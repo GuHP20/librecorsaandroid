@@ -8,6 +8,8 @@ export interface TextFieldProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "size" | "children"> {
   /** The field's name, above it in `lc-field-label` */
   label: string;
+  /** Keeps the name for screen readers only, for a field that stands alone on its screen */
+  hideLabel?: boolean;
   value: string;
   onChange: (value: string) => void;
   /** One line under the field */
@@ -33,6 +35,7 @@ export interface TextFieldProps
  */
 export function TextField({
   label,
+  hideLabel,
   value,
   onChange,
   hint,
@@ -53,7 +56,7 @@ export function TextField({
   const errorId = error ? `${auto}-error` : undefined;
   return (
     <div className={cx("flex min-w-0 flex-col gap-1.5", className)}>
-      <label htmlFor={fieldId} className="lc-field-label">
+      <label htmlFor={fieldId} className={hideLabel ? "sr-only" : "lc-field-label"}>
         {label}
       </label>
       <div
