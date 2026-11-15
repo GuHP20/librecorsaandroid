@@ -2,7 +2,8 @@
  * The GPU memory behind the context-loss handling (src/lib/render/gpu-health.ts, issue #123): which renderer strings
  * count as a CPU rasteriser or an older Intel chip, what a remembered loss does to the next start (gentle loading,
  * Low once), that a loss in a hidden page is not remembered, that the memory runs out, and the bug form's GPU line.
- * Also the room side of a lost context: a client with no car to send keeps its room going but sends no state.
+ * Also the room side of a lost context (a client with no car to send keeps its room going but sends no state), and the
+ * loading warm-up in pieces (src/lib/render/gpu-pace.ts): texture sizes, runs by bytes, the fence wait.
  *
  *   npx tsx scripts/verify-gpu-health.ts
  */
@@ -22,6 +23,7 @@ import {
   takeSafeStart,
   type KeyValueStore,
 } from "../src/lib/render/gpu-health";
+import { gpuFinished, partsByNewKeys, slicesByBytes, textureBytes } from "../src/lib/render/gpu-pace";
 import { MultiplayerSyncManager, type NetworkVehiclePacket } from "../src/lib/sim/multiplayer-sync";
 
 let failed = 0;
@@ -230,8 +232,88 @@ const T0 = 1_800_000_000_000;
   check("the host's room keeps running (its lobby still goes out)", posts.lastControlMs > LOST_AT + 6000, `last control at ${posts.lastControlMs.toFixed(0)} ms`);
 }
 
-if (failed > 0) {
-  console.error(`\n${failed} check(s) failed`);
-  process.exit(1);
+// --- The loading warm-up in pieces (gpu-pace.ts) ---
+{
+  const img = (w: number, h: number) => ({ image: { width: w, height: h } });
+  check("an RGBA image with its mip chain", textureBytes(img(1024, 1024)) === Math.round((1024 * 1024 * 4 * 4) / 3));
+  check("…without mips", textureBytes({ ...img(1024, 1024), generateMipmaps: false }) === 1024 * 1024 * 4);
+  check("a texture's source data wins over its image", textureBytes({ source: { data: { width: 2, height: 2 } }, image: { width: 4096, height: 4096 } }) === Math.round((16 * 4) / 3));
+  check(
+    "a compressed texture: its mip levels' bytes",
+    textureBytes({ isCompressedTexture: true, mipmaps: [{ data: new Uint8Array(1000) }, { data: new Uint8Array(250) }] }) === 1250
+  );
+  check("a data texture: its buffer", textureBytes({ image: { data: new Float32Array(256), width: 8, height: 8 }, generateMipmaps: false }) === 1024);
+  check("a cube's six faces", textureBytes({ image: Array.from({ length: 6 }, () => ({ width: 16, height: 16 })), generateMipmaps: false }) === 6 * 16 * 16 * 4);
+  check("no image yet: nothing", textureBytes({}) === 0);
+
+  const sizes = [40, 40, 40, 200, 10, 10];
+  const runs = slicesByBytes(sizes, (b) => b, 100);
+  check("runs stay within the budget", JSON.stringify(runs) === JSON.stringify([[40, 40], [40], [200], [10, 10]]), JSON.stringify(runs));
+  check("every item once, in order", runs.flat().join() === sizes.join());
+  check("nothing to cut: no runs", slicesByBytes([], (b: number) => b, 100).length === 0);
+
+  // Objects by their materials: at most two first uses of a material per part
+  const objs: [string, string[]][] = [
+    ["road", ["asphalt"]],
+    ["kerb", ["paint", "asphalt"]],
+    ["wall", ["concrete"]],
+    ["road2", ["asphalt"]],
+    ["car", ["body", "glass", "rubber"]],
+    ["tree", ["leaf"]],
+    ["tree2", ["leaf"]],
+  ];
+  const parts = partsByNewKeys(objs, (o) => o[1], 2).map((p) => p.map((o) => o[0]));
+  check(
+    "parts hold at most two new materials (one with more stands alone)",
+    JSON.stringify(parts) === JSON.stringify([["road", "kerb"], ["wall", "road2"], ["car"], ["tree", "tree2"]]),
+    JSON.stringify(parts)
+  );
+  check("every object in one part, in order", parts.flat().join() === objs.map((o) => o[0]).join());
 }
-console.log("\nAll GPU health checks passed.");
+
+async function fenceChecks(): Promise<void> {
+  const SIGNALED = 0x911a;
+  const TIMEOUT = 0x911b;
+  const WAIT_FAILED = 0x911d;
+  const fakeGl = (polls: number, lostAfter = Infinity) => {
+    let n = 0;
+    let deleted = 0;
+    const gl = {
+      SYNC_GPU_COMMANDS_COMPLETE: 0x9117,
+      TIMEOUT_EXPIRED: TIMEOUT,
+      WAIT_FAILED,
+      isContextLost: () => n >= lostAfter,
+      flush: () => {},
+      fenceSync: () => ({}),
+      clientWaitSync: () => (++n > polls ? SIGNALED : TIMEOUT),
+      deleteSync: () => deleted++,
+    };
+    return { gl: gl as unknown as WebGL2RenderingContext, polls: () => n, deleted: () => deleted };
+  };
+  const a = fakeGl(3);
+  await gpuFinished(a.gl);
+  check("waits for the fence: polled until signalled", a.polls() === 4 && a.deleted() === 1, `${a.polls()} polls`);
+  const b = fakeGl(Infinity, 2);
+  await gpuFinished(b.gl);
+  check("a context lost while waiting ends the wait", b.polls() === 2);
+  const c = fakeGl(Infinity);
+  const t0 = performance.now();
+  await gpuFinished(c.gl, 60);
+  const waited = performance.now() - t0;
+  check("a fence that never signals is given up on at the timeout", waited >= 55 && waited < 1000, `${waited.toFixed(0)} ms`);
+  const lost = fakeGl(0, 0);
+  await gpuFinished(lost.gl);
+  check("no wait at all on a lost context", lost.polls() === 0);
+  const hiddenPage = fakeGl(Infinity);
+  await gpuFinished(hiddenPage.gl, 4000, () => true);
+  check("no wait in a hidden page (its timers run once a second)", hiddenPage.polls() === 0);
+}
+
+// The fence wait runs on timers
+void fenceChecks().then(() => {
+  if (failed > 0) {
+    console.error(`\n${failed} check(s) failed`);
+    process.exit(1);
+  }
+  console.log("\nAll GPU health checks passed.");
+});
