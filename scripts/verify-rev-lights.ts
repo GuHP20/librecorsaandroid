@@ -1,11 +1,13 @@
 /**
  * verify-rev-lights.ts: the HUD's shift lights and the car's own wheel LEDs light the same LEDs in the same colour
- * bands at the same rpm (src/lib/sim/rev-range.ts). Before, the 2026 car's wheel ran its 15 LEDs from 10,000 rpm to the
- * classic engine's 12,500 rpm limiter while the HUD ran them from 10,800 to 14,600 rpm, so the wheel turned blue some
- * 2,500 rpm before the HUD did (GitHub discussion #127).
+ * bands at the same rpm (src/lib/sim/rev-range.ts), and every car can light all of them before its rev limiter.
+ * The 2026 car's lights ran from 10,800 to 14,600 rpm against its 12,500 rpm limiter, so neither the HUD nor the wheel
+ * got past yellow while the shift beep still sounded (GitHub discussion #127).
  */
 import assert from "node:assert/strict";
-import { revLedBand, revLeds, revRangeFor } from "../src/lib/sim/rev-range";
+import { revLedBand, revLeds, revRangeFor, SHIFT_BEEP_BELOW_LIMITER_RPM } from "../src/lib/sim/rev-range";
+import { LC26_DRIVETRAIN, LC26_ENGINE } from "../src/lib/sim/lc26-data";
+import { VEHICLE_MODELS } from "../src/lib/cars/vehicle-models";
 
 let failed = 0;
 function check(name: string, fn: () => void) {
@@ -19,7 +21,11 @@ function check(name: string, fn: () => void) {
 }
 
 const COUNT = 15;
-const CARS = [undefined, "lc26", "f12026", "amg-gt3", "liana", "mtr-496r", "lc-lmdh", "nissan-r33-jgtc", "nissan-r32-jtcc"];
+const CARS = [undefined, "lc26", "f12026-car", "amg-gt3", "liana", "mtr-496r", "lc-lmdh", "nissan-r33-jgtc", "nissan-r32-jtcc"];
+const bandsAt = (rpm: number, range: readonly [number, number]) => {
+  const { lit, atShift } = revLeds(rpm, range, COUNT);
+  return atShift ? "flash" : Array.from({ length: lit }, (_, i) => revLedBand(i, COUNT)).join(" ");
+};
 
 check("15 lights keep the HUD's bands: 5 green, 5 yellow, 3 red, 2 shift", () => {
   const bands = Array.from({ length: COUNT }, (_, i) => revLedBand(i, COUNT));
@@ -39,22 +45,33 @@ check("lit count and shift point match the HUD's own formula for every car", () 
   }
 });
 
-check("the 2026 car's first blue light comes at the same rpm on the wheel and the HUD", () => {
-  const range = revRangeFor(undefined);
-  const firstShift = Array.from({ length: COUNT }, (_, i) => i).find((i) => revLedBand(i, COUNT) === "shift")!;
-  let rpm = range[0];
-  while (revLeds(rpm, range, COUNT).lit <= firstShift) rpm += 10;
-  // The old wheel range lit that LED some 2,500 rpm earlier
-  const old: [number, number] = [10_000, 12_500];
-  let oldRpm = old[0];
-  while (Math.round(((oldRpm - old[0]) / (old[1] - old[0])) * COUNT) <= 10) oldRpm += 10;
-  assert.ok(rpm > 14_000 && rpm < range[1], `first shift light at ${rpm} rpm`);
-  assert.ok(rpm - oldRpm > 2_000, `old wheel blue at ${oldRpm} rpm, now ${rpm}`);
+check("every car lights all its rev lights before its rev limiter", () => {
+  for (const [id, model] of Object.entries(VEHICLE_MODELS)) {
+    const [start, full] = revRangeFor(id);
+    assert.ok(start < full, `${id}: range ${start}-${full}`);
+    assert.ok(full <= model.limiterRpm, `${id}: all lit at ${full} rpm, limiter ${model.limiterRpm}`);
+  }
+});
+
+check("the 2026 car flashes at the shift beep and shows blue at its auto upshift", () => {
+  // The car reports itself as the f12026-car in telemetry; the wheel and HUD read the same default range
+  for (const id of [undefined, "lc26", "f12026-car"]) {
+    const range = revRangeFor(id);
+    assert.equal(range[1], LC26_ENGINE.limiterRpm - SHIFT_BEEP_BELOW_LIMITER_RPM, `${id ?? "default"} shift point`);
+    const atUpshift = revLeds(LC26_DRIVETRAIN.autoUpshiftRpm, range, COUNT);
+    assert.ok(atUpshift.lit >= 14 && !atUpshift.atShift, `${id ?? "default"} at the auto upshift: ${bandsAt(LC26_DRIVETRAIN.autoUpshiftRpm, range)}`);
+    assert.equal(revLedBand(atUpshift.lit - 1, COUNT), "shift");
+    assert.ok(revLeds(LC26_ENGINE.limiterRpm - SHIFT_BEEP_BELOW_LIMITER_RPM, range, COUNT).atShift, "flash at the beep");
+  }
 });
 
 check("a non-finite rpm lights nothing", () => {
   assert.deepEqual(revLeds(Number.NaN, revRangeFor(undefined), COUNT), { lit: 0, atShift: false });
 });
+
+const f1 = revRangeFor(undefined);
+console.log(`\n  2026 car, ${f1[0]}-${f1[1]} rpm:`);
+for (const rpm of [11_000, 11_500, 12_000, LC26_DRIVETRAIN.autoUpshiftRpm, f1[1]]) console.log(`    ${rpm}: ${bandsAt(rpm, f1)}`);
 
 if (failed) {
   console.log(`\n${failed} rev light check(s) failed.`);

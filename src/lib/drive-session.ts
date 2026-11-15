@@ -31,7 +31,7 @@ import {
 } from "@/lib/render/golden-hour-environment";
 import { SteeringWheelDisplay } from "@/lib/render/steering-display";
 import { PortedWheelDash } from "@/lib/render/ported-wheel-dash";
-import { revRangeFor } from "@/lib/sim/rev-range";
+import { revRangeFor, SHIFT_BEEP_BELOW_LIMITER_RPM } from "@/lib/sim/rev-range";
 import { WingMirrors } from "@/lib/render/wing-mirrors";
 import { VirtualMirror } from "@/lib/render/virtual-mirror";
 import { type ChassisSetup, DEFAULT_CHASSIS_SETUP, loadChassisSetup } from "@/lib/sim/car-setup";
@@ -2690,7 +2690,7 @@ export class DriveSession {
           cueGear = tc.gear;
           cueShiftArmed = true;
         }
-        if (cues.shiftBeep && cueShiftArmed && tc.gear > 0 && tc.rpm >= limiter - 150) {
+        if (cues.shiftBeep && cueShiftArmed && tc.gear > 0 && tc.rpm >= limiter - SHIFT_BEEP_BELOW_LIMITER_RPM) {
           audio?.cue("shift");
           cueShiftArmed = false;
         }

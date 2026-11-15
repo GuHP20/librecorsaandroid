@@ -2,6 +2,17 @@
  * Where each car's rev lights sit: the dash, the HUD styles and the wheel's shift cue all call the shift at the same
  * rpm.
  */
+import { LC26_ENGINE } from "./lc26-data";
+
+/** The shift beep sounds this far short of the car's rev limiter (rpm) */
+export const SHIFT_BEEP_BELOW_LIMITER_RPM = 150;
+
+/**
+ * The 2026 Formula car's lights: the first at 10,500 rpm, where the fuel energy flow reaches its 3000 MJ/h cap
+ * (FIA 2026 PU regulations, art. 5.4.3 / 5.4.4) [regulation], all lit at the shift beep, 150 rpm short of the
+ * LC26's limiter. Its auto box upshifts at 12,200 rpm with 14 of 15 lit.
+ */
+const F1_REV_RANGE: [number, number] = [10_500, LC26_ENGINE.limiterRpm - SHIFT_BEEP_BELOW_LIMITER_RPM];
 
 /**
  * Rev-light range per car: first LED and all-lit rpm (the Formula cars by default; the GT3's 7500 rpm shift point,
@@ -15,7 +26,7 @@ export function revRangeFor(carId: string | undefined): [number, number] {
   // The classic Nissans up to their shift lights or shift points [spec digital_instruments.ini, drivetrain.ini]
   if (carId === "nissan-r33-jgtc") return [5000, 6700];
   if (carId === "nissan-r32-jtcc") return [6300, 7500];
-  return carId === "amg-gt3" ? [6200, 7500] : [10_800, 14_600];
+  return carId === "amg-gt3" ? [6200, 7500] : [...F1_REV_RANGE];
 }
 
 /** A rev light's colour band: the HUD and the car's own wheel paint the same LED in the same band */
