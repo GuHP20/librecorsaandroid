@@ -1748,7 +1748,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
               : openSettings("pause")
           }
           onExitToTitle={leaveSession}
-          onOpenSettings={(category?: SettingsCategory) => openSettings("pause", category)}
+          onOpenSettings={(category?: SettingsCategory, tab?: string) => openSettings("pause", category, tab)}
           hud={settings.hud}
           virtualMirror={virtualMirrorOn}
           ffbMeter={

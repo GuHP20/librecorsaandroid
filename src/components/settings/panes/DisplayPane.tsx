@@ -5,7 +5,7 @@ import { Button, ConfirmDialog, SettingRow } from "@/components/ui";
 import { Badge } from "@/components/ui/Badge";
 import { isTouchDevice } from "@/lib/input/touch-input";
 import { keyLabel, padButtonLabel } from "@/lib/input/bindings";
-import type { HudPreset } from "@/lib/settings/player-settings";
+import { DEFAULT_HUD_PRESET, type HudPreset } from "@/lib/settings/hud-layouts";
 import {
   autoQuality,
   boardWidget,
@@ -15,7 +15,6 @@ import {
   fieldOfView,
   frameRate,
   headMovement,
-  HUD_LAYOUTS,
   hudAdvanced,
   hudSize,
   lapSummary,
@@ -30,35 +29,25 @@ import {
   uiScale,
 } from "../defs";
 import { useSettingsEnv } from "../env";
-import { choice, hud, SettingsCard } from "../fields";
+import { SettingsCard } from "../fields";
+import { HUD_TOUCH_NOTE, HudLayoutPicker } from "../HudLayoutPicker";
 
-/** Where each HUD layout puts its panels: a diagram, drawn in the text colour of its tile */
-function HudThumb({ preset, chosen }: { preset: HudPreset; chosen: boolean }) {
-  const boxes: Record<HudPreset, [number, number, number, number][]> = {
-    broadcast: [[3, 3, 13, 15], [50, 3, 11, 9], [18, 28, 28, 5]],
-    dash: [[3, 3, 9, 5], [51, 3, 10, 8], [20, 21, 24, 12]],
-    telemetry: [[3, 3, 11, 14], [50, 3, 11, 14], [3, 22, 11, 11], [50, 20, 11, 13], [21, 23, 22, 10]],
-    classic: [[3, 3, 12, 12], [49, 3, 12, 10], [3, 23, 12, 10], [47, 21, 14, 12], [26, 3, 12, 3]],
-    minimal: [[3, 3, 12, 8], [47, 23, 14, 10]],
-  };
+/** The HUD layout card: every layout as a picture, one tap to choose (the same picker as the pause menu and setup) */
+function HudLayoutCard() {
+  const env = useSettingsEnv();
+  const preset = env.settings.hud.preset;
+  const setPreset = (id: HudPreset) => env.update((s) => ({ ...s, hud: { ...s.hud, preset: id } }));
   return (
-    <svg viewBox="0 0 64 36" aria-hidden className={`block h-14 w-full bg-lc-void ${chosen ? "text-lc-chalk" : "text-lc-slate"}`}>
-      {boxes[preset].map(([x, y, w, h]) => (
-        <rect key={`${x}-${y}`} x={x} y={y} width={w} height={h} rx={2} fill="currentColor" />
-      ))}
-    </svg>
+    <SettingsCard
+      title="Layout"
+      description={isTouchDevice() ? HUD_TOUCH_NOTE : undefined}
+      extraReset={{ changed: preset !== DEFAULT_HUD_PRESET, reset: () => setPreset(DEFAULT_HUD_PRESET) }}
+      resetWhat="the HUD layout"
+    >
+      <HudLayoutPicker value={preset} onChange={setPreset} navDefault />
+    </SettingsCard>
   );
 }
-
-const hudLayout = choice("tiles", {
-  id: "hudPreset",
-  label: "Layout",
-  hint: () => (isTouchDevice() ? "With the touch controls on, the HUD uses its touch layout" : undefined),
-  options: HUD_LAYOUTS,
-  columns: 3,
-  media: (id, chosen) => <HudThumb preset={id as HudPreset} chosen={chosen} />,
-  ...hud("preset"),
-});
 
 export function GraphicsTab() {
   const env = useSettingsEnv();
@@ -86,7 +75,10 @@ export function GraphicsTab() {
 
 export function HudTab() {
   return (
-    <SettingsCard title="What the HUD shows" rows={[hudLayout, hudSize, deltaBar, lapSummary, mirror, radar, boardWidget, ...hudAdvanced]} first />
+    <>
+      <HudLayoutCard />
+      <SettingsCard title="What the HUD shows" rows={[hudSize, deltaBar, lapSummary, mirror, radar, boardWidget, ...hudAdvanced]} />
+    </>
   );
 }
 

@@ -61,23 +61,53 @@ import { BroadcastHud } from "./hud/styles/BroadcastHud";
 import { WheelDashHud } from "./hud/styles/WheelDashHud";
 import { TelemetryHud } from "./hud/styles/TelemetryHud";
 import { PhoneHud, usePhoneLayout } from "./hud/styles/PhoneHud";
+import { IrDashiesHud } from "./hud/styles/IrDashiesHud";
+import { RaceVisionHud } from "./hud/styles/RaceVisionHud";
+import { HeadToHeadHud } from "./hud/styles/HeadToHeadHud";
+import { RetroHud } from "./hud/styles/RetroHud";
+import { BlocksHud } from "./hud/styles/BlocksHud";
+import { HudRunProvider } from "./hud/styles/third-party-parts";
 import { useUiZoom } from "@/lib/ui-zoom";
 import { buildHudMap, revRangeOf, useLapInvalid, type HudDesignProps } from "./hud/styles/hud-style-parts";
 import type { BoardWidgetMode, HudPreset } from "@/lib/settings/player-settings";
+import { showsPhoneHud } from "@/lib/settings/hud-layouts";
 import { BoardWidget, useLargeScreen } from "./hud/BoardWidget";
 import { PodiumOverlay } from "./hud/PodiumOverlay";
 import type { NextRaceProps } from "./hud/RaceResults";
 import type { PodiumUi } from "@/lib/render/podium-shot";
 import type { RaceRecord } from "@/lib/sim/race-history";
 
+/** A full-screen HUD style and what the shared layer around it does for it */
+interface HudStyleDef {
+  component: React.FC<HudDesignProps>;
+  /** Height kept clear at the bottom centre (px at 100 %): the optional input trace sits above it */
+  bottomClearance: number;
+  /** The style draws its own input trace: the optional one stays off */
+  ownTrace?: boolean;
+  /** The style fills the bottom-left corner: the key hints stay off */
+  ownsBottomLeft?: boolean;
+  /** The MFD starts folded to its status pill */
+  mfdFolded?: boolean;
+  /** Height the style takes at the top centre (px at 100 %): start lights, notices and the delta bar start below it */
+  topClearance?: number;
+  /** The style shows the live delta at the top centre itself: the shared delta bar stays off */
+  ownDeltaBar?: boolean;
+}
+
 /** The full-screen HUD styles; Classic and Minimal use the corner panels below */
-const HUD_STYLES: Partial<Record<HudPreset, { component: React.FC<HudDesignProps>; bottomClearance: number }>> = {
+const HUD_STYLES: Partial<Record<HudPreset, HudStyleDef>> = {
   broadcast: { component: BroadcastHud, bottomClearance: 128 },
   dash: { component: WheelDashHud, bottomClearance: 252 },
-  telemetry: { component: TelemetryHud, bottomClearance: 252 },
+  telemetry: { component: TelemetryHud, bottomClearance: 252, ownTrace: true, ownsBottomLeft: true, mfdFolded: true },
+  // Third-party layouts (hud-layouts.ts), recreated from other open-source HUD projects
+  irdashies: { component: IrDashiesHud, bottomClearance: 200, ownTrace: true, mfdFolded: true },
+  racevision: { component: RaceVisionHud, bottomClearance: 200, ownTrace: true, ownsBottomLeft: true, mfdFolded: true, topClearance: 80, ownDeltaBar: true },
+  h2h: { component: HeadToHeadHud, bottomClearance: 200, ownsBottomLeft: true, mfdFolded: true },
+  retro: { component: RetroHud, bottomClearance: 292, ownsBottomLeft: true, mfdFolded: true, topClearance: 120, ownDeltaBar: true },
+  blocks: { component: BlocksHud, bottomClearance: 200, ownsBottomLeft: true, mfdFolded: true, topClearance: 124, ownDeltaBar: true },
 };
-/** Every preset gives way to the Phone HUD on a phone-sized screen, and wherever the touch controls are up */
-const PHONE_STYLE = { component: PhoneHud, bottomClearance: 16 };
+/** Every preset gives way to the Phone HUD on a phone-sized screen, and the game's own wherever the touch controls are up (`showsPhoneHud`) */
+const PHONE_STYLE: HudStyleDef = { component: PhoneHud, bottomClearance: 16 };
 
 interface F1TelemetryHudProps extends MultiplayerPanelProps {
   track: BuiltTrackData;
@@ -152,7 +182,7 @@ interface F1TelemetryHudProps extends MultiplayerPanelProps {
   onTogglePause: () => void;
   onOpenControls?: () => void;
   /** Opens Settings over the pause menu on a category (the pause menu's links from Conditions and the Garage) */
-  onOpenSettings?: (category?: SettingsCategory) => void;
+  onOpenSettings?: (category?: SettingsCategory, tab?: string) => void;
   /** Weather, time of day and the track's grip, for the pause menu's Conditions tab */
   conditionsPanel?: ConditionsPanelProps;
   onExitToTitle?: () => void;
@@ -271,9 +301,12 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   const f12026 = telemetry.f12026;
   const aeroNoticeNow = useAeroNotice(telemetry);
   const hudMap = useMemo(() => buildHudMap(track), [track]);
-  // The touch pads take both bottom corners and the top-left, where every other preset puts its panels:
-  // with them up, the Phone HUD (laid out round them) is the layout at any screen size
-  const phone = usePhoneLayout() || Boolean(props.touchControls);
+  const hud = props.hud;
+  const preset = hud?.preset ?? "broadcast";
+  const touch = Boolean(props.touchControls);
+  // The Phone HUD on a phone-sized screen, and for the game's own presets wherever the touch pads are up; a third-party
+  // layout keeps its look on a tablet and steps out of the pads' way itself (`touch`)
+  const phone = showsPhoneHud(preset, { phone: usePhoneLayout(), touchControls: touch });
   // The lap board is for large screens only: not mounted below 1280 × 720
   const largeScreen = useLargeScreen();
   const lapInvalid = useLapInvalid(telemetry);
@@ -310,8 +343,6 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
 
 
   const lightsPhase = race?.phase === "lights";
-  const hud = props.hud;
-  const preset = hud?.preset ?? "broadcast";
   const style = phone ? PHONE_STYLE : HUD_STYLES[preset];
   const classic = !phone && preset === "classic";
   const minimal = !phone && preset === "minimal";
@@ -359,11 +390,13 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   const showTyres = classic;
   const showMap = classic;
   const showChannels = classic;
-  const showKeyHints = !phone && preset !== "minimal" && preset !== "telemetry";
-  // Telemetry has its own trace and force meter; a phone's thumbs sit where the trace would
-  const showTrace = !phone && preset !== "telemetry" && hud?.inputTrace === true;
+  const showKeyHints = !phone && preset !== "minimal" && !style?.ownsBottomLeft;
+  // Telemetry (and the styles with a trace of their own) have their own; a phone's thumbs sit where the trace would
+  const showTrace = !phone && !style?.ownTrace && hud?.inputTrace === true;
   const showFfb = Boolean(props.ffbMeter) && classic;
   const scale = (hud?.scale ?? 1) * uiZoom;
+  // A style's own top-centre group (under the virtual mirror when that is up): the notices start below it
+  const topClearance = phone ? 0 : (style?.topClearance ?? 0);
   // Touch screens have no Esc key: a Menu button opens the pause menu
   const menuButton = (
     <span className="pointer-events-auto hidden pointer-coarse:block">
@@ -386,7 +419,7 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
         trackLengthM={track.totalLengthM}
         compound={tireCompound}
         autoFold={hud?.mfdAutoCollapse ?? false}
-        defaultFolded={(hud?.mfdAutoCollapse ?? false) || classic || preset === "telemetry" || (preset === "broadcast" && window.innerWidth < 1280)}
+        defaultFolded={(hud?.mfdAutoCollapse ?? false) || classic || Boolean(style?.mfdFolded) || (preset === "broadcast" && window.innerWidth < 1280)}
       />
     </div>
   );
@@ -417,7 +450,9 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           aria-hidden="true"
         />
       ) : null}
-      {/* Broadcast, Wheel Dash or Telemetry: one full-screen layer */}
+      {/* A full-screen style (Broadcast, Wheel Dash, Telemetry, a third-party layout): one layer. The run's laps, fuel
+          use and clock live above it, so hiding the HUD or switching layout keeps them */}
+      <HudRunProvider t={telemetry}>
       {hudHidden ? null : style ? (
         <style.component
           t={telemetry}
@@ -428,8 +463,9 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           scale={scale}
           trackCode={trackInfo.country.slice(0, 3).toUpperCase()}
           ffb={props.ffbMeter ? <FfbMeter {...props.ffbMeter} /> : null}
-          mfd={phone ? undefined : mfdNode}
-          touch={Boolean(props.touchControls)}
+          mfd={phone || touch ? undefined : mfdNode}
+          touch={touch}
+          topInset={mirrorTop ?? undefined}
           lapInvalid={lapInvalid}
           towerGaps={hud?.towerGaps}
           mapMode={hud?.mapMode}
@@ -445,6 +481,7 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           {weatherNode}
         </div>
       )}
+      </HudRunProvider>
 
       {/* A frame round the virtual mirror, so its sky never reads as the real one (the renderer places it in window pixels) */}
       {mirrorRect && !hudHidden ? (
@@ -459,13 +496,19 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           the screen, and in portrait the notices wrapped to three lines and spilled out of their pills */}
       <div
         className={`absolute left-1/2 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 ${phone ? "top-[96px] portrait:top-[208px]" : "top-4"}`}
-        style={mirrorTop !== null ? { top: `calc(${mirrorTop}px - env(safe-area-inset-top, 0px))` } : undefined}
+        style={
+          mirrorTop !== null || topClearance
+            ? { top: `calc(${(mirrorTop ?? 16) + Math.round(topClearance * scale)}px - env(safe-area-inset-top, 0px))` }
+            : undefined
+        }
       >
       <div className="flex flex-col items-center gap-2" style={corner("top center")}>
-        {style && !(phone && props.touchControls) ? menuButton : null}
+        {/* The touch controls carry their own pause button */}
+        {style && !touch ? menuButton : null}
         <StartLights race={race} />
-        {/* The ±1 s ribbon sits under every preset except the Phone HUD, whose speed pod owns this spot */}
-        {hud?.deltaBar && !phone && !lightsPhase ? <DeltaBar deltaS={deltaS} runId={telemetry.runId ?? 0} /> : null}
+        {/* The ±1 s ribbon sits under every preset except the Phone HUD, whose speed pod owns this spot, and the
+            layouts that show the delta up here themselves */}
+        {hud?.deltaBar && !phone && !style?.ownDeltaBar && !lightsPhase ? <DeltaBar deltaS={deltaS} runId={telemetry.runId ?? 0} /> : null}
         {!lightsPhase ? (
           <RaceControlBanner status={telemetry.trackLimits} offTrack={telemetry.offTrack} race={Boolean(race)} />
         ) : null}

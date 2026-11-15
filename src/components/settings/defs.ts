@@ -513,13 +513,7 @@ export const driverBody = toggle({
 
 // ---- Display > HUD
 
-export const HUD_LAYOUTS = [
-  { id: "broadcast", label: "Broadcast", detail: "TV graphics: tower, map, telemetry strip" },
-  { id: "dash", label: "Wheel dash", detail: "A steering-wheel screen, low and centred" },
-  { id: "telemetry", label: "Telemetry", detail: "The dash plus tyres, G, power and inputs" },
-  { id: "classic", label: "Classic", detail: "The original corner panels" },
-  { id: "minimal", label: "Minimal", detail: "Speed, gear and lap only" },
-] as const;
+/* The layout itself is chosen in its own picker (HudLayoutPicker, the list in hud-layouts.ts) */
 
 export const hudSize = slider({ id: "hudScale", label: "Size", hint: "The whole HUD, larger or smaller", min: 0.75, max: 1.5, step: 0.05, format: pct, ...hud("scale") });
 

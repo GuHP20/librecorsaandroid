@@ -10,6 +10,8 @@ import { ControllerStep } from "./steps/ControllerStep";
 import { WheelStep } from "./steps/WheelStep";
 import { AssistsStep } from "./steps/AssistsStep";
 import { CarStep } from "./steps/CarStep";
+import { HudStep } from "./steps/HudStep";
+import { usePhoneLayout } from "@/components/hud/styles/PhoneHud";
 import type { SetupStepProps } from "./steps/types";
 import { isTouchDevice } from "@/lib/input/touch-input";
 import { LibreCorsaLogo } from "@/components/ui/LibreCorsaLogo";
@@ -19,17 +21,22 @@ import { KeyCap, PadGlyph, PromptBar } from "@/components/ui/prompts";
 import { cx } from "@/components/ui/styles";
 import { SettingsEnvProvider, type SettingsEnv } from "@/components/settings/env";
 
-export type WizardStepId = "device" | "setup" | "assists" | "car";
+export type WizardStepId = "device" | "setup" | "assists" | "hud" | "car";
 /** The first visit, or the same setup run again from Settings > Controls > Device */
 export type WizardMode = "first-run" | "again";
 
-const STEPS: readonly WizardStepId[] = ["device", "setup", "assists", "car"];
+/**
+ * How the player drives, then what they see on the screen, then the car and the grid. The HUD step comes after the
+ * assists (both shape the drive) and before the car, whose step ends on Lights out with the car on the turntable.
+ */
+const STEPS: readonly WizardStepId[] = ["device", "setup", "assists", "hud", "car"];
 
 const SETUP_TITLES = { keyboard: "Keyboard", controller: "Controller", wheel: "Wheel and pedals" } as const;
 
 const STEP_INFO: Record<Exclude<WizardStepId, "setup">, { title: string; detail: string }> = {
   device: { title: "How do you drive?", detail: "Pick your input. It can be changed any time in Settings." },
   assists: { title: "Driving assists", detail: "Pick a starting point. Every assist is in Settings, under Driving." },
+  hud: { title: "Your HUD", detail: "Pick how timing, speed and gear show on screen. Broadcast is a good start." },
   car: { title: "Your car", detail: "Choose a car and livery, then head for the grid." },
 };
 
@@ -47,7 +54,7 @@ export interface FirstRunWizardProps extends SetupStepProps {
 }
 
 /**
- * First-run setup (device, its setup, assists, car), also run again from Settings. Docked left so the car stays
+ * First-run setup (device, its setup, assists, HUD, car), also run again from Settings. Docked left so the car stays
  * visible on the right. Its rows are the Settings screen's own, shown at the Simple level.
  */
 export const FirstRunWizard: React.FC<FirstRunWizardProps> = (props) => {
@@ -55,7 +62,9 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = (props) => {
   // A touch screen offers its own controls first; driving by touch has no key setup to go through
   const [touchFirst] = useState(isTouchDevice);
   const [touchPicked, setTouchPicked] = useState(touchFirst);
-  const steps = touchFirst && touchPicked ? STEPS.filter((s) => s !== "setup") : STEPS;
+  // A phone-sized screen always drives with the Phone HUD, so the layout would change nothing there
+  const phoneScreen = usePhoneLayout();
+  const steps = STEPS.filter((s) => !(s === "setup" && touchFirst && touchPicked) && !(s === "hud" && phoneScreen));
   const [rawStepIndex, setStepIndex] = useState(0);
   // Clamped: the list can get shorter while open (touch picked), and must not run past its end
   const stepIndex = Math.min(rawStepIndex, steps.length - 1);
@@ -140,7 +149,9 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = (props) => {
   const mainWidth =
     step === "setup" && device === "wheel"
       ? "max-w-[1240px]"
-      : step === "car"
+      : step === "hud"
+        ? "max-w-[1040px]"
+        : step === "car"
         ? "max-w-[640px]"
         : "max-w-[800px]";
 
@@ -212,6 +223,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = (props) => {
                   {step === "setup" && device === "controller" ? <ControllerStep /> : null}
                   {step === "setup" && device === "wheel" ? <WheelStep /> : null}
                   {step === "assists" ? <AssistsStep /> : null}
+                  {step === "hud" ? <HudStep /> : null}
                   {step === "car" ? <CarStep {...props} /> : null}
                 </div>
               </div>
