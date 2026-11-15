@@ -28,7 +28,8 @@
  * Barrier contact (the car's summed contact while moving, `TrackLimitsFrame.wallContactS`): on a hill climb any touch
  * breaks the rule (a run that hits the bales is done), on a circuit only riding the wall does, contact adding up to
  * `WALL_RIDE_S` within `WALL_RIDE_WINDOW_S` (a brush off a barrier does not). Outside a race a breach deletes the lap
- * ("Wall contact"); in a race it is judged as time off the track, like any excursion.
+ * ("Wall contact"), and on a circuit, as an excursion does, one in the last sector or still going at the line deletes
+ * the next lap too; in a race it is judged as time off the track, like any excursion.
  */
 import type { TrackLimitsReason, TrackLimitsStatus } from "@/types/f1";
 import { CourseCutWatch } from "./course-limits";
@@ -163,9 +164,10 @@ export class TrackLimitsMonitor {
   private penaltyS = 0;
   private lastOnTrackPosition: number | null = null;
   private exc: Excursion | null = null;
-  /** Strict limits: the car was off the track last frame, and the next lap is to be deleted too */
+  /** Strict limits: the car was off the track last frame, and the next lap is to be deleted too (for the wall: riding it) */
   private wasOff = false;
   private nextLapDeleted = false;
+  private nextLapWall = false;
   /** Strict limits: the lap count and lap clock last frame (null until the first frame of a run) */
   private seenLapCount: number | null = null;
   private seenLapTimeMs: number | null = null;
@@ -212,6 +214,7 @@ export class TrackLimitsMonitor {
     this.exc = null;
     this.wasOff = false;
     this.nextLapDeleted = false;
+    this.nextLapWall = false;
     this.seenLapCount = null;
     this.seenLapTimeMs = null;
     this.seenDistM = null;
@@ -445,20 +448,29 @@ export class TrackLimitsMonitor {
     this.wasOff = f.offTrack && f.active;
     if (!f.active) {
       // A lap the autopilot starts is not the player's: the next lap's deletion lapses with it
-      if (started) this.nextLapDeleted = false;
+      if (started) this.nextLapDeleted = this.nextLapWall = false;
       return null;
     }
 
+    // A circuit's wall-ride (a breach of its rule, until the window is clear) is an excursion of its own: in the last
+    // sector it deletes the next lap too, and on a frame with no sector, one still going as that lap starts does. A hill
+    // climb's run ends at its finish: nothing carries over to the next one
+    const rideBreach = f.wallRule === "ride" && this.wallBreach;
     let deleted = false;
-    if (started && this.nextLapDeleted) {
-      this.nextLapDeleted = false;
+    let wallDeleted = false;
+    if (started && (this.nextLapDeleted || (rideBreach && f.sector === undefined))) {
+      wallDeleted = this.nextLapDeleted ? this.nextLapWall : true;
+      this.nextLapDeleted = this.nextLapWall = false;
       deleted = true;
-      this.message = { kind: "lap_invalid", text: "Track limits · lap deleted", detail: "Off before the line", atMs: f.nowMs };
+      this.message = wallDeleted
+        ? { kind: "lap_invalid", text: "Wall contact · lap deleted", detail: "Rode the wall before the line", atMs: f.nowMs }
+        : { kind: "lap_invalid", text: "Track limits · lap deleted", detail: "Off before the line", atMs: f.nowMs };
     }
     if (f.offTrack) {
       const lastSector = f.sector === 3;
       if (!wasOff || (lastSector && !this.nextLapDeleted)) {
         deleted = true;
+        wallDeleted = false;
         this.message = {
           kind: "lap_invalid",
           text: "Track limits · lap deleted",
@@ -466,21 +478,26 @@ export class TrackLimitsMonitor {
           atMs: f.nowMs,
         };
       }
-      if (lastSector) this.nextLapDeleted = true;
+      if (lastSector) {
+        this.nextLapDeleted = true;
+        this.nextLapWall = false;
+      }
     }
-    if (wallBroken && !deleted) {
+    const wallNext = rideBreach && this.wallNow && f.sector === 3 && !this.nextLapDeleted;
+    if (wallNext) this.nextLapDeleted = this.nextLapWall = true;
+    if ((wallBroken || wallNext) && !deleted) {
       this.totalStrikes++;
       this.message = {
         kind: "lap_invalid",
         text: "Wall contact · lap deleted",
-        detail: f.wallRule === "touch" ? "Touched the barrier" : "Rode the wall",
+        detail: wallNext ? "Next lap too" : f.wallRule === "touch" ? "Touched the barrier" : "Rode the wall",
         atMs: f.nowMs,
       };
       return { kind: "lap_invalid", reason: "wall_contact", lap: f.lapCount };
     }
     if (!deleted) return null;
     this.totalStrikes++;
-    return { kind: "lap_invalid", lap: f.lapCount };
+    return wallDeleted ? { kind: "lap_invalid", reason: "wall_contact", lap: f.lapCount } : { kind: "lap_invalid", lap: f.lapCount };
   }
 
   private startExcursion(f: TrackLimitsFrame): Excursion {
