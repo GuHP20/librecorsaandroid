@@ -67,6 +67,12 @@ export const THIRD_PARTY_HUD_LAYOUTS = [
     detail: "Warm instruments: round dial, delta bar, laps",
     credit: { author: "toastbuilds", repoUrl: "https://github.com/toastbuilds/assetto-corsa-retro-engineering-hud", license: "MIT" },
   },
+  {
+    id: "blocks",
+    label: "Blocks",
+    detail: "Square dark blocks: timing, sectors, tyres, fuel",
+    credit: { author: "C1XTZ", repoUrl: "https://github.com/C1XTZ/ac-rennsporthud", license: "GPL-3.0" },
+  },
 ] as const satisfies readonly HudLayoutInfo[];
 
 export type HudPreset = (typeof BUILT_IN_HUD_LAYOUTS)[number]["id"] | (typeof THIRD_PARTY_HUD_LAYOUTS)[number]["id"];
