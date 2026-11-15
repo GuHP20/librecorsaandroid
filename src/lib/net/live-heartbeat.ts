@@ -4,7 +4,7 @@
  * counts the last minute's heartbeats and keeps nothing else. Only sent when the online side says the count is on.
  */
 import { useEffect } from "react";
-import { getOnlineConfig, onlineUrl } from "./online-config";
+import { onlineUrl, watchOnlineConfig } from "./online-config";
 
 /** One heartbeat a minute per tab in view: the server counts a minute's worth */
 export const HEARTBEAT_MS = 60_000;
@@ -49,13 +49,15 @@ export function useLiveHeartbeat(): void {
         schedule();
       }, wait);
     };
-    void getOnlineConfig().then((config) => {
-      on = config.live;
+    // Followed, not asked once: a server out of reach at start is counted once it answers
+    const unwatch = watchOnlineConfig((online) => {
+      on = online.config.live;
       schedule();
     });
     document.addEventListener("visibilitychange", schedule);
     return () => {
       live = false;
+      unwatch();
       document.removeEventListener("visibilitychange", schedule);
       if (timer !== null) clearTimeout(timer);
     };

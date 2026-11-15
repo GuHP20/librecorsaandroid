@@ -65,6 +65,7 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
     if (!HAS_API) return;
     let observer: IntersectionObserver | null = null;
     let live = true;
+    let unwatch: (() => void) | null = null;
     const stop = afterLoad(() => {
       const el = sentinelRef.current;
       if (!live || !el) return;
@@ -72,10 +73,14 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
         (seen) => {
           if (!seen.some((s) => s.isIntersecting)) return;
           observer?.disconnect();
+          // Followed, not asked once: a board out of reach shows up here once it answers; only "off" hides it
           void import("@/lib/net/online-config")
-            .then((m) => m.getOnlineConfig())
-            .then((config) => {
-              if (live) setState(config.board ? "on" : "off");
+            .then((m) => {
+              if (!live) return;
+              unwatch = m.watchOnlineConfig((online) => {
+                const board = m.boardStateOf(online);
+                if (board !== "unreachable") setState(board);
+              });
             })
             .catch(() => {
               if (live) setState("off");
@@ -89,6 +94,7 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
       live = false;
       stop();
       observer?.disconnect();
+      unwatch?.();
     };
   }, [scrollRoot]);
 
