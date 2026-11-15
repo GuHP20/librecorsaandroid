@@ -4,9 +4,10 @@ import React from "react";
 import type { PlayerDamageStatus } from "@/types/f1";
 import { Icon } from "@/components/ui/icons/Icon";
 import { HUD_CAUTION, HUD_GLASS, HUD_LBL, HUD_LOSS } from "./hud-format";
+import { skinCss, SkinPanel, useHudSkin } from "./styles/third-party-skin";
 
 /** Untouched line grey → fog for a scratch → caution → loss, with the damage (the % and the worst part are written beside it) */
-function damageColor(d: number): string {
+export function damageColor(d: number): string {
   if (d < 0.05) return "var(--color-lc-line)";
   if (d < 0.35) return "var(--color-lc-fog)";
   if (d < 0.7) return HUD_CAUTION;
@@ -16,7 +17,7 @@ function damageColor(d: number): string {
 const pct = (d: number) => `${Math.round(d * 100)}%`;
 
 /** The part that is worst off, in a word or two */
-function worstPart(d: PlayerDamageStatus): string {
+export function worstPart(d: PlayerDamageStatus): string {
   const susp = Math.max(...d.suspension);
   const parts: [string, number][] = [
     ["Front wing", d.front],
@@ -33,6 +34,7 @@ function worstPart(d: PlayerDamageStatus): string {
  * marked on its tyre. Shown in an AI race once something is broken.
  */
 export const DamageWidget: React.FC<{ damage: PlayerDamageStatus | undefined }> = ({ damage }) => {
+  const skin = useHudSkin();
   if (!damage) return null;
   // Wheels as drawn: FL, FR, RL, RR from the status order FR, FL, RR, RL
   const wheels = [
@@ -44,8 +46,8 @@ export const DamageWidget: React.FC<{ damage: PlayerDamageStatus | undefined }> 
   const title =
     `Front ${pct(damage.front)} · rear ${pct(damage.rear)} · left ${pct(damage.left)} · right ${pct(damage.right)}` +
     (damage.punctured.some(Boolean) ? " · puncture" : "");
-  return (
-    <div className={`pointer-events-none flex items-center gap-2.5 rounded-lc-tile px-3 py-2 ${HUD_GLASS}`} title={title}>
+  const body = (
+    <>
       <svg viewBox="0 0 56 100" width="34" height="60" aria-hidden="true">
         {/* front wing */}
         <rect x="8" y="2" width="40" height="7" rx="2" fill={damageColor(damage.front)} />
@@ -73,19 +75,32 @@ export const DamageWidget: React.FC<{ damage: PlayerDamageStatus | undefined }> 
         ))}
       </svg>
       <div className="flex flex-col gap-0.5">
-        <span className={HUD_LBL}>Damage</span>
+        <span className={skin ? `text-[9px] font-bold tracking-[0.08em] uppercase ${skinCss.inkDim}` : HUD_LBL}>Damage</span>
         <span className="lc-data text-[18px] leading-none" style={{ color: damage.terminal ? HUD_LOSS : damageColor(Math.max(0.05, damage.overall)) }}>
           {damage.terminal ? "Out" : pct(damage.overall)}
         </span>
         {damage.punctured.some(Boolean) ? (
-          <span className={`${HUD_LBL} inline-flex items-center gap-1 text-lc-loss`}>
+          <span className={`inline-flex items-center gap-1 ${skin ? `text-[9px] font-bold uppercase ${skinCss.inkLoss}` : `${HUD_LBL} text-lc-loss`}`}>
             <Icon name="puncture" size="xs" className="size-3" />
             Puncture
           </span>
         ) : (
-          <span className={HUD_LBL}>{worstPart(damage)}</span>
+          <span className={skin ? `text-[9px] font-bold tracking-[0.06em] uppercase ${skinCss.inkSoft}` : HUD_LBL}>{worstPart(damage)}</span>
         )}
       </div>
+    </>
+  );
+  if (skin) {
+    const tone = damage.terminal || damage.overall >= 0.7 ? "loss" : damage.overall >= 0.35 ? "caution" : "default";
+    return (
+      <SkinPanel cut="sm" tone={tone} className="pointer-events-none" innerClassName="flex items-center gap-2.5 px-3 py-2" title={title}>
+        {body}
+      </SkinPanel>
+    );
+  }
+  return (
+    <div className={`pointer-events-none flex items-center gap-2.5 rounded-lc-tile px-3 py-2 ${HUD_GLASS}`} title={title}>
+      {body}
     </div>
   );
 };

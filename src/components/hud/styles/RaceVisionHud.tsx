@@ -24,10 +24,25 @@ import type { CarTelemetry, RaceStandingEntry } from "@/types/f1";
 import { Icon } from "@/components/ui/icons/Icon";
 import { tokenColor } from "@/components/ui/token-color";
 import { useUnits } from "@/lib/settings/ui-prefs";
-import { aidsActive, formatDelta, formatGap, formatLapTime, formatSpeed, HUD_BEST, HUD_CAUTION, HUD_GAIN, HUD_INFO, HUD_LOSS, HUD_SHIFT, HUD_SLATE, NO_TIME, speedUnit } from "../hud-format";
+import { aidsActive, formatDelta, formatGap, formatLapTime, formatSpeed, formatTemp, HUD_BEST, HUD_CAUTION, HUD_GAIN, HUD_INFO, HUD_LOSS, HUD_SHIFT, HUD_SLATE, NO_TIME, speedUnit } from "../hud-format";
 import { aeroReadout } from "../aero-label";
 import { useHudModeRef } from "../hud-mode";
-import { driverLabel, formatClock, fuelLapsLeft, leaderboardWindow, relativeCars, sessionBestLapMs } from "../third-party-data";
+import { type WeatherHudState } from "../WeatherBadge";
+import {
+  dayClock,
+  driverLabel,
+  evaluateRadar,
+  formatClock,
+  fuelLapsLeft,
+  leaderboardWindow,
+  RADAR_CAR_L,
+  RADAR_CAR_W,
+  RADAR_VIEW_RANGE_M,
+  relativeCars,
+  sessionBestLapMs,
+  SURFACE_WORD,
+  trackSurfaceState,
+} from "../third-party-data";
 import { revLights, useFuelPerLap, useLapHistory, useSessionClock } from "./third-party-parts";
 import { anchor, gearLabel, type HudDesignProps } from "./hud-style-parts";
 import palette from "./racevision.module.css";
@@ -276,7 +291,13 @@ const LIGHTS = 10;
 const PILL_H = 64;
 
 /** The inputs pill: gear dial, shift lights, speed, rpm, delta (and ERS, aero), the TC and ABS lights */
-const InputsPill: React.FC<{ t: CarTelemetry; deltaS: number | null; revRange: [number, number]; narrow: boolean }> = ({ t, deltaS, revRange, narrow }) => {
+const InputsPill: React.FC<{ t: CarTelemetry; deltaS: number | null; revRange: [number, number]; narrow: boolean; showDeltaBar?: boolean }> = ({
+  t,
+  deltaS,
+  revRange,
+  narrow,
+  showDeltaBar = true,
+}) => {
   const units = useUnits();
   const lights = revLights(t.rpm, revRange, LIGHTS);
   const aids = aidsActive(t);
@@ -303,9 +324,11 @@ const InputsPill: React.FC<{ t: CarTelemetry; deltaS: number | null; revRange: [
         <span className="flex items-start justify-around gap-2">
           <Cell label={speedUnit(units).toUpperCase()}>{formatSpeed(t.speedKmh, units)}</Cell>
           {narrow ? null : <Cell label="RPM">{Math.round(t.rpm)}</Cell>}
-          <Cell label="DELTA" color={deltaS === null ? HUD_SLATE : deltaS <= 0 ? HUD_GAIN : HUD_LOSS}>
-            {deltaS === null ? NO_TIME : formatDelta(Math.max(-9.999, Math.min(9.999, deltaS)))}
-          </Cell>
+          {showDeltaBar ? (
+            <Cell label="DELTA" color={deltaS === null ? HUD_SLATE : deltaS <= 0 ? HUD_GAIN : HUD_LOSS}>
+              {deltaS === null ? NO_TIME : formatDelta(Math.max(-9.999, Math.min(9.999, deltaS)))}
+            </Cell>
+          ) : null}
           {hasErs ? (
             <Cell label="ERS" color={t.mgukPowerKw > 0 ? HUD_INFO : undefined}>
               {Math.round(t.ersBatteryPercent)}%
@@ -423,13 +446,112 @@ const InputGraph: React.FC<{ throttle: number; brake: number }> = ({ throttle, b
   );
 };
 
+/** Top-right weather strip in RaceVision's black strip + sharp monospace cell style */
+const WeatherStrip: React.FC<{ weather: WeatherHudState }> = ({ weather }) => {
+  const units = useUnits();
+  const surface = trackSurfaceState(weather.waterMm);
+  const surfaceColor = surface === "dry" ? undefined : surface === "damp" ? "var(--tp-user)" : HUD_INFO;
+  return (
+    <section aria-label="Weather" className={`${PANEL} flex items-center gap-3 border border-white/15 px-3 py-1.5 uppercase`}>
+      {weather.timeMoving ? (
+        <span className="text-[12px] text-(--tp-user) tabular-nums">{dayClock(weather.clockH)}</span>
+      ) : null}
+      <Cell label="AIR">{formatTemp(weather.airC, units)}</Cell>
+      <Cell label="TRK">{formatTemp(weather.trackC, units)}</Cell>
+      <Cell label="SURF" color={surfaceColor}>
+        {SURFACE_WORD[surface]}
+      </Cell>
+      {weather.rain > 0.05 ? (
+        <Cell label="RAIN" color={HUD_INFO}>
+          {`${Math.round(weather.rain * 100)}%`}
+        </Cell>
+      ) : null}
+    </section>
+  );
+};
+
+/** Crisp black square proximity radar matching RaceVision's telemetry aesthetic */
+const RaceVisionRadar: React.FC<{ t: CarTelemetry }> = ({ t }) => {
+  const { blips, leftCar, rightCar, opacity } = evaluateRadar(t.radar ?? []);
+  if (opacity <= 0.01) return null;
+  const range = RADAR_VIEW_RANGE_M;
+  return (
+    <div
+      className="pointer-events-none absolute top-[53%] left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-150 ease-out"
+      style={{ width: 148, height: 148, opacity }}
+    >
+      <div className={`${PANEL} relative size-full border border-white/20`}>
+        {leftCar ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-2 left-0 w-1"
+            style={{ backgroundColor: leftCar.overlapLevel === 2 ? HUD_LOSS : "var(--tp-user)", opacity: Math.max(0.6, leftCar.opacity) }}
+          />
+        ) : null}
+        {rightCar ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-2 right-0 w-1"
+            style={{ backgroundColor: rightCar.overlapLevel === 2 ? HUD_LOSS : "var(--tp-user)", opacity: Math.max(0.6, rightCar.opacity) }}
+          />
+        ) : null}
+        <svg viewBox={`${-range} ${-range} ${range * 2} ${range * 2}`} className="block size-full" role="img" aria-label="Proximity radar">
+          <circle r={8} fill="none" stroke="var(--tp-dim)" strokeOpacity={0.35} strokeWidth={0.3} />
+          <circle r={16} fill="none" stroke="var(--tp-dim)" strokeOpacity={0.2} strokeWidth={0.3} />
+          <line x1={0} y1={-range} x2={0} y2={range} stroke="var(--tp-dim)" strokeOpacity={0.18} strokeWidth={0.25} />
+          <line x1={-range} y1={0} x2={range} y2={0} stroke="var(--tp-dim)" strokeOpacity={0.18} strokeWidth={0.25} />
+          {blips.map(({ blip: b, opacity: carOp, overlapLevel }, i) => (
+            <rect
+              key={i}
+              x={-RADAR_CAR_W / 2}
+              y={-RADAR_CAR_L / 2}
+              width={RADAR_CAR_W}
+              height={RADAR_CAR_L}
+              fill={overlapLevel === 2 ? HUD_LOSS : overlapLevel === 1 ? HUD_CAUTION : b.color}
+              fillOpacity={Math.max(0.35, carOp)}
+              stroke="var(--tp-ink)"
+              strokeWidth={0.35}
+              transform={`translate(${b.x.toFixed(2)} ${(-b.z).toFixed(2)}) rotate(${((b.yaw * 180) / Math.PI).toFixed(1)})`}
+            />
+          ))}
+          <rect
+            x={-RADAR_CAR_W / 2}
+            y={-RADAR_CAR_L / 2}
+            width={RADAR_CAR_W}
+            height={RADAR_CAR_L}
+            fill="var(--tp-user)"
+            stroke="var(--tp-ink)"
+            strokeWidth={0.35}
+          />
+        </svg>
+      </div>
+    </div>
+  );
+};
+
 /**
  * RaceVision: standings top-left, the inputs pill top-centre, the input graph bottom-left and the relative with the
  * MFD bottom-right, in black windows and bold mono. A window under 1024 px wide keeps the standings and moves the pill
  * to the bottom centre (the top is the standings' and the weather's). With the touch controls up (a tablet) the bottom
  * corners are the pads': the relative moves up under the top-right group and the graph steps aside.
  */
-export const RaceVisionHud: React.FC<HudDesignProps> = ({ t, deltaS, map, revRange, scale, mfd, touch, topInset, lapInvalid, towerGaps = "interval", leftExtra, rightExtra }) => {
+export const RaceVisionHud: React.FC<HudDesignProps> = ({
+  t,
+  deltaS,
+  map,
+  revRange,
+  scale,
+  mfd,
+  touch,
+  topInset,
+  lapInvalid,
+  towerGaps = "interval",
+  leftExtra,
+  rightExtra,
+  weather,
+  showDeltaBar,
+  showRadar,
+}) => {
   // Short windows list fewer rows; narrow ones drop the last-lap column and the pill's secondary cells; small ones
   // move the pill to the bottom
   const short = useMedia("(max-height: 600px)");
@@ -437,7 +559,7 @@ export const RaceVisionHud: React.FC<HudDesignProps> = ({ t, deltaS, map, revRan
   const wide = useMedia("(min-width: 1024px)");
   const roomy = useMedia("(min-width: 1280px)");
   const edge = "clamp(14px,2.2vw,24px)";
-  const pill = <InputsPill t={t} deltaS={deltaS} revRange={revRange} narrow={narrow} />;
+  const pill = <InputsPill t={t} deltaS={deltaS} revRange={revRange} narrow={narrow} showDeltaBar={showDeltaBar} />;
   const pillTop = topInset ?? 16;
   // Between 1024 and 1280 px the top-right group would run into the pill: it starts under it instead
   const rightTop = wide && !roomy ? `${pillTop + Math.round(PILL_H * (scale ?? 1)) + 12}px` : edge;
@@ -468,13 +590,15 @@ export const RaceVisionHud: React.FC<HudDesignProps> = ({ t, deltaS, map, revRan
 
       {/* Top-right: weather; with the touch pads up, the relative moves here from the bottom-right */}
       <div className="absolute flex flex-col items-end gap-2" style={{ top: rightTop, right: edge, ...anchor(scale, "top right") }}>
-        {rightExtra}
+        {weather ? <WeatherStrip weather={weather} /> : rightExtra}
         {touch ? (
           <div className="hidden lg:block">
             <Relative t={t} lengthM={map.lengthM} />
           </div>
         ) : null}
       </div>
+
+      {showRadar ? <RaceVisionRadar t={t} /> : null}
 
       {touch ? null : (
         <>

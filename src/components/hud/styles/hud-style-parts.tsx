@@ -2,6 +2,7 @@
 
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { CarTelemetry, TireCompound } from "@/types/f1";
+import type { WeatherHudState } from "@/components/hud/WeatherBadge";
 import { inDeadZone, type BuiltTrackData, type PointToPointDef } from "@/lib/track-data";
 import { Badge, type BadgeSize } from "@/components/ui/Badge";
 import { CHOSEN_PILL, cx, DISABLED, HOVER_PILL, MOTION, PRESSED_PILL } from "@/components/ui/styles";
@@ -130,6 +131,12 @@ export interface HudDesignProps {
   towerGaps?: "interval" | "leader";
   /** Circuit map: the whole lap, or zoomed in heading-up around the car */
   mapMode?: "full" | "local";
+  /** Live weather / time-of-day readings for third-party styles with native weather panels */
+  weather?: WeatherHudState | null;
+  /** Whether the user's Delta bar HUD setting is on */
+  showDeltaBar?: boolean;
+  /** Whether the user's Proximity radar HUD setting is on */
+  showRadar?: boolean;
 }
 
 /** Rev light range of the car (the same as the classic speed cluster's) */

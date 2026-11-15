@@ -9,7 +9,9 @@
 import type { CarTelemetry, RaceStandingEntry } from '../src/types/f1';
 import {
   completedLap,
+  dayClock,
   driverLabel,
+  evaluateRadar,
   formatClock,
   fuelLapsLeft,
   idealLapMs,
@@ -18,6 +20,8 @@ import {
   referenceLapS,
   relativeCars,
   sessionBestLapMs,
+  SURFACE_WORD,
+  trackSurfaceState,
   wrapLap,
 } from '../src/components/hud/third-party-data';
 import { revLights } from '../src/components/hud/styles/third-party-parts';
@@ -136,6 +140,25 @@ check('rev lights: lit and shift exactly as the wheel', same);
 const bands = revLights(13_000, [10_800, 14_600], 15);
 check('rev lights: each light in its band\'s colour', bands.color(0).includes('green') && bands.color(14).includes('cyan') && revLedBand(14, 15) === 'shift');
 check('rev lights: every light the shift colour at the shift point', Array.from({ length: 10 }, (_, i) => revLights(15_000, [10_800, 14_600], 10).color(i)).every((c) => c.includes('cyan')));
+
+// ---- Weather & radar helpers
+
+check('surface: wetness thresholds', trackSurfaceState(0.01) === 'dry' && trackSurfaceState(0.05) === 'damp' && trackSurfaceState(0.5) === 'wet' && trackSurfaceState(1.2) === 'flooded');
+check('surface: words cover every state', SURFACE_WORD.dry === 'Dry' && SURFACE_WORD.damp === 'Damp' && SURFACE_WORD.wet === 'Wet' && SURFACE_WORD.flooded === 'Flooded');
+check('dayClock: wraps 24h cleanly', dayClock(9.5) === '09:30' && dayClock(24.25) === '00:15' && dayClock(-1) === '23:00');
+const radarEmpty = evaluateRadar([]);
+check('radar: empty field stays invisible', radarEmpty.blips.length === 0 && radarEmpty.opacity === 0 && !radarEmpty.leftCar && !radarEmpty.rightCar);
+const radarTraffic = evaluateRadar([
+  { x: 0, z: 18, yaw: 0, color: '#ffffff' },
+  { x: -3.2, z: 1.5, yaw: 0, color: '#ff0000' },
+  { x: 4.8, z: 5.0, yaw: 0, color: '#00ff00' },
+  { x: 0, z: -35, yaw: 0, color: '#0000ff' },
+]);
+check('radar: car far dead ahead fades out', radarTraffic.blips.every((b) => Math.abs(b.blip.x) > 0));
+check('radar: front-cone & out-of-range blips filtered', radarTraffic.blips.length === 2);
+check('radar: closer side overlap level 2 on left', radarTraffic.leftCar?.overlapLevel === 2 && radarTraffic.leftCar.side === -1);
+check('radar: outer overlap level 1 on right', radarTraffic.rightCar?.overlapLevel === 1 && radarTraffic.rightCar.side === 1);
+check('radar: active traffic raises opacity to 1', near(radarTraffic.opacity, 1));
 
 if (failures.length) {
   console.error(`\n${failures.length} check(s) failed:\n  ${failures.join('\n  ')}`);

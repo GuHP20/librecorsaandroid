@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/icons/Icon";
 import { HUD_GLASS } from "./hud-format";
+import { SkinBanner, useHudSkin } from "./styles/third-party-skin";
 
 /** How long the note stays up (ms) */
 const SHOWN_MS = 4000;
@@ -22,6 +23,7 @@ const seen = new WeakSet<Notice>();
  * step down (drive-session.ts says so at most once a minute), never anything to press. Read out politely.
  */
 export function QualityNotice({ notice }: { notice: Notice | null }) {
+  const skin = useHudSkin();
   const [shown, setShown] = useState<Notice | null>(null);
   useEffect(() => {
     if (!notice || seen.has(notice)) return;
@@ -38,10 +40,22 @@ export function QualityNotice({ notice }: { notice: Notice | null }) {
   return (
     <div role="status" aria-live="polite" className="contents">
       {shown ? (
-        <div key={shown.id} className={`lc-toast-in inline-flex min-h-9 items-center gap-2 rounded-full py-1 pr-4 pl-3 text-lc-fog ${HUD_GLASS}`}>
-          <Icon name="graphics" size="xs" />
-          <span className="text-[13px] leading-snug font-semibold">{TEXT[shown.kind]}</span>
-        </div>
+        skin !== null ? (
+          <SkinBanner
+            key={shown.id}
+            tone="caution"
+            cut="sm"
+            className="lc-toast-in inline-flex min-h-9 items-center gap-2 py-1 pr-4 pl-3"
+          >
+            <Icon name="graphics" size="xs" />
+            <span className="text-[13px] leading-snug font-semibold">{TEXT[shown.kind]}</span>
+          </SkinBanner>
+        ) : (
+          <div key={shown.id} className={`lc-toast-in inline-flex min-h-9 items-center gap-2 rounded-full py-1 pr-4 pl-3 text-lc-fog ${HUD_GLASS}`}>
+            <Icon name="graphics" size="xs" />
+            <span className="text-[13px] leading-snug font-semibold">{TEXT[shown.kind]}</span>
+          </div>
+        )
       ) : null}
     </div>
   );

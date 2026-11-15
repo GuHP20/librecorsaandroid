@@ -67,6 +67,17 @@ import { HeadToHeadHud } from "./hud/styles/HeadToHeadHud";
 import { RetroHud } from "./hud/styles/RetroHud";
 import { BlocksHud } from "./hud/styles/BlocksHud";
 import { HudRunProvider } from "./hud/styles/third-party-parts";
+import {
+  HudSkinProvider,
+  SkinBanner,
+  SkinButton,
+  SkinPanel,
+  SkinTag,
+  type SkinTone,
+  skinCss,
+  skinRootClass,
+  thirdPartySkinOf,
+} from "./hud/styles/third-party-skin";
 import { useUiZoom } from "@/lib/ui-zoom";
 import { buildHudMap, revRangeOf, useLapInvalid, type HudDesignProps } from "./hud/styles/hud-style-parts";
 import type { BoardWidgetMode, HudPreset } from "@/lib/settings/player-settings";
@@ -92,6 +103,10 @@ interface HudStyleDef {
   topClearance?: number;
   /** The style shows the live delta at the top centre itself: the shared delta bar stays off */
   ownDeltaBar?: boolean;
+  /** The style draws its own proximity radar or spotter: the shared radar stays off */
+  ownRadar?: boolean;
+  /** The style draws car damage inside its own condition panel: the shared DamageWidget stays off */
+  ownDamage?: boolean;
 }
 
 /** The full-screen HUD styles; Classic and Minimal use the corner panels below */
@@ -100,11 +115,11 @@ const HUD_STYLES: Partial<Record<HudPreset, HudStyleDef>> = {
   dash: { component: WheelDashHud, bottomClearance: 252 },
   telemetry: { component: TelemetryHud, bottomClearance: 252, ownTrace: true, ownsBottomLeft: true, mfdFolded: true },
   // Third-party layouts (hud-layouts.ts), recreated from other open-source HUD projects
-  irdashies: { component: IrDashiesHud, bottomClearance: 200, ownTrace: true, mfdFolded: true },
-  racevision: { component: RaceVisionHud, bottomClearance: 200, ownTrace: true, ownsBottomLeft: true, mfdFolded: true, topClearance: 80, ownDeltaBar: true },
-  h2h: { component: HeadToHeadHud, bottomClearance: 200, ownsBottomLeft: true, mfdFolded: true },
-  retro: { component: RetroHud, bottomClearance: 292, ownsBottomLeft: true, mfdFolded: true, topClearance: 120, ownDeltaBar: true },
-  blocks: { component: BlocksHud, bottomClearance: 200, ownsBottomLeft: true, mfdFolded: true, topClearance: 124, ownDeltaBar: true },
+  irdashies: { component: IrDashiesHud, bottomClearance: 200, ownTrace: true, ownsBottomLeft: true, mfdFolded: true, ownDeltaBar: true, ownRadar: true },
+  racevision: { component: RaceVisionHud, bottomClearance: 200, ownTrace: true, ownsBottomLeft: true, mfdFolded: true, topClearance: 80, ownDeltaBar: true, ownRadar: true },
+  h2h: { component: HeadToHeadHud, bottomClearance: 200, ownsBottomLeft: true, mfdFolded: true, ownDeltaBar: true, ownRadar: true },
+  retro: { component: RetroHud, bottomClearance: 292, ownsBottomLeft: true, mfdFolded: true, topClearance: 120, ownDeltaBar: true, ownRadar: true, ownDamage: true },
+  blocks: { component: BlocksHud, bottomClearance: 200, ownsBottomLeft: true, mfdFolded: true, topClearance: 124, ownDeltaBar: true, ownRadar: true },
 };
 /** Every preset gives way to the Phone HUD on a phone-sized screen, and the game's own wherever the touch controls are up (`showsPhoneHud`) */
 const PHONE_STYLE: HudStyleDef = { component: PhoneHud, bottomClearance: 16 };
@@ -344,17 +359,31 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
 
   const lightsPhase = race?.phase === "lights";
   const style = phone ? PHONE_STYLE : HUD_STYLES[preset];
+  const thirdPartySkin = thirdPartySkinOf(preset, phone);
+  const isThirdParty = thirdPartySkin !== null;
+  const showDelta = Boolean(hud?.deltaBar && !phone && !lightsPhase);
+  const showRadar = hud?.radar !== false && !lightsPhase;
   const classic = !phone && preset === "classic";
   const minimal = !phone && preset === "minimal";
   // Split gaps (AI races, multiplayer) and weather sit under the top corner groups, not in the middle of the screen
   const splitsNode =
-    hud?.splitGaps !== false && !phone && !lightsPhase && race?.phase === "racing" ? <SplitGaps splits={race.splits} variant="panel" /> : null;
+    hud?.splitGaps !== false && !isThirdParty && !phone && !lightsPhase && race?.phase === "racing" ? (
+      <SplitGaps splits={race.splits} variant="panel" />
+    ) : null;
   // The split gaps, and the car's damage once something is broken (AI race)
+  const damageNode =
+    race?.damage && (!style?.ownDamage || touch) ? (
+      <DamageWidget damage={race.damage} />
+    ) : race?.damage && style?.ownDamage ? (
+      <div className="hidden compact:block">
+        <DamageWidget damage={race.damage} />
+      </div>
+    ) : null;
   const gapsNode =
-    splitsNode || race?.damage ? (
+    splitsNode || damageNode ? (
       <>
         {splitsNode}
-        <DamageWidget damage={race?.damage} />
+        {damageNode}
       </>
     ) : null;
   const weatherNode = props.weather && !phone && !minimal && !lightsPhase ? <WeatherBadge weather={props.weather} variant="panel" /> : null;
@@ -396,13 +425,44 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   const showFfb = Boolean(props.ffbMeter) && classic;
   const scale = (hud?.scale ?? 1) * uiZoom;
   // A style's own top-centre group (under the virtual mirror when that is up): the notices start below it
-  const topClearance = phone ? 0 : (style?.topClearance ?? 0);
+  const topClearance = phone
+    ? 0
+    : thirdPartySkin === "irdashies"
+      ? showDelta
+        ? 52
+        : 0
+      : thirdPartySkin === "h2h"
+        ? race && showDelta
+          ? 56
+          : 0
+        : thirdPartySkin === "retro"
+          ? showDelta
+            ? 120
+            : 0
+          : thirdPartySkin === "blocks"
+            ? lightsPhase
+              ? 52
+              : showDelta
+                ? 124
+                : 52
+            : (style?.topClearance ?? 0);
   // Touch screens have no Esc key: a Menu button opens the pause menu
   const menuButton = (
     <span className="pointer-events-auto hidden pointer-coarse:block">
-      <Button variant="secondary" size="md" icon={<Icon name="menu" />} onClick={props.onTogglePause} onPointerEnter={keepFocusOffHover}>
-        Menu
-      </Button>
+      {isThirdParty ? (
+        <SkinButton
+          onClick={props.onTogglePause}
+          onPointerEnter={keepFocusOffHover}
+          className="h-9 gap-2 px-3.5 text-[12px] font-bold uppercase"
+        >
+          <Icon name="menu" size="sm" />
+          Menu
+        </SkinButton>
+      ) : (
+        <Button variant="secondary" size="md" icon={<Icon name="menu" />} onClick={props.onTogglePause} onPointerEnter={keepFocusOffHover}>
+          Menu
+        </Button>
+      )}
     </span>
   );
   /** Scales a corner group of the HUD about that corner */
@@ -425,16 +485,27 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
   );
 
   const hidden = hudMode === "hidden";
+  const aeroSkinTone: SkinTone =
+    aeroNoticeNow?.tone === "good"
+      ? "gain"
+      : aeroNoticeNow?.tone === "warn"
+        ? "caution"
+        : aeroNoticeNow?.tone === "bad"
+          ? "loss"
+          : aeroNoticeNow?.tone === "info" || aeroNoticeNow?.tone === "best"
+            ? "info"
+            : "default";
   return (
     <HudModeContext.Provider value={hudMode}>
+    <HudSkinProvider skin={thirdPartySkin}>
     {/* The corner groups keep clear of a notch and the home indicator, and past 2.4:1 (a 32:9 screen) they keep to
         a centred frame instead of the far edges. What belongs to the whole window is fixed to it instead. */}
     <div
       inert={hidden}
-      className={`lc-safe-frame pointer-events-none fixed z-20 mx-auto max-w-[calc(100vh*2.4)] select-none p-3 sm:p-4 ${hidden ? "invisible" : ""}`}
+      className={`lc-safe-frame pointer-events-none fixed z-20 mx-auto max-w-[calc(100vh*2.4)] select-none p-3 sm:p-4 ${hidden ? "invisible" : ""} ${skinRootClass(thirdPartySkin) ?? ""}`}
     >
       {/* Proximity radar: centred just under the horizon, invisible until a car is within 25 m */}
-      {hud?.radar !== false && !hudHidden && !lightsPhase && !phone ? (
+      {hud?.radar !== false && !style?.ownRadar && !hudHidden && !lightsPhase && !phone ? (
         <div className="absolute top-[58%] left-1/2 -translate-x-1/2 -translate-y-1/2">
           <ProximityRadar blips={telemetry.radar} />
         </div>
@@ -470,7 +541,10 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           towerGaps={hud?.towerGaps}
           mapMode={hud?.mapMode}
           leftExtra={leftNode}
-          rightExtra={weatherNode}
+          rightExtra={isThirdParty ? null : weatherNode}
+          weather={!lightsPhase ? (props.weather ?? null) : null}
+          showDeltaBar={showDelta}
+          showRadar={showRadar}
         />
       ) : (
         /* Classic / Minimal top-left: timing tower (race) and lap timing */
@@ -487,7 +561,9 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
       {mirrorRect && !hudHidden ? (
         <div
           aria-hidden
-          className="fixed rounded-md shadow-[0_0_0_3px_var(--color-lc-void),0_0_0_4px_rgb(255_255_255/0.14),0_14px_40px_rgb(0_0_0/0.5)]"
+          className={`fixed shadow-[0_0_0_3px_var(--color-lc-void),0_0_0_4px_rgb(255_255_255/0.14),0_14px_40px_rgb(0_0_0/0.5)] ${
+            isThirdParty && thirdPartySkin !== "irdashies" ? "rounded-none" : "rounded-md"
+          }`}
           style={{ left: mirrorRect.x, top: mirrorRect.y, width: mirrorRect.w, height: mirrorRect.h }}
         />
       ) : null}
@@ -510,63 +586,122 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
             layouts that show the delta up here themselves */}
         {hud?.deltaBar && !phone && !style?.ownDeltaBar && !lightsPhase ? <DeltaBar deltaS={deltaS} runId={telemetry.runId ?? 0} /> : null}
         {!lightsPhase ? (
-          <RaceControlBanner status={telemetry.trackLimits} offTrack={telemetry.offTrack} race={Boolean(race)} />
+          <RaceControlBanner status={telemetry.trackLimits} offTrack={telemetry.offTrack} race={Boolean(race)} yellow={Boolean(race?.yellow)} />
         ) : null}
         {!lightsPhase && race ? <RaceIncidentFeed messages={race.raceControl} yellow={race.yellow} /> : null}
         {aeroNoticeNow ? (
-          <div role="status" className={`inline-flex min-h-10 items-center gap-2.5 rounded-full py-1 pr-5 pl-2 text-lc-chalk ${HUD_GLASS}`}>
-            <Badge tone={aeroNoticeNow.tone} variant={aeroNoticeNow.variant} size="lg" icon={aeroNoticeNow.icon}>
-              {aeroNoticeNow.badge}
-            </Badge>
-            <span className="lc-disp text-[16px]">{aeroNoticeNow.text}</span>
-          </div>
+          isThirdParty ? (
+            <SkinBanner
+              role="status"
+              tone={aeroSkinTone}
+              cut="sm"
+              className="inline-flex min-h-10 items-center gap-2.5 py-1 pr-4 pl-2.5"
+            >
+              <SkinTag
+                tone={aeroSkinTone}
+                filled={aeroNoticeNow.variant === "solid"}
+                className="px-2 py-0.5 text-[11px] font-bold uppercase"
+              >
+                {aeroNoticeNow.icon ? <Icon name={aeroNoticeNow.icon} size="xs" /> : null}
+                {aeroNoticeNow.badge}
+              </SkinTag>
+              <span className="text-[15px] font-bold">{aeroNoticeNow.text}</span>
+            </SkinBanner>
+          ) : (
+            <div role="status" className={`inline-flex min-h-10 items-center gap-2.5 rounded-full py-1 pr-5 pl-2 text-lc-chalk ${HUD_GLASS}`}>
+              <Badge tone={aeroNoticeNow.tone} variant={aeroNoticeNow.variant} size="lg" icon={aeroNoticeNow.icon}>
+                {aeroNoticeNow.badge}
+              </Badge>
+              <span className="lc-disp text-[16px]">{aeroNoticeNow.text}</span>
+            </div>
+          )
         ) : null}
         {/* Under the driving notices in the same column: stacked, never over them */}
         <QualityNotice notice={props.qualityNotice ?? null} />
         {showLaunchHint && !race ? (
-          <div className={`inline-flex min-h-11 items-center gap-3 rounded-full py-1.5 pr-5 pl-2 ${HUD_GLASS}`}>
-            <span className="inline-flex size-7.5 flex-none items-center justify-center rounded-full bg-lc-line text-lc-chalk">
+          isThirdParty ? (
+            <SkinBanner cut="sm" className="inline-flex min-h-10 items-center gap-2.5 py-1.5 pr-4 pl-3">
               <Icon name="play" size="xs" />
-            </span>
-            <span className="lc-title text-[13px] text-lc-chalk sm:text-[15px]">{launchHintText}</span>
-          </div>
+              <span className="text-[13px] font-semibold sm:text-[14px]">{launchHintText}</span>
+            </SkinBanner>
+          ) : (
+            <div className={`inline-flex min-h-11 items-center gap-3 rounded-full py-1.5 pr-5 pl-2 ${HUD_GLASS}`}>
+              <span className="inline-flex size-7.5 flex-none items-center justify-center rounded-full bg-lc-line text-lc-chalk">
+                <Icon name="play" size="xs" />
+              </span>
+              <span className="lc-title text-[13px] text-lc-chalk sm:text-[15px]">{launchHintText}</span>
+            </div>
+          )
         ) : null}
         {props.wheelUncalibrated && !race ? (
           <span className="pointer-events-auto">
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Icon name="warning" className="text-lc-caution" />}
-              onClick={() => props.onOpenControls?.()}
-              onPointerEnter={keepFocusOffHover}
-            >
-              Pedals not set up: calibrate throttle and brake
-            </Button>
+            {isThirdParty ? (
+              <SkinButton
+                onClick={() => props.onOpenControls?.()}
+                onPointerEnter={keepFocusOffHover}
+                className="h-9 gap-2 px-3.5 text-[12px] font-semibold"
+              >
+                <Icon name="warning" size="xs" className={skinCss.inkCaution} />
+                Pedals not set up: calibrate throttle and brake
+              </SkinButton>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Icon name="warning" className="text-lc-caution" />}
+                onClick={() => props.onOpenControls?.()}
+                onPointerEnter={keepFocusOffHover}
+              >
+                Pedals not set up: calibrate throttle and brake
+              </Button>
+            )}
           </span>
         ) : null}
         {lightsPhase ? (
-          <div className={`inline-flex h-11 items-center gap-3 rounded-full pr-5 pl-2 ${HUD_GLASS}`}>
-            <span className="inline-flex size-7.5 flex-none items-center justify-center rounded-full bg-lc-line text-lc-chalk">
+          isThirdParty ? (
+            <SkinBanner cut="sm" className="inline-flex h-10 items-center gap-2.5 pr-4 pl-3">
               <Icon name="play" size="xs" />
-            </span>
-            <span className="lc-title lc-breathe text-[13px] text-lc-chalk sm:text-[15px]">
-              Hold the throttle · go when the lights go out
-            </span>
-          </div>
+              <span className="lc-breathe text-[13px] font-semibold sm:text-[14px]">
+                Hold the throttle · go when the lights go out
+              </span>
+            </SkinBanner>
+          ) : (
+            <div className={`inline-flex h-11 items-center gap-3 rounded-full pr-5 pl-2 ${HUD_GLASS}`}>
+              <span className="inline-flex size-7.5 flex-none items-center justify-center rounded-full bg-lc-line text-lc-chalk">
+                <Icon name="play" size="xs" />
+              </span>
+              <span className="lc-title lc-breathe text-[13px] text-lc-chalk sm:text-[15px]">
+                Hold the throttle · go when the lights go out
+              </span>
+            </div>
+          )
         ) : null}
         {mouseSteerEnabled ? (
-          <div className={`flex flex-col items-center gap-1.5 rounded-lc-tile px-4 py-2 ${HUD_GLASS}`}>
-            <span className={HUD_LBL} style={{ color: HUD_INFO }}>
-              Mouse steering · V to exit
-            </span>
-            <span className="relative h-2 w-44 overflow-hidden rounded-full bg-lc-titanium">
-              <span className="absolute inset-y-0 left-1/2 w-px bg-lc-chalk/40" />
-              <span
-                className="absolute inset-y-0 w-2.5 -translate-x-1/2 rounded-full"
-                style={{ left: `${50 + telemetry.steering * 48}%`, backgroundColor: HUD_INFO }}
-              />
-            </span>
-          </div>
+          isThirdParty ? (
+            <SkinPanel cut="sm" innerClassName="flex flex-col items-center gap-1.5 px-4 py-2">
+              <span className={`text-[10px] font-bold uppercase ${skinCss.inkInfo}`}>Mouse steering · V to exit</span>
+              <span className={`relative h-2 w-44 overflow-hidden ${skinCss.bgDeep} ${skinCss.radiusSm}`}>
+                <span className={`absolute inset-y-0 left-1/2 w-px ${skinCss.fillDim}`} />
+                <span
+                  className={`absolute inset-y-0 w-2.5 -translate-x-1/2 ${skinCss.radiusSm} ${skinCss.fillInfo}`}
+                  style={{ left: `${50 + telemetry.steering * 48}%` }}
+                />
+              </span>
+            </SkinPanel>
+          ) : (
+            <div className={`flex flex-col items-center gap-1.5 rounded-lc-tile px-4 py-2 ${HUD_GLASS}`}>
+              <span className={HUD_LBL} style={{ color: HUD_INFO }}>
+                Mouse steering · V to exit
+              </span>
+              <span className="relative h-2 w-44 overflow-hidden rounded-full bg-lc-titanium">
+                <span className="absolute inset-y-0 left-1/2 w-px bg-lc-chalk/40" />
+                <span
+                  className="absolute inset-y-0 w-2.5 -translate-x-1/2 rounded-full"
+                  style={{ left: `${50 + telemetry.steering * 48}%`, backgroundColor: HUD_INFO }}
+                />
+              </span>
+            </div>
+          )
         ) : null}
       </div>
       </div>
@@ -688,12 +823,22 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
       )}
 
       {hiddenNote ? (
-        <div
-          role="status"
-          className={`lc-panel-in absolute bottom-6 left-1/2 inline-flex h-9 -translate-x-1/2 items-center rounded-full px-4 lc-title text-[13px] text-lc-chalk ${HUD_GLASS}`}
-        >
-          HUD hidden{props.hudToggleButton ? ` · ${props.hudToggleButton} brings it back` : ""}
-        </div>
+        isThirdParty ? (
+          <SkinBanner
+            role="status"
+            cut="sm"
+            className="lc-panel-in absolute bottom-6 left-1/2 inline-flex h-9 -translate-x-1/2 items-center px-4 text-[13px] font-semibold"
+          >
+            HUD hidden{props.hudToggleButton ? ` · ${props.hudToggleButton} brings it back` : ""}
+          </SkinBanner>
+        ) : (
+          <div
+            role="status"
+            className={`lc-panel-in absolute bottom-6 left-1/2 inline-flex h-9 -translate-x-1/2 items-center rounded-full px-4 lc-title text-[13px] text-lc-chalk ${HUD_GLASS}`}
+          >
+            HUD hidden{props.hudToggleButton ? ` · ${props.hudToggleButton} brings it back` : ""}
+          </div>
+        )
       ) : null}
 
       {/* Portalled to the page: places itself bottom right over the MFD and dash, top centre on touch */}
@@ -754,6 +899,7 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
         covered={props.pauseMenuCovered}
       />
     ) : null}
+    </HudSkinProvider>
     </HudModeContext.Provider>
   );
 };

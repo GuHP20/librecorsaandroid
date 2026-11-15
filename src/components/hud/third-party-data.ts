@@ -1,4 +1,4 @@
-import type { CarTelemetry, RaceStandingEntry } from "@/types/f1";
+import type { CarTelemetry, RaceStandingEntry, RadarBlip } from "@/types/f1";
 
 /**
  * Readings the third-party HUD layouts share (styles/*Hud.tsx from other projects): the cars around the player on the
@@ -140,4 +140,123 @@ export function completedLap(
   const s2 = prevSectorsMs[1] > 0 ? prevSectorsMs[1] : null;
   const s3 = s1 !== null && s2 !== null && lapMs - s1 - s2 > 0 ? lapMs - s1 - s2 : null;
   return { lap, ms: lapMs, sectorsMs: [s1, s2, s3], valid };
+}
+
+export type TrackSurfaceState = "dry" | "damp" | "wet" | "flooded";
+
+/** Track wetness word thresholds shared with WeatherBadge */
+export function trackSurfaceState(wetness: number): TrackSurfaceState {
+  if (wetness < 0.03) return "dry";
+  if (wetness < 0.14) return "damp";
+  if (wetness < 1.1) return "wet";
+  return "flooded";
+}
+
+export const SURFACE_WORD: Record<TrackSurfaceState, string> = {
+  dry: "Dry",
+  damp: "Damp",
+  wet: "Wet",
+  flooded: "Flooded",
+};
+
+/** 24-hour clock HH:MM from time-of-day in hours */
+export function dayClock(hours: number): string {
+  const m = ((Math.round(hours * 60) % (24 * 60)) + 24 * 60) % (24 * 60);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+export const RADAR_CAR_W = 2.0;
+export const RADAR_CAR_L = 5.2;
+export const RADAR_DISTANCE_THRESHOLD_M = 30.0;
+export const RADAR_OPACITY_THRESHOLD_M = 8.0;
+export const RADAR_VIEW_RANGE_M = 25.0;
+const RADAR_FRONT_FADE_ARC_DEG = 90.0;
+const RADAR_FRONT_FADE_SPAN_DEG = 10.0;
+const RADAR_OVERLAP_LEVEL1_Z = RADAR_CAR_L * 1.2;
+const RADAR_OVERLAP_LEVEL2_Z = RADAR_CAR_L * 0.8;
+const RADAR_OVERLAP_MAX_X = 8.0;
+
+export interface EvaluatedRadarBlip {
+  blip: RadarBlip;
+  dist: number;
+  opacity: number;
+  overlapLevel: 0 | 1 | 2;
+  side: -1 | 0 | 1;
+}
+
+export interface EvaluatedRadar {
+  blips: EvaluatedRadarBlip[];
+  leftCar: EvaluatedRadarBlip | null;
+  rightCar: EvaluatedRadarBlip | null;
+  opacity: number;
+}
+
+function closerSideCar(best: EvaluatedRadarBlip | null, candidate: EvaluatedRadarBlip): EvaluatedRadarBlip {
+  if (!best) return candidate;
+  if (candidate.overlapLevel !== best.overlapLevel) return candidate.overlapLevel > best.overlapLevel ? candidate : best;
+  const dx = Math.abs(candidate.blip.x) - Math.abs(best.blip.x);
+  if (dx !== 0) return dx < 0 ? candidate : best;
+  return candidate.dist < best.dist ? candidate : best;
+}
+
+/**
+ * Evaluates raw proximity radar blips for longitudinal/radial fade-out, a 90° forward sightline exclusion cone,
+ * and two-stage side overlap warnings matching the shared proximity radar thresholds.
+ */
+export function evaluateRadar(blips: readonly RadarBlip[]): EvaluatedRadar {
+  const evaluated: EvaluatedRadarBlip[] = [];
+  let leftCar: EvaluatedRadarBlip | null = null;
+  let rightCar: EvaluatedRadarBlip | null = null;
+  let maxOpacity = 0;
+
+  for (const blip of blips) {
+    const dist = Math.hypot(blip.x, blip.z);
+    if (dist > RADAR_DISTANCE_THRESHOLD_M) continue;
+
+    const absX = Math.abs(blip.x);
+    const absZ = Math.abs(blip.z);
+    const effDist = Math.max(absZ, dist * 0.75);
+    const alphaZ = Math.max(
+      0,
+      Math.min(1, 1 - (effDist - RADAR_OPACITY_THRESHOLD_M) / (RADAR_DISTANCE_THRESHOLD_M - RADAR_OPACITY_THRESHOLD_M)),
+    );
+    const angleDeg = Math.abs((Math.atan2(blip.x, blip.z) * 180) / Math.PI);
+    const alphaAngle = Math.max(
+      0,
+      Math.min(1, (angleDeg - RADAR_FRONT_FADE_ARC_DEG * 0.5 + RADAR_FRONT_FADE_SPAN_DEG * 0.5) / RADAR_FRONT_FADE_SPAN_DEG),
+    );
+    const opacity = alphaZ * alphaAngle;
+    if (opacity <= 0.01) continue;
+
+    const overlapLevel: 0 | 1 | 2 =
+      absX < RADAR_OVERLAP_MAX_X && absZ < RADAR_OVERLAP_LEVEL2_Z
+        ? 2
+        : absX < RADAR_OVERLAP_MAX_X && absZ < RADAR_OVERLAP_LEVEL1_Z
+          ? 1
+          : 0;
+
+    const side: -1 | 0 | 1 = overlapLevel > 0 ? (blip.x < 0 ? -1 : blip.x > 0 ? 1 : 0) : 0;
+    const item: EvaluatedRadarBlip = { blip, dist, opacity, overlapLevel, side };
+
+    evaluated.push(item);
+    if (side === -1) leftCar = closerSideCar(leftCar, item);
+    if (side === 1) rightCar = closerSideCar(rightCar, item);
+    if (opacity > maxOpacity) maxOpacity = opacity;
+  }
+
+  return { blips: evaluated, leftCar, rightCar, opacity: maxOpacity };
+}
+
+/** SVG path for a side proximity warning arc around the player car */
+export function radarSideArcPath(side: -1 | 1, target: EvaluatedRadarBlip): string {
+  const absX = Math.abs(target.blip.x);
+  const r = Math.max(3.0, Math.min(8.2, absX));
+  const baseAngle = side === 1 ? 0 : Math.PI;
+  const bearingShift = Math.atan2(target.blip.z, Math.max(2.5, absX)) * 0.45;
+  const centerAngle = baseAngle + side * bearingShift;
+  const halfSpan = (35 * Math.PI) / 180;
+  const a0 = centerAngle - halfSpan;
+  const a1 = centerAngle + halfSpan;
+  const p = (a: number) => `${(Math.cos(a) * r).toFixed(2)} ${(-Math.sin(a) * r).toFixed(2)}`;
+  return `M ${p(a0)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 0 ${p(a1)}`;
 }

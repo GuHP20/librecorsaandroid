@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import { useHudModeRef } from "./hud-mode";
 import { tokenColor } from "@/components/ui/token-color";
 import { HUD_BRAKE, HUD_GLASS, HUD_INFO, HUD_LBL, HUD_THROTTLE } from "./hud-format";
+import { skinCss, SkinPanel, useHudSkin } from "./styles/third-party-skin";
 
 /** Canvas size in CSS pixels */
 const WIDTH = 260;
@@ -47,6 +48,8 @@ interface InputTraceProps {
   aside?: React.ReactNode;
   /** Road-wheel angle at full lock (deg): the legend then reads the road-wheel angle in degrees */
   steerLockDeg?: number;
+  /** Omit the built-in glass container when embedded directly inside a third-party panel */
+  frameless?: boolean;
 }
 
 /**
@@ -54,7 +57,8 @@ interface InputTraceProps {
  * the player asked for where the car gave something else: the pedal under TC or ABS, and the steering input against
  * the road-wheel angle (a held key against the angle the steering assist holds the tyres at).
  */
-export const InputTrace: React.FC<InputTraceProps> = ({ sample, seconds = 5, width = WIDTH, aside, steerLockDeg }) => {
+export const InputTrace: React.FC<InputTraceProps> = ({ sample, seconds = 5, width = WIDTH, aside, steerLockDeg, frameless = false }) => {
+  const skin = useHudSkin();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ringRef = useRef<Ring>({ buf: new Array<Point | undefined>(CAPACITY), head: 0, count: 0 });
   const { throttle, brake, steering, steerInput, throttleOut, brakeOut, ffbClip } = sample;
@@ -228,10 +232,11 @@ export const InputTrace: React.FC<InputTraceProps> = ({ sample, seconds = 5, wid
     return () => cancelAnimationFrame(raf);
   }, [seconds, width, hasAside]);
 
-  return (
-    <section aria-label="Inputs" className={`inline-flex flex-col gap-1.5 rounded-lc-tile px-3 pt-2 pb-2.5 ${HUD_GLASS}`}>
+  const legendClass = `flex items-center gap-2.5 text-[9px] font-bold tracking-[0.12em] uppercase ${skin || frameless ? skinCss.inkDim : "text-lc-slate"}`;
+  const inner = (
+    <>
       {/* The legend names the traces; the panel needs no title of its own */}
-      <div className={`flex items-center gap-2.5 ${HUD_LBL} tracking-[0.12em]`}>
+      <div className={legendClass}>
         <span style={{ color: HUD_THROTTLE }}>Thr</span>
         <span style={{ color: HUD_BRAKE }}>Brk</span>
         <span style={{ color: HUD_INFO }} title="Road wheels solid, your input dashed">
@@ -246,11 +251,35 @@ export const InputTrace: React.FC<InputTraceProps> = ({ sample, seconds = 5, wid
           ref={canvasRef}
           role="img"
           aria-label="Throttle, brake and steering trace: dashed steering is your input, solid the road-wheel angle"
-          className="block rounded-lg"
+          className={`block ${skin && !frameless ? skinCss.radiusSm : frameless ? "rounded-sm" : "rounded-lg"}`}
           style={{ width, height: HEIGHT }}
         />
         {aside}
       </div>
+    </>
+  );
+
+  if (frameless) {
+    return (
+      <section aria-label="Inputs" className="inline-flex flex-col gap-1.5">
+        {inner}
+      </section>
+    );
+  }
+
+  if (skin) {
+    return (
+      <SkinPanel cut="sm" innerClassName="inline-flex flex-col gap-1.5 px-3 pt-2 pb-2.5">
+        <section aria-label="Inputs" className="contents">
+          {inner}
+        </section>
+      </SkinPanel>
+    );
+  }
+
+  return (
+    <section aria-label="Inputs" className={`inline-flex flex-col gap-1.5 rounded-lc-tile px-3 pt-2 pb-2.5 ${HUD_GLASS}`}>
+      {inner}
     </section>
   );
 };

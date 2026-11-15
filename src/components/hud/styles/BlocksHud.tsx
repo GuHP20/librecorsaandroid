@@ -6,7 +6,7 @@
  * (GPL-3.0); section 13 of the GPL v3 lets it be combined with LibreCorsa's AGPL-3.0 code, and the combined game is
  * under the AGPL-3.0. The licence text and notice are in THIRD_PARTY_NOTICES.md.
  *
- * Modified 15 November 2026 for LibreCorsa: rewritten from Lua to React/TypeScript, reading LibreCorsa's telemetry,
+ * Modified 16 November 2026 for LibreCorsa: rewritten from Lua to React/TypeScript, reading LibreCorsa's telemetry,
  * with the source's look kept (flat black blocks at its opacities, square corners, bold white type, its sizes) and:
  * - kept: the leaderboard (position, driver, lap, last, best, interval), the sector bar with its flag row, the delta
  *   block (delta to best, predicted lap, the centre bar), the position / laps / session-clock blocks, the current lap
@@ -14,7 +14,8 @@
  *   inputs (force feedback, clutch, brake, throttle, ABS / TC / brake bias / boost cells), fuel and tyres;
  * - mapped: car numbers to the team colour, ABS / TC modes to the live tuner's levels, the turbo cell to ERS on a
  *   hybrid, the session timer to the time on track this run, fuel in kg;
- * - added: the 2026 cars' ERS and aero state under the essentials;
+ * - added: the 2026 cars' ERS and aero state under the essentials, native weather blocks top-right, a square proximity
+ *   radar block, and track-limits / penalty states on the flag row;
  * - dropped: the logo and the decoration strip, the steering-wheel pictures and the icon set, car names, the pit-lane
  *   speed row (no pit lane here), turn indicators, the settings window and the updater.
  */
@@ -44,9 +45,25 @@ import {
 import { aeroReadout } from "../aero-label";
 import { pedalLayers } from "../PedalBars";
 import { cornerData } from "../TyreBrakeWidget";
+import { type WeatherHudState } from "../WeatherBadge";
 import { anchor, gearLabel, type HudDesignProps } from "./hud-style-parts";
 import { REV_BAND_COLOR, revLights, useFuelPerLap, useLapHistory, useSessionClock } from "./third-party-parts";
-import { driverLabel, fuelLapsLeft, idealLapMs, leaderboardWindow, predictedLapMs, sessionBestLapMs, type LapRecord } from "../third-party-data";
+import {
+  dayClock,
+  driverLabel,
+  evaluateRadar,
+  fuelLapsLeft,
+  idealLapMs,
+  leaderboardWindow,
+  predictedLapMs,
+  RADAR_CAR_L,
+  RADAR_CAR_W,
+  RADAR_VIEW_RANGE_M,
+  sessionBestLapMs,
+  SURFACE_WORD,
+  trackSurfaceState,
+  type LapRecord,
+} from "../third-party-data";
 import { revLedBand } from "@/lib/sim/rev-range";
 import palette from "./blocks.module.css";
 
@@ -172,17 +189,27 @@ const SectorBar: React.FC<{ t: CarTelemetry; laps: LapRecord[] }> = ({ t, laps }
 };
 
 /** The flag row under the sectors: a yellow flag, the last lap, the race finished (empty otherwise) */
-const FlagRow: React.FC<{ t: CarTelemetry }> = ({ t }) => {
+const FlagRow: React.FC<{ t: CarTelemetry; lapInvalid: boolean }> = ({ t, lapInvalid }) => {
   const race = t.race;
-  if (!race) return null;
+  const tl = t.trackLimits;
+  if (tl?.pending?.stage === "give_back") return null;
   const row =
-    race.phase === "finished"
+    race?.phase === "finished"
       ? { text: "Race finished", cls: "bg-(--blk-flag-black) text-(--blk-ink)" }
-      : race.yellow
+      : race?.yellow
         ? { text: "Yellow flag", cls: "bg-(--blk-flag-yellow) text-(--blk-ink-on)" }
-        : race.totalLaps && race.lap === race.totalLaps && race.phase === "racing"
-          ? { text: "Last lap", cls: "bg-(--blk-flag-white) text-(--blk-ink-on)" }
-          : null;
+        : t.offTrack || tl?.message?.kind === "lap_invalid" || (lapInvalid && t.currentLapTimeMs < 6000)
+          ? {
+              text: t.offTrack
+                ? race && tl && tl.strikesPerPenalty > 0
+                  ? `Off track · ${tl.warnings}/${tl.strikesPerPenalty}`
+                  : "Off track"
+                : "Lap deleted",
+              cls: "bg-(--blk-player) text-(--blk-ink)",
+            }
+          : race?.totalLaps && race.lap === race.totalLaps && race.phase === "racing"
+            ? { text: "Last lap", cls: "bg-(--blk-flag-white) text-(--blk-ink-on)" }
+            : null;
   if (!row) return null;
   return (
     <div role="status" className={`flex h-5 items-center justify-center text-[13px] leading-none font-black uppercase ${row.cls}`}>
@@ -525,13 +552,122 @@ const Tyres: React.FC<{ t: CarTelemetry }> = ({ t }) => {
   );
 };
 
+const WeatherBlocks: React.FC<{ weather: WeatherHudState }> = ({ weather }) => {
+  const units = useUnits();
+  const surface = trackSurfaceState(weather.waterMm);
+  return (
+    <section aria-label="Weather" className="w-[196px] text-[12px] leading-none font-bold">
+      <div className={`flex h-5 items-center justify-between px-2 ${HEAD} uppercase`}>
+        <span>Weather</span>
+        <span>{weather.rain > 0.05 ? `${Math.round(weather.rain * 100)}% RAIN` : weather.timeMoving ? dayClock(weather.clockH) : SURFACE_WORD[surface]}</span>
+      </div>
+      <div className={`grid grid-cols-3 gap-1 px-2 py-1.5 ${BLOCK}`}>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[9px] font-black text-(--blk-ink-dim) uppercase">Air</span>
+          <span>{formatTemp(weather.airC, units)}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[9px] font-black text-(--blk-ink-dim) uppercase">Track</span>
+          <span>{formatTemp(weather.trackC, units)}</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[9px] font-black text-(--blk-ink-dim) uppercase">Surf</span>
+          <span style={{ color: surface === "dry" ? undefined : surface === "damp" ? "var(--blk-flag-yellow)" : HUD_INFO }}>
+            {SURFACE_WORD[surface]}
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const BlocksRadar: React.FC<{ t: CarTelemetry }> = ({ t }) => {
+  const { blips, leftCar, rightCar, opacity } = evaluateRadar(t.radar ?? []);
+  if (opacity <= 0.01) return null;
+  const range = RADAR_VIEW_RANGE_M;
+  return (
+    <div
+      className="pointer-events-none absolute top-[53%] left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-150 ease-out"
+      style={{ width: 148, height: 148, opacity }}
+    >
+      <div className={`relative size-full ${BLOCK}`}>
+        {leftCar ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-1.5"
+            style={{
+              backgroundColor: leftCar.overlapLevel === 2 ? "var(--blk-player)" : "var(--blk-flag-yellow)",
+              opacity: Math.max(0.65, leftCar.opacity),
+            }}
+          />
+        ) : null}
+        {rightCar ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-0 right-0 w-1.5"
+            style={{
+              backgroundColor: rightCar.overlapLevel === 2 ? "var(--blk-player)" : "var(--blk-flag-yellow)",
+              opacity: Math.max(0.65, rightCar.opacity),
+            }}
+          />
+        ) : null}
+        <svg viewBox={`${-range} ${-range} ${range * 2} ${range * 2}`} className="block size-full" role="img" aria-label="Proximity radar">
+          <circle r={8} fill="none" stroke="var(--blk-ink)" strokeOpacity={0.18} strokeWidth={0.35} />
+          <circle r={16} fill="none" stroke="var(--blk-ink)" strokeOpacity={0.12} strokeWidth={0.35} />
+          <line x1={0} y1={-range} x2={0} y2={range} stroke="var(--blk-ink)" strokeOpacity={0.12} strokeWidth={0.25} />
+          <line x1={-range} y1={0} x2={range} y2={0} stroke="var(--blk-ink)" strokeOpacity={0.12} strokeWidth={0.25} />
+          {blips.map(({ blip: b, opacity: carOp, overlapLevel }, i) => (
+            <rect
+              key={i}
+              x={-RADAR_CAR_W / 2}
+              y={-RADAR_CAR_L / 2}
+              width={RADAR_CAR_W}
+              height={RADAR_CAR_L}
+              fill={overlapLevel === 2 ? HUD_LOSS : overlapLevel === 1 ? HUD_CAUTION : b.color}
+              fillOpacity={Math.max(0.35, carOp)}
+              stroke="var(--blk-ink-on)"
+              strokeWidth={0.35}
+              transform={`translate(${b.x.toFixed(2)} ${(-b.z).toFixed(2)}) rotate(${((b.yaw * 180) / Math.PI).toFixed(1)})`}
+            />
+          ))}
+          <rect
+            x={-RADAR_CAR_W / 2}
+            y={-RADAR_CAR_L / 2}
+            width={RADAR_CAR_W}
+            height={RADAR_CAR_L}
+            fill="var(--blk-active)"
+            stroke="var(--blk-ink-on)"
+            strokeWidth={0.35}
+          />
+        </svg>
+      </div>
+    </div>
+  );
+};
+
 /**
  * Blocks: flat black blocks with square corners and bold white type. The leaderboard top-left, the sector bar and
  * the delta top-centre, position / laps / the session clock top-right, the lap timing and history bottom-left, speed,
  * gear and rpm bottom-centre, and the inputs, fuel and tyres bottom-right. With the touch controls up (a tablet) the
  * bottom corners are the pads': the timing moves under the session blocks and the essentials rise above the pads.
  */
-export const BlocksHud: React.FC<HudDesignProps> = ({ t, deltaS, revRange, scale, ffb, mfd, touch, topInset, lapInvalid, towerGaps = "interval", leftExtra, rightExtra }) => {
+export const BlocksHud: React.FC<HudDesignProps> = ({
+  t,
+  deltaS,
+  revRange,
+  scale,
+  ffb,
+  mfd,
+  touch,
+  topInset,
+  lapInvalid,
+  towerGaps = "interval",
+  leftExtra,
+  rightExtra,
+  weather,
+  showDeltaBar,
+  showRadar,
+}) => {
   const race = t.race;
   const laps = useLapHistory(6);
   const hasFuel = t.fuelKg > 0;
@@ -549,18 +685,21 @@ export const BlocksHud: React.FC<HudDesignProps> = ({ t, deltaS, revRange, scale
         <div className="flex flex-col items-center gap-1.5" style={anchor(scale, "top center")}>
           <div className="flex flex-col">
             <SectorBar t={t} laps={laps} />
-            <FlagRow t={t} />
+            <FlagRow t={t} lapInvalid={lapInvalid} />
           </div>
-          <DeltaBlock t={t} deltaS={deltaS} />
+          {showDeltaBar !== false ? <DeltaBlock t={t} deltaS={deltaS} /> : null}
         </div>
       </div>
 
       {/* Top-right: position, laps, the session clock; the lap timing joins them with the touch controls up */}
       <div className="absolute flex flex-col items-end gap-2" style={{ top: EDGE, right: EDGE, ...anchor(scale, "top right") }}>
         <SessionBlocks t={t} />
+        {weather ? <WeatherBlocks weather={weather} /> : null}
         {touch ? <Timing t={t} lapInvalid={lapInvalid} /> : null}
         {rightExtra}
       </div>
+
+      {showRadar !== false ? <BlocksRadar t={t} /> : null}
 
       {/* Bottom-left: the lap timing and the lap history (the steering pad's place with the touch controls up) */}
       {touch ? null : (

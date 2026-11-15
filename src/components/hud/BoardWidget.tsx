@@ -15,10 +15,14 @@ import type { VehicleModelId } from "@/types/f1";
 import type { BoardWidgetMode } from "@/lib/settings/player-settings";
 import { HUD_TOGGLE_EVENT } from "@/lib/input/bindings";
 import { fetchBoardPage, fetchCircuitTotals, formatCount, driverNameKey, type BoardPage, type CircuitTotals } from "@/lib/net/board-client";
-import { lapPhysicsVersion, type LeaderboardEntry } from "@/lib/sim/lap-types";
+import { lapPhysicsVersion } from "@/lib/sim/lap-types";
 import { Icon } from "@/components/ui/icons/Icon";
 import { PositionBadge } from "@/components/ui/badges/PositionBadge";
 import { HUD_GLASS, HUD_LBL, formatLapTime } from "./hud-format";
+import { CHROME_PX, NEAR, ROW_PX, TOP, towerLines } from "./board-data";
+import { SkinButton, skinCss, SkinPanel, skinRootClass, SkinTag, useHudSkin } from "./styles/third-party-skin";
+
+export { towerLines };
 
 /**
  * A lap ended (`lap`), or its upload came back with the lap's new place (`result`): the game sends these on `window`,
@@ -40,9 +44,6 @@ const FRESH_MS = 60_000;
 const REFRESH_OPEN_MS = 4 * 60_000;
 /** After a lap, how long to wait for its upload's answer before reading the board anyway (ms) */
 const RESULT_WAIT_MS = 4_000;
-/** Top places fetched: the top three before a gap, or a plain top when the player is in it */
-const TOP = 7;
-const NEAR = 2;
 
 const MODE_LABEL: Record<BoardWidgetMode, string> = { lapEnd: "Open at lap end", open: "Always open", closed: "Always closed" };
 const MODES: readonly BoardWidgetMode[] = ["lapEnd", "open", "closed"];
@@ -67,55 +68,6 @@ export interface BoardWidgetProps {
   keyName?: string;
 }
 
-/** One place of the tower */
-type Line = { pos: number; entry: LeaderboardEntry; mine: boolean } | { gap: true; key: string };
-
-/** Heights the open tower is drawn at, unscaled (px): the cap, the foot and the list's padding; a row; a gap */
-const CHROME_PX = 44 + 32 + 10;
-const ROW_PX = 28;
-const GAP_PX = 20;
-
-/**
- * The tower's lines: the top three, a gap, two places either side of the player's; a plain top when they are near it.
- * Where the screen has no room for all of them (`rowsRoom`, in rows) the player's own row and the places next to it
- * stay first, then the leader, then the rest.
- */
-export function towerLines(page: BoardPage, myKey: string, rowsRoom = 99): Line[] {
-  const me = page.me;
-  const isMine = (e: LeaderboardEntry) => myKey !== "" && driverNameKey(e.name) === myKey;
-  const byPos = new Map<number, { pos: number; entry: LeaderboardEntry; mine: boolean }>();
-  page.entries.forEach((entry, i) => byPos.set(page.offset + i + 1, { pos: page.offset + i + 1, entry, mine: isMine(entry) }));
-  page.near?.entries.forEach((entry, i) => byPos.set(page.near!.pos + i, { pos: page.near!.pos + i, entry, mine: isMine(entry) }));
-  const room = Math.max(1, rowsRoom);
-  if (!me || me.pos <= 5 || !page.near) {
-    const plain = Math.max(5, Math.min(TOP, (me?.pos ?? 0) + NEAR));
-    const tops = [...byPos.values()].filter((l) => l.pos <= plain).sort((a, b) => a.pos - b.pos);
-    if (tops.length <= room) return tops;
-    // Short of room: the player's row stays, with the places above it first
-    const keep = me ? tops.filter((l) => l.pos <= me.pos).slice(-room) : tops.slice(0, room);
-    return keep.length ? keep : tops.slice(0, room);
-  }
-  const order = [me.pos, me.pos - 1, me.pos + 1, 1, me.pos - 2, me.pos + 2, 2, 3];
-  const rowsFor = (set: number[]) => {
-    const sorted = [...set].sort((a, b) => a - b);
-    const gaps = sorted.filter((p, i) => i > 0 && p > sorted[i - 1] + 1).length;
-    return sorted.length + (gaps * GAP_PX) / ROW_PX;
-  };
-  let chosen: number[] = [];
-  for (const p of order) {
-    if (!byPos.has(p) || chosen.includes(p)) continue;
-    if (chosen.length > 0 && rowsFor([...chosen, p]) > room) break;
-    chosen = [...chosen, p];
-  }
-  const sorted = chosen.sort((a, b) => a - b);
-  const lines: Line[] = [];
-  sorted.forEach((p, i) => {
-    if (i > 0 && p > sorted[i - 1] + 1) lines.push({ gap: true, key: `gap-${p}` });
-    lines.push(byPos.get(p)!);
-  });
-  return lines;
-}
-
 /** The cursor on the widget's controls, for the keys only (a click lets go of the focus at once, see `letGo`) */
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-lc-volt";
 
@@ -123,6 +75,7 @@ const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-lc-volt";
 const letGo = (e: React.SyntheticEvent<HTMLElement>) => e.currentTarget.blur();
 
 const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehicle, driverName, mode, onChangeMode, keyName }) => {
+  const skin = useHudSkin();
   const name = driverName.trim();
   const physics = lapPhysicsVersion(vehicle);
   const boardKey = `${trackId}|${vehicle}|${physics}|${driverNameKey(name)}`;
@@ -276,6 +229,147 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
     setLapOpenUntil(0);
     setToggled({ mode, open: !open });
   };
+
+  if (skin !== null) {
+    const gearButton = (
+      <SkinButton
+        aria-label="When the lap board opens"
+        aria-haspopup="menu"
+        aria-expanded={menu}
+        active={menu}
+        soft
+        title="When the lap board opens"
+        onClick={(e) => {
+          letGo(e);
+          setMenu((m) => !m);
+        }}
+        className="size-6.5 shrink-0"
+      >
+        <Icon name="settings" size="xs" className="size-3.5" />
+      </SkinButton>
+    );
+
+    const dropdownMenu = menu ? (
+      <SkinPanel
+        cut="sm"
+        role="menu"
+        aria-label="When the lap board opens"
+        className="absolute top-full right-0 z-20 mt-1.5 w-44"
+        innerClassName="flex flex-col gap-0.5 p-1"
+      >
+        {MODES.map((m) => (
+          <SkinButton
+            key={m}
+            role="menuitemradio"
+            aria-checked={m === mode}
+            active={m === mode}
+            soft
+            onClick={(e) => {
+              letGo(e);
+              setMenu(false);
+              setToggled(null);
+              setLapOpenUntil(0);
+              onChangeMode(m);
+            }}
+            className="h-8 justify-start px-2.5 text-left text-[12px] font-semibold"
+          >
+            <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+              {m === mode ? <Icon name="check" size="xs" className="size-3.5" /> : null}
+            </span>
+            {MODE_LABEL[m]}
+          </SkinButton>
+        ))}
+      </SkinPanel>
+    ) : null;
+
+    return (
+      <div ref={rootRef} className={`pointer-events-auto relative w-[264px] max-w-full ${skinRootClass(skin) ?? ""}`} data-hud-board>
+        {open ? (
+          <SkinPanel cut="md" role="region" aria-label="Lap board">
+            <button
+              type="button"
+              onClick={(e) => {
+                letGo(e);
+                toggle();
+              }}
+              aria-expanded
+              aria-label={`Fold the lap board${keyName ? ` (${keyName})` : ""}`}
+              title={trackName}
+              className={`flex h-11 w-full cursor-pointer items-center gap-2.5 pr-2.5 pl-3 text-left ${skinCss.headerBar} ${skinCss.ink}`}
+            >
+              <span className="min-w-0 flex-1 truncate text-[15px] leading-none font-bold tracking-[0.04em] uppercase">{trackName}</span>
+              {rank !== null ? (
+                <span className="inline-flex shrink-0 items-center gap-1">
+                  <SkinTag tone="accent" filled className="px-1.5 py-0.5 text-[11px] font-bold">
+                    P{rank}
+                  </SkinTag>
+                  <span className={`lc-data text-[11px] ${skinCss.inkDim}`}>/{formatCount(total)}</span>
+                </span>
+              ) : (
+                <span className={`lc-data shrink-0 text-[11px] ${skinCss.inkDim}`}>{formatCount(total)} drivers</span>
+              )}
+            </button>
+            {lines.length === 0 ? (
+              <p className={`lc-data m-0 px-3 py-3 text-[12px] ${skinCss.inkDim}`}>No times here yet. Yours can be the first.</p>
+            ) : (
+              <ol className="m-0 list-none pt-1.5 pb-1">
+                {lines.map((l) =>
+                  "gap" in l ? (
+                    <li key={l.key} aria-label="Places between" className={`flex h-5 items-center justify-center ${skinCss.inkDim}`}>
+                      <Icon name="more" size="xs" className="size-3.5" />
+                    </li>
+                  ) : (
+                    <li
+                      key={`${l.pos}-${l.entry.code}`}
+                      title={l.entry.name}
+                      aria-current={l.mine ? "true" : undefined}
+                      className={`lc-data grid h-7 grid-cols-[26px_34px_minmax(0,1fr)_auto] items-center gap-1.5 text-[13px] ${
+                        l.mine
+                          ? `mx-1.5 my-0.5 pr-2.5 pl-1 font-bold ${skinCss.playerRow} ${skinCss.radiusSm}`
+                          : `pr-2.5 pl-2 ${skinCss.ink}`
+                      }`}
+                    >
+                      <span className={`text-center ${l.mine ? "" : skinCss.inkDim}`}>{l.pos}</span>
+                      <span className="tracking-[0.1em]">{l.entry.code.slice(0, 3)}</span>
+                      <span className={`truncate font-sans text-[12px] ${l.mine ? "" : skinCss.inkSoft}`}>{l.entry.name}</span>
+                      <span className="text-right text-[12px]">{formatLapTime(l.entry.lapTimeMs)}</span>
+                    </li>
+                  ),
+                )}
+              </ol>
+            )}
+            <div className={`flex h-8 items-center gap-2 border-t pr-1 pl-3 ${skinCss.divider}`}>
+              <span className={`flex-1 text-[10px] font-semibold uppercase ${skinCss.inkDim}`}>Laps driven</span>
+              <span className={`lc-data text-[11px] ${skinCss.inkSoft}`}>{laps !== null ? formatCount(laps) : "--"}</span>
+              {gearButton}
+            </div>
+          </SkinPanel>
+        ) : (
+          <SkinPanel cut="sm" innerClassName="flex h-9 items-center gap-1.5 pr-1.5 pl-3">
+            <button
+              type="button"
+              onClick={(e) => {
+                letGo(e);
+                toggle();
+              }}
+              aria-expanded={false}
+              aria-label={`Open the lap board${keyName ? ` (${keyName})` : ""}: ${trackName}, ${place ?? "no time yet"}`}
+              title={trackName}
+              className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left ${skinCss.ink}`}
+            >
+              <span className="min-w-0 flex-1 truncate text-[13px] leading-none font-bold uppercase">{trackName}</span>
+              <span className={`lc-data shrink-0 text-[12px] ${skinCss.ink}`}>
+                {place ?? <span className={skinCss.inkDim}>No time yet</span>}
+              </span>
+              <Icon name="expand" size="xs" className={`size-3.5 shrink-0 ${skinCss.inkDim}`} />
+            </button>
+            {gearButton}
+          </SkinPanel>
+        )}
+        {dropdownMenu}
+      </div>
+    );
+  }
 
   const gear = (
     <div className="relative">

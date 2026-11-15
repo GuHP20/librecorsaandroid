@@ -28,6 +28,7 @@ import { FlagIcon } from "@/components/ui/badges/FlagIcon";
 import { PenaltyBadge } from "@/components/ui/badges/PenaltyBadge";
 import { PositionBadge } from "@/components/ui/badges/PositionBadge";
 import { InvalidTag, LapMarkGlyph } from "./styles/hud-style-parts";
+import { skinCss, SkinPanel, useHudSkin } from "./styles/third-party-skin";
 import { challengePlaceLabel, type ChallengeTarget } from "@/lib/net/challenge-target";
 
 
@@ -269,20 +270,37 @@ export const LapPanel: React.FC<LapPanelProps> = ({ telemetry, deltaS, variant =
 };
 
 /** The time trial's target while the weekly challenge is driven: the player's best, the week's fastest, the place */
-export const ChallengeTargetPanel: React.FC<{ target: ChallengeTarget }> = ({ target }) => (
-  <section aria-label="This week's challenge" className={`w-[256px] rounded-lc-card px-3.5 py-3 ${HUD_GLASS}`}>
-    <div className="flex items-center justify-between gap-2">
-      <div>
-        <div className={HUD_LBL}>Your best</div>
-        <div className="lc-data text-[15px] text-lc-chalk">{formatLapTime(target.bestMs)}</div>
-      </div>
-      <div className="text-right">
-        <div className={HUD_LBL}>This week&apos;s fastest</div>
-        <div className="lc-data text-[15px]" style={{ color: HUD_BEST }}>
-          {formatLapTime(target.leaderMs)}
+export const ChallengeTargetPanel: React.FC<{ target: ChallengeTarget }> = ({ target }) => {
+  const skin = useHudSkin();
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className={skin ? `text-[9px] font-bold tracking-[0.08em] uppercase ${skinCss.inkDim}` : HUD_LBL}>Your best</div>
+          <div className={`lc-data text-[15px] ${skin ? skinCss.ink : "text-lc-chalk"}`}>{formatLapTime(target.bestMs)}</div>
+        </div>
+        <div className="text-right">
+          <div className={skin ? `text-[9px] font-bold tracking-[0.08em] uppercase ${skinCss.inkDim}` : HUD_LBL}>This week&apos;s fastest</div>
+          <div className="lc-data text-[15px]" style={{ color: HUD_BEST }}>
+            {formatLapTime(target.leaderMs)}
+          </div>
         </div>
       </div>
-    </div>
-    <div className="lc-data mt-2 border-t border-lc-line pt-2 text-[12px] text-lc-fog">{challengePlaceLabel(target)}</div>
-  </section>
-);
+      <div className={`lc-data mt-2 border-t pt-2 text-[12px] ${skin ? `${skinCss.divider} ${skinCss.inkSoft}` : "border-lc-line text-lc-fog"}`}>
+        {challengePlaceLabel(target)}
+      </div>
+    </>
+  );
+  if (skin) {
+    return (
+      <SkinPanel cut="sm" className="w-[256px]" innerClassName="px-3.5 py-3">
+        <section aria-label="This week's challenge">{content}</section>
+      </SkinPanel>
+    );
+  }
+  return (
+    <section aria-label="This week's challenge" className={`w-[256px] rounded-lc-card px-3.5 py-3 ${HUD_GLASS}`}>
+      {content}
+    </section>
+  );
+};

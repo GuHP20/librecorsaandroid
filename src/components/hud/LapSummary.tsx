@@ -22,6 +22,7 @@ import {
   lapMark,
   type LapMark,
 } from "./hud-format";
+import { SkinBanner, SkinButton, skinCss, SkinPanel, skinRootClass, SkinTag, type SkinTone, useHudSkin } from "./styles/third-party-skin";
 import { useHudMode } from "./hud-mode";
 
 const EMPTY = "-";
@@ -110,6 +111,7 @@ const TOAST_MS = 12_000;
  * session best, stats and per-corner speeds, which stays until it is collapsed or closed.
  */
 export const LapSummary: React.FC<LapSummaryProps> = (props) => {
+  const skin = useHudSkin();
   const { summary: s, onClose, submitState = "idle" } = props;
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -155,13 +157,22 @@ export const LapSummary: React.FC<LapSummaryProps> = (props) => {
   // The box is zoomed on big screens; the lift is in window pixels
   const zoom = useUiZoom();
 
-  if (typeof document === "undefined") return null;
+  // Routine post-lap toasts duplicate the native lap / session panels on third-party HUDs; keep them when board
+  // upload needs attention, and keep an already-expanded card up after a retry or rename succeeds
+  const suppressed =
+    skin !== null &&
+    !expanded &&
+    !props.onSubmit &&
+    !props.submitError &&
+    submitState !== "error" &&
+    submitState !== "waiting";
+  if (suppressed || typeof document === "undefined") return null;
   return createPortal(
     <div
       key={s.lapNumber}
       ref={boxRef}
       inert={hidden}
-      className={`lc-ui-zoom lc-panel-in pointer-events-auto fixed right-[calc(env(safe-area-inset-right,0px)+0.75rem)] bottom-[calc(env(safe-area-inset-bottom,0px)+1rem)] z-(--z-lc-toast) w-[min(440px,calc(100vw-1.5rem))] sm:right-[calc(env(safe-area-inset-right,0px)+1rem)] pointer-coarse:top-[calc(env(safe-area-inset-top,0px)+104px)] pointer-coarse:portrait:top-[calc(env(safe-area-inset-top,0px)+216px)] pointer-coarse:right-auto pointer-coarse:bottom-auto pointer-coarse:left-1/2 pointer-coarse:w-[min(400px,calc(100vw-1.5rem))] pointer-coarse:-translate-x-1/2 ${hidden ? "invisible" : ""}`}
+      className={`lc-ui-zoom lc-panel-in pointer-events-auto fixed right-[calc(env(safe-area-inset-right,0px)+0.75rem)] bottom-[calc(env(safe-area-inset-bottom,0px)+1rem)] z-(--z-lc-toast) w-[min(440px,calc(100vw-1.5rem))] sm:right-[calc(env(safe-area-inset-right,0px)+1rem)] pointer-coarse:top-[calc(env(safe-area-inset-top,0px)+104px)] pointer-coarse:portrait:top-[calc(env(safe-area-inset-top,0px)+216px)] pointer-coarse:right-auto pointer-coarse:bottom-auto pointer-coarse:left-1/2 pointer-coarse:w-[min(400px,calc(100vw-1.5rem))] pointer-coarse:-translate-x-1/2 ${hidden ? "invisible" : ""} ${skinRootClass(skin) ?? ""}`}
       style={
         lift === null
           ? undefined
@@ -195,7 +206,33 @@ export const LapSummary: React.FC<LapSummaryProps> = (props) => {
 const PB_TONE = lapMark(1, null) === "best" ? "best" : "good";
 
 /** The lap's status in the toast: invalid, a personal best, or the gap to the best */
-function statusBadge(s: LapSummaryData): React.ReactNode {
+function statusBadge(s: LapSummaryData, skinned = false): React.ReactNode {
+  if (skinned) {
+    if (!s.valid) {
+      return (
+        <SkinTag tone="loss" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+          <Icon name="trackLimits" size="xs" />
+          Invalid
+        </SkinTag>
+      );
+    }
+    if (s.isPersonalBest) {
+      return (
+        <SkinTag tone="gain" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+          <Icon name="success" size="xs" />
+          PB
+        </SkinTag>
+      );
+    }
+    if (s.deltaToBestMs === null) return null;
+    const d = s.deltaToBestMs / 1000;
+    const tone: SkinTone = d <= 0 ? "gain" : "caution";
+    return (
+      <SkinTag tone={tone} className="px-2 py-0.5 text-[11px] font-bold">
+        {d <= 0 ? `${MINUS}${Math.abs(d).toFixed(3)}` : `+${d.toFixed(3)}`}
+      </SkinTag>
+    );
+  }
   if (!s.valid)
     return (
       <Badge tone="bad" size="sm" icon="trackLimits">
@@ -227,64 +264,136 @@ const LapToast: React.FC<{ summary: LapSummaryData; onOpen: () => void; onClose:
   summary: s,
   onOpen,
   onClose,
-}) => (
-  <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-white/7 bg-lc-void/75 py-1.5 pr-1.5 pl-4.5 text-lc-chalk shadow-lc-pop backdrop-blur-[14px] pointer-coarse:mx-auto">
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={`${activeLapWord()} ${s.lapNumber}: show sector data`}
-      className="flex min-h-9 min-w-0 pointer-coarse:min-h-11 cursor-pointer items-center gap-3 rounded-full text-left transition-opacity duration-200 hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lc-volt sm:gap-3.5"
-    >
-      <span className="lc-mono shrink-0 text-[12px] font-bold text-lc-slate">
-        {activeLapWord()} {s.lapNumber}
-      </span>
-      <span className="lc-mono text-[22px] leading-none font-bold sm:text-[24px]">{formatLapTime(s.lapTimeMs)}</span>
-      {statusBadge(s)}
-      {/* Shape as well as colour: a best sector is a solid bar, a slower one an outline */}
-      <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
-        {s.sectorTimesMs.map((t, idx) => {
-          const m = sectorMark(t, s.bestSectorTimesMs[idx]);
-          return (
-            <span
-              key={idx}
-              className={`w-5.5 rounded-full ${m.mark === "slower" ? "h-1.5" : "h-2"}`}
-              style={
-                m.mark === "slower"
-                  ? { boxShadow: `inset 0 0 0 1.5px ${m.color}` }
-                  : { backgroundColor: m.color }
-              }
-            />
-          );
-        })}
-      </span>
-      <Icon name="next" size="xs" className="text-lc-slate max-sm:hidden" />
-    </button>
-    <IconButton size="sm" variant="ghost" aria-label="Dismiss lap summary" icon={<Icon name="close" />} onClick={onClose} />
-  </div>
-);
+}) => {
+  const skin = useHudSkin();
+  if (skin !== null) {
+    return (
+      <SkinPanel
+        cut="sm"
+        className="ml-auto w-fit max-w-full pointer-coarse:mx-auto"
+        innerClassName="flex items-center gap-2 py-1.5 pr-1.5 pl-3.5"
+      >
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`${activeLapWord()} ${s.lapNumber}: show sector data`}
+          className={`flex min-h-9 min-w-0 cursor-pointer items-center gap-3 text-left transition-opacity duration-200 hover:opacity-85 pointer-coarse:min-h-11 sm:gap-3.5 ${skinCss.ink}`}
+        >
+          <span className={`lc-mono shrink-0 text-[12px] font-bold uppercase ${skinCss.inkDim}`}>
+            {activeLapWord()} {s.lapNumber}
+          </span>
+          <span className="lc-mono text-[22px] leading-none font-bold sm:text-[24px]">{formatLapTime(s.lapTimeMs)}</span>
+          {statusBadge(s, true)}
+          <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
+            {s.sectorTimesMs.map((t, idx) => {
+              const m = sectorMark(t, s.bestSectorTimesMs[idx]);
+              return (
+                <span
+                  key={idx}
+                  className={`w-5.5 ${skinCss.radiusSm} ${m.mark === "slower" ? "h-1.5" : "h-2"}`}
+                  style={
+                    m.mark === "slower"
+                      ? { boxShadow: `inset 0 0 0 1.5px ${m.color}` }
+                      : { backgroundColor: m.color }
+                  }
+                />
+              );
+            })}
+          </span>
+          <Icon name="next" size="xs" className={`${skinCss.inkDim} max-sm:hidden`} />
+        </button>
+        <SkinButton onClick={onClose} aria-label="Dismiss lap summary" className="size-8 shrink-0">
+          <Icon name="close" size="xs" />
+        </SkinButton>
+      </SkinPanel>
+    );
+  }
+  return (
+    <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-white/7 bg-lc-void/75 py-1.5 pr-1.5 pl-4.5 text-lc-chalk shadow-lc-pop backdrop-blur-[14px] pointer-coarse:mx-auto">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${activeLapWord()} ${s.lapNumber}: show sector data`}
+        className="flex min-h-9 min-w-0 pointer-coarse:min-h-11 cursor-pointer items-center gap-3 rounded-full text-left transition-opacity duration-200 hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lc-volt sm:gap-3.5"
+      >
+        <span className="lc-mono shrink-0 text-[12px] font-bold text-lc-slate">
+          {activeLapWord()} {s.lapNumber}
+        </span>
+        <span className="lc-mono text-[22px] leading-none font-bold sm:text-[24px]">{formatLapTime(s.lapTimeMs)}</span>
+        {statusBadge(s)}
+        {/* Shape as well as colour: a best sector is a solid bar, a slower one an outline */}
+        <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
+          {s.sectorTimesMs.map((t, idx) => {
+            const m = sectorMark(t, s.bestSectorTimesMs[idx]);
+            return (
+              <span
+                key={idx}
+                className={`w-5.5 rounded-full ${m.mark === "slower" ? "h-1.5" : "h-2"}`}
+                style={
+                  m.mark === "slower"
+                    ? { boxShadow: `inset 0 0 0 1.5px ${m.color}` }
+                    : { backgroundColor: m.color }
+                }
+              />
+            );
+          })}
+        </span>
+        <Icon name="next" size="xs" className="text-lc-slate max-sm:hidden" />
+      </button>
+      <IconButton size="sm" variant="ghost" aria-label="Dismiss lap summary" icon={<Icon name="close" />} onClick={onClose} />
+    </div>
+  );
+};
 
 /**
  * Under the toast, in the toast's glass: the lap couldn't reach the online board and goes up once it can. Said here as
  * well as in the card, which is seldom opened
  */
-const ToastNote: React.FC<{ text: string }> = ({ text }) => (
-  <p
-    role="status"
-    className="mt-1.5 ml-auto flex w-fit max-w-full items-center gap-1.5 rounded-full border border-white/7 bg-lc-void/75 px-3 py-1 text-[12px] leading-snug font-medium text-lc-amber shadow-lc-pop backdrop-blur-[14px] pointer-coarse:mx-auto"
-  >
-    <Icon name="offline" size="xs" className="shrink-0" />
-    {text}
-  </p>
-);
+const ToastNote: React.FC<{ text: string }> = ({ text }) => {
+  const skin = useHudSkin();
+  if (skin !== null) {
+    return (
+      <SkinBanner
+        role="status"
+        tone="caution"
+        cut="sm"
+        className="mt-1.5 ml-auto flex w-fit max-w-full items-center gap-1.5 px-3 py-1 text-[12px] leading-snug font-medium pointer-coarse:mx-auto"
+      >
+        <Icon name="offline" size="xs" className="shrink-0" />
+        {text}
+      </SkinBanner>
+    );
+  }
+  return (
+    <p
+      role="status"
+      className="mt-1.5 ml-auto flex w-fit max-w-full items-center gap-1.5 rounded-full border border-white/7 bg-lc-void/75 px-3 py-1 text-[12px] leading-snug font-medium text-lc-amber shadow-lc-pop backdrop-blur-[14px] pointer-coarse:mx-auto"
+    >
+      <Icon name="offline" size="xs" className="shrink-0" />
+      {text}
+    </p>
+  );
+};
 
 /** A read-out inside the card: the value, then the words that say what it is (no label above) */
-const Stat: React.FC<{ value: React.ReactNode; label: string; className?: string }> = ({ value, label, className = "" }) => (
-  <Well className={`flex min-w-0 flex-col gap-0.5 px-3 py-2.5 short:py-2 ${className}`}>
-    <span className="lc-mono truncate text-[18px] leading-tight font-bold text-lc-chalk">{value}</span>
-    {/* Wraps rather than cuts: "Average km/h" is wider than a quarter of the card */}
-    <span className="lc-hint leading-tight text-balance">{label}</span>
-  </Well>
-);
+const Stat: React.FC<{ value: React.ReactNode; label: string; className?: string }> = ({ value, label, className = "" }) => {
+  const skin = useHudSkin();
+  if (skin !== null) {
+    return (
+      <div className={`flex min-w-0 flex-col gap-0.5 px-3 py-2.5 short:py-2 ${skinCss.deepBox} ${className}`}>
+        <span className={`lc-mono truncate text-[18px] leading-tight font-bold ${skinCss.ink}`}>{value}</span>
+        <span className={`text-[12px] leading-tight text-balance ${skinCss.inkDim}`}>{label}</span>
+      </div>
+    );
+  }
+  return (
+    <Well className={`flex min-w-0 flex-col gap-0.5 px-3 py-2.5 short:py-2 ${className}`}>
+      <span className="lc-mono truncate text-[18px] leading-tight font-bold text-lc-chalk">{value}</span>
+      {/* Wraps rather than cuts: "Average km/h" is wider than a quarter of the card */}
+      <span className="lc-hint leading-tight text-balance">{label}</span>
+    </Well>
+  );
+};
 
 /** Open card: lap time with status badge, sector splits vs session best, stats, and per-corner speeds */
 const LapCard: React.FC<
@@ -303,15 +412,23 @@ const LapCard: React.FC<
   driverName,
   onRename,
 }) => {
+  const skin = useHudSkin();
   const units = useUnits();
   const unit = SPEED_LABEL[units.speed];
 
   let badge: React.ReactNode = null;
+  let skinnedBadge: React.ReactNode = null;
   if (!s.valid) {
     badge = (
       <Badge tone="bad" icon="trackLimits">
         {s.wallContact ? "Invalid: wall contact" : "Invalid: track limits"}
       </Badge>
+    );
+    skinnedBadge = (
+      <SkinTag tone="loss" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+        <Icon name="trackLimits" size="xs" />
+        {s.wallContact ? "Invalid: wall contact" : "Invalid: track limits"}
+      </SkinTag>
     );
   } else if (s.autopilot) {
     badge = (
@@ -319,14 +436,32 @@ const LapCard: React.FC<
         Autopilot: not ranked
       </Badge>
     );
+    skinnedBadge = (
+      <SkinTag tone="caution" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+        <Icon name="warning" size="xs" />
+        Autopilot: not ranked
+      </SkinTag>
+    );
   } else if (s.isPersonalBest) {
     badge = (
       <Badge tone={PB_TONE} icon="success">
         Personal best
       </Badge>
     );
+    skinnedBadge = (
+      <SkinTag tone="gain" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+        <Icon name="success" size="xs" />
+        Personal best
+      </SkinTag>
+    );
   } else if (s.deltaToBestMs !== null) {
     badge = <DeltaBadge seconds={s.deltaToBestMs / 1000} />;
+    const d = s.deltaToBestMs / 1000;
+    skinnedBadge = (
+      <SkinTag tone={d <= 0 ? "gain" : "caution"} className="px-2 py-0.5 text-[11px] font-bold">
+        {d <= 0 ? `${MINUS}${Math.abs(d).toFixed(3)} s` : `+${d.toFixed(3)} s`}
+      </SkinTag>
+    );
   }
 
   const sentLabel =
@@ -341,6 +476,120 @@ const LapCard: React.FC<
     { label: "Full throttle", value: `${s.fullThrottlePct.toFixed(0)}%` },
     { label: "Braking", value: `${s.brakingPct.toFixed(0)}%` },
   ];
+
+  if (skin !== null) {
+    return (
+      <SkinPanel
+        cut="lg"
+        role="dialog"
+        aria-label={`Lap ${s.lapNumber} summary`}
+        className="w-full"
+        innerClassName="flex max-h-[min(calc(100dvh-9rem),var(--lc-room,100dvh))] flex-col gap-3.5 overflow-y-auto p-5 pointer-coarse:max-h-[calc(100dvh-12rem)] short:gap-2.5 short:p-4"
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[18px] leading-none font-bold uppercase">
+              {activeLapWord()} {s.lapNumber}
+            </h2>
+            <div className="flex min-w-0 items-center gap-1.5">
+              {skinnedBadge}
+              <SkinButton onClick={onCollapse} aria-label="Collapse lap summary" className="size-8 shrink-0">
+                <Icon name="expand" size="xs" />
+              </SkinButton>
+            </div>
+          </div>
+          <span className="lc-mono text-[40px] leading-none font-bold tracking-[-0.02em] sm:text-[46px] short:text-[34px]">
+            {formatLapTime(s.lapTimeMs)}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5">
+          {s.sectorTimesMs.map((t, idx) => {
+            const mark = sectorMark(t, s.bestSectorTimesMs[idx]);
+            return (
+              <div key={idx} className={`flex min-w-0 flex-col gap-0.5 px-3 py-2.5 short:py-2 ${skinCss.deepBox}`}>
+                <span className="lc-mono text-[18px] leading-tight font-bold" style={{ color: mark.color }}>
+                  {formatSectorTime(t)}
+                </span>
+                <span className={`truncate text-[11px] ${skinCss.inkDim}`}>
+                  Sector {idx + 1}
+                  {mark.word ? `: ${mark.word.toLowerCase()}` : ""}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          {stats.map((st) => (
+            <Stat key={st.label} value={st.value} label={st.label} />
+          ))}
+        </div>
+
+        <div className={`flex items-center justify-between gap-2 px-3.5 py-2.5 ${skinCss.deepBox}`}>
+          <span className={`text-[13px] font-semibold ${skinCss.inkSoft}`}>Theoretical best</span>
+          <span className={`lc-mono text-[18px] font-bold ${skinCss.ink}`}>
+            {s.theoreticalBestMs === null ? EMPTY : formatLapTime(s.theoreticalBestMs)}
+          </span>
+        </div>
+
+        <CornerChart corners={s.corners} units={units} />
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="sr-only" aria-live="polite">
+            {submitState === "sent" ? sentLabel : submitState === "sending" ? "Posting" : submitState === "waiting" ? (submitError ?? "") : ""}
+          </span>
+          {onSubmit && notRanked && submitState !== "sent" ? <span className={`mr-auto text-[12px] ${skinCss.inkDim}`}>{notRanked}</span> : null}
+          {onSaveGhost ? (
+            <SkinButton onClick={onSaveGhost} className="h-8 px-3 text-[12px] font-semibold">
+              Save ghost file
+            </SkinButton>
+          ) : null}
+          {submitState === "sent" ? (
+            <SkinTag tone="gain" className="px-2.5 py-1 text-[12px] font-semibold">
+              <Icon name="online" size="xs" />
+              {sentLabel}
+            </SkinTag>
+          ) : !onSubmit && submitState === "sending" ? (
+            <SkinTag className="px-2.5 py-1 text-[12px] font-semibold">Posting</SkinTag>
+          ) : onSubmit ? (
+            <SkinButton
+              active={submitState !== "error" && submitState !== "waiting"}
+              disabled={Boolean(notRanked) || submitState === "sending"}
+              title={notRanked}
+              onClick={onSubmit}
+              className="h-8 px-3 text-[12px] font-semibold"
+            >
+              {submitState === "sending" ? "Posting…" : submitState === "error" || submitState === "waiting" ? "Retry upload" : "Post online"}
+            </SkinButton>
+          ) : submitState === "waiting" ? (
+            <SkinTag tone="caution" className="px-2.5 py-1 text-[12px] font-semibold">
+              <Icon name="offline" size="xs" />
+              Not posted yet
+            </SkinTag>
+          ) : null}
+          <SkinButton onClick={onClose} className="h-8 px-3 text-[12px] font-semibold">
+            Close
+          </SkinButton>
+        </div>
+
+        {submitState === "error" && submitError ? (
+          <p role="alert" className={`-mt-1.5 flex items-start justify-end gap-1.5 text-right text-[12px] leading-snug font-medium ${skinCss.inkLoss}`}>
+            <Icon name="error" size="xs" className="mt-px" />
+            {submitError}
+          </p>
+        ) : submitState === "waiting" && submitError ? (
+          <p className={`-mt-1.5 flex items-start justify-end gap-1.5 text-right text-[12px] leading-snug font-medium ${skinCss.inkCaution}`}>
+            <Icon name="offline" size="xs" className="mt-px" />
+            {submitError}
+          </p>
+        ) : null}
+        {onRename && driverName && (submitState === "sent" || submitState === "error") ? (
+          <DriverNameLine name={driverName} onBoard={submitState === "sent"} onRename={onRename} />
+        ) : null}
+      </SkinPanel>
+    );
+  }
 
   return (
     <div
@@ -460,6 +709,7 @@ const LapCard: React.FC<
  * board keeps one entry per driver, so the laps under the old name move to the new one
  */
 const DriverNameLine: React.FC<{ name: string; onBoard: boolean; onRename: (name: string) => Promise<string | null> }> = ({ name, onBoard, onRename }) => {
+  const skin = useHudSkin();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   const [busy, setBusy] = useState(false);
@@ -474,6 +724,23 @@ const DriverNameLine: React.FC<{ name: string; onBoard: boolean; onRename: (name
   };
 
   if (!editing) {
+    if (skin !== null) {
+      return (
+        <p className={`-mt-1 flex flex-wrap items-center justify-end gap-x-1.5 text-right text-[12px] leading-snug ${skinCss.inkDim}`}>
+          {onBoard ? "On the board as" : "Racing as"} <span className={`font-semibold ${skinCss.ink}`}>{name}</span>
+          <SkinButton
+            onClick={() => {
+              setDraft(name);
+              setError(null);
+              setEditing(true);
+            }}
+            className="h-7 px-2.5 text-[12px] font-semibold"
+          >
+            Change name
+          </SkinButton>
+        </p>
+      );
+    }
     return (
       <p className="-mt-1 flex flex-wrap items-center justify-end gap-x-1.5 text-right text-[12px] leading-snug text-lc-slate">
         {onBoard ? "On the board as" : "Racing as"} <span className="font-semibold text-lc-chalk">{name}</span>
@@ -516,12 +783,30 @@ const DriverNameLine: React.FC<{ name: string; onBoard: boolean; onRename: (name
         }}
       />
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-          Cancel
-        </Button>
-        <Button size="sm" variant="secondary" type="submit" loading={busy} disabled={draft.trim() === ""}>
-          Save name
-        </Button>
+        {skin !== null ? (
+          <>
+            <SkinButton onClick={() => setEditing(false)} className="h-8 px-3 text-[12px] font-semibold">
+              Cancel
+            </SkinButton>
+            <SkinButton
+              type="submit"
+              active
+              disabled={busy || draft.trim() === ""}
+              className="h-8 px-3 text-[12px] font-semibold"
+            >
+              {busy ? "Saving…" : "Save name"}
+            </SkinButton>
+          </>
+        ) : (
+          <>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="secondary" type="submit" loading={busy} disabled={draft.trim() === ""}>
+              Save name
+            </Button>
+          </>
+        )}
       </div>
     </form>
   );
@@ -551,6 +836,7 @@ const cornerName = (name: string) => name.replace(/^Turn \d+\s*[\u2014-]\s*/, ""
  * group, so Tab enters it once and left / right (Home / End) walk the corners.
  */
 const CornerChart: React.FC<{ corners: CornerStat[]; units: UnitSettings }> = ({ corners, units }) => {
+  const skin = useHudSkin();
   const [picked, setPicked] = useState<number | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -561,19 +847,19 @@ const CornerChart: React.FC<{ corners: CornerStat[]; units: UnitSettings }> = ({
   const curDelta = cur ? cornerDelta(cur, units) : null;
   const unit = SPEED_LABEL[units.speed];
 
-  return (
-    <Well className="flex flex-col gap-2 px-3 pt-3 pb-2.5">
+  const chartBody = (
+    <>
       <div className="flex items-baseline justify-between gap-3">
-        <span id={titleId} className="shrink-0 text-[13px] font-semibold text-lc-fog">
+        <span id={titleId} className={`shrink-0 text-[13px] font-semibold ${skin !== null ? skinCss.inkSoft : "text-lc-fog"}`}>
           Slowest speed per corner
         </span>
         {cur && curDelta ? (
           <span className="lc-mono flex min-w-0 items-baseline gap-1.5 text-[12px] font-bold">
-            <span className="text-lc-chalk">T{cur.turnNumber}</span>
-            <span className="min-w-0 truncate text-lc-slate" title={cornerName(cur.name)}>
+            <span className={skin !== null ? skinCss.ink : "text-lc-chalk"}>T{cur.turnNumber}</span>
+            <span className={`min-w-0 truncate ${skin !== null ? skinCss.inkDim : "text-lc-slate"}`} title={cornerName(cur.name)}>
               {cornerName(cur.name)}
             </span>
-            <span className="shrink-0 text-lc-fog">
+            <span className={`shrink-0 ${skin !== null ? skinCss.inkSoft : "text-lc-fog"}`}>
               {speed(cur.minSpeedKmh, units)} {unit}
             </span>
             <span className="shrink-0" style={{ color: curDelta.color }}>
@@ -584,7 +870,7 @@ const CornerChart: React.FC<{ corners: CornerStat[]; units: UnitSettings }> = ({
       </div>
 
       {corners.length === 0 ? (
-        <p className="lc-hint m-0 py-2">No corner data for this lap.</p>
+        <p className={`m-0 py-2 ${skin !== null ? `text-[12px] ${skinCss.inkDim}` : "lc-hint"}`}>No corner data for this lap.</p>
       ) : (
         <>
           <div
@@ -621,13 +907,13 @@ const CornerChart: React.FC<{ corners: CornerStat[]; units: UnitSettings }> = ({
                   aria-checked={i === sel}
                   aria-label={`T${c.turnNumber} ${cornerName(c.name)}: ${speed(c.minSpeedKmh, units)} ${unit}, ${d.text === EMPTY ? d.word : `${d.text}, ${d.word}`}`}
                   tabIndex={i === sel ? 0 : -1}
-                  className="flex h-full min-w-0 cursor-pointer items-end rounded-full"
+                  className={`flex h-full min-w-0 cursor-pointer items-end ${skin !== null ? skinCss.radiusSm : "rounded-full"}`}
                   onPointerEnter={() => setPicked(i)}
                   onPointerDown={() => setPicked(i)}
                   onFocus={() => setPicked(i)}
                 >
                   <span
-                    className={`lc-grow block w-full rounded-full ${i === sel ? "ring-2 ring-lc-chalk" : ""}`}
+                    className={`lc-grow block w-full ${skin !== null ? skinCss.radiusSm : "rounded-full"} ${i === sel ? "ring-2 ring-lc-chalk" : ""}`}
                     style={{ height: `${pct}%`, background: d.bar, animationDelay: `${i * 25}ms` }}
                   />
                 </button>
@@ -636,7 +922,7 @@ const CornerChart: React.FC<{ corners: CornerStat[]; units: UnitSettings }> = ({
           </div>
           <div aria-hidden className="lc-mono grid gap-[3px] text-center text-[11px] font-bold" style={cols}>
             {corners.map((c, i) => (
-              <span key={c.turnNumber} className={i === sel ? "text-lc-chalk" : "text-lc-slate"}>
+              <span key={c.turnNumber} className={i === sel ? (skin !== null ? skinCss.ink : "text-lc-chalk") : (skin !== null ? skinCss.inkDim : "text-lc-slate")}>
                 {c.turnNumber}
               </span>
             ))}
@@ -647,14 +933,24 @@ const CornerChart: React.FC<{ corners: CornerStat[]; units: UnitSettings }> = ({
               { label: "Slower", color: HUD_CAUTION },
               { label: "Same", color: SAME },
             ].map((k) => (
-              <span key={k.label} className="lc-hint inline-flex items-center gap-1.5">
-                <span className="size-2 rounded-full" style={{ background: k.color }} />
+              <span key={k.label} className={`inline-flex items-center gap-1.5 ${skin !== null ? `text-[11px] ${skinCss.inkDim}` : "lc-hint"}`}>
+                <span className={`size-2 ${skin !== null ? skinCss.radiusSm : "rounded-full"}`} style={{ background: k.color }} />
                 {k.label}
               </span>
             ))}
           </div>
         </>
       )}
+    </>
+  );
+
+  if (skin !== null) {
+    return <div className={`flex flex-col gap-2 px-3 pt-3 pb-2.5 ${skinCss.deepBox}`}>{chartBody}</div>;
+  }
+
+  return (
+    <Well className="flex flex-col gap-2 px-3 pt-3 pb-2.5">
+      {chartBody}
     </Well>
   );
 };

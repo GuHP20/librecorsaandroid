@@ -28,6 +28,7 @@ import {
   formatLapTime,
   formatSectorTime,
   formatSpeed,
+  formatTemp,
   HUD_BEST,
   HUD_BRAKE,
   HUD_CAUTION,
@@ -43,7 +44,22 @@ import {
 import { InputTrace } from "../InputTrace";
 import { pedalLayers } from "../PedalBars";
 import { aeroReadout } from "../aero-label";
-import { fuelLapsLeft, leaderboardWindow, predictedLapMs, sessionBestLapMs, formatClock } from "../third-party-data";
+import { type WeatherHudState } from "../WeatherBadge";
+import {
+  dayClock,
+  evaluateRadar,
+  fuelLapsLeft,
+  leaderboardWindow,
+  predictedLapMs,
+  RADAR_CAR_L,
+  RADAR_CAR_W,
+  RADAR_VIEW_RANGE_M,
+  radarSideArcPath,
+  sessionBestLapMs,
+  formatClock,
+  SURFACE_WORD,
+  trackSurfaceState,
+} from "../third-party-data";
 import { anchor, deltaColor, gearLabel, InvalidTag, MiniMap, type HudDesignProps } from "./hud-style-parts";
 import { revLights, useFuelPerLap, useLapHistory, useSessionClock } from "./third-party-parts";
 import palette from "./irdashies.module.css";
@@ -121,8 +137,14 @@ const StandingsRow: React.FC<{
   );
 };
 
-const Standings: React.FC<{ t: CarTelemetry; lengthM: number; gaps: "interval" | "leader" }> = ({ t, lengthM, gaps }) => {
+const Standings: React.FC<{ t: CarTelemetry; lengthM: number; gaps: "interval" | "leader"; weather?: WeatherHudState | null }> = ({
+  t,
+  lengthM,
+  gaps,
+  weather,
+}) => {
   const race = t.race!;
+  const units = useUnits();
   const short = useShortScreen();
   const clock = useSessionClock();
   const perLap = useFuelPerLap();
@@ -130,6 +152,7 @@ const Standings: React.FC<{ t: CarTelemetry; lengthM: number; gaps: "interval" |
   const sessionBest = sessionBestLapMs(t);
   const me = race.standings.find((e) => e.isPlayer);
   const rows = leaderboardWindow(race.standings, short ? 6 : 10);
+  const surface = weather ? SURFACE_WORD[trackSurfaceState(weather.waterMm)] : null;
   return (
     <section aria-label="Standings" className="w-[244px] lg:w-[330px] rounded-md bg-(--tp-panel) p-1.5 text-(--tp-text)">
       <div className={BAR}>
@@ -156,13 +179,34 @@ const Standings: React.FC<{ t: CarTelemetry; lengthM: number; gaps: "interval" |
           />
         ))}
       </div>
-      {t.fuelKg > 0 ? (
+      {weather || t.fuelKg > 0 ? (
         <div className={`${BAR} mt-1.5`}>
-          <span className="inline-flex items-center gap-1.5">
-            <Icon name="fuel" size="xs" className="size-3.5 text-(--tp-text-dim)" />
-            {t.fuelKg.toFixed(1)} kg
-          </span>
-          <span>{lapsLeft !== null ? `${lapsLeft.toFixed(1)} laps` : "-- laps"}</span>
+          {weather ? (
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+              <Icon
+                name={weather.rain > 0.5 ? "weatherStorm" : weather.rain > 0.05 ? "weatherRain" : "weatherClear"}
+                size="xs"
+                className="size-3.5 shrink-0 text-(--tp-text-dim)"
+              />
+              <span>
+                {formatTemp(weather.airC, units)}/{formatTemp(weather.trackC, units)}
+              </span>
+              {surface ? <span className="text-(--tp-text-dim)">{surface}</span> : null}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="fuel" size="xs" className="size-3.5 text-(--tp-text-dim)" />
+              {t.fuelKg.toFixed(1)} kg
+            </span>
+          )}
+          {t.fuelKg > 0 ? (
+            <span className="inline-flex shrink-0 items-center gap-1">
+              {weather ? `${t.fuelKg.toFixed(1)}kg · ` : ""}
+              {lapsLeft !== null ? `${lapsLeft.toFixed(1)}L` : "--"}
+            </span>
+          ) : weather?.timeMoving ? (
+            <span className="shrink-0">{dayClock(weather.clockH)}</span>
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -365,6 +409,7 @@ const Inputs: React.FC<{ t: CarTelemetry; deltaS: number | null; trace: boolean 
             steerLockDeg={t.steerLockDeg}
             width={200}
             aside={<></>}
+            frameless
           />
         </div>
       ) : null}
@@ -386,25 +431,193 @@ const Inputs: React.FC<{ t: CarTelemetry; deltaS: number | null; trace: boolean 
 
 /* ---------------------------------------------------------------- The layout */
 
+/* ---------------------------------------------------------------- Native Weather, Delta Bar & Radar */
+
+const IrDashiesWeatherPanel: React.FC<{ weather: WeatherHudState }> = ({ weather }) => {
+  const units = useUnits();
+  const surface = SURFACE_WORD[trackSurfaceState(weather.waterMm)];
+  const rainIcon = weather.rain > 0.5 ? "weatherStorm" : weather.rain > 0.05 ? "weatherRain" : "weatherClear";
+  return (
+    <section aria-label="Weather" className="rounded-md bg-(--tp-panel) p-1.5 text-(--tp-text)">
+      <div className={BAR}>
+        <span className="inline-flex items-center gap-1.5 font-semibold text-(--tp-text)">
+          <Icon name={rainIcon} size="xs" className="size-3.5 text-(--tp-text-soft)" />
+          {surface}
+        </span>
+        <span>{weather.timeMoving ? dayClock(weather.clockH) : "Track"}</span>
+      </div>
+      <div className="mt-1 grid grid-cols-2 gap-1 text-center">
+        <div className={`flex flex-col py-1 ${CELL}`}>
+          <span className="text-[9px] font-semibold text-(--tp-text-dim) uppercase">Air</span>
+          <span className="text-[13px] font-semibold tabular-nums">{formatTemp(weather.airC, units)}</span>
+        </div>
+        <div className={`flex flex-col py-1 ${CELL}`}>
+          <span className="text-[9px] font-semibold text-(--tp-text-dim) uppercase">Track</span>
+          <span className="text-[13px] font-semibold tabular-nums">{formatTemp(weather.trackC, units)}</span>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const IrDashiesDeltaBar: React.FC<{ t: CarTelemetry; deltaS: number | null; lapInvalid: boolean }> = ({ t, deltaS, lapInvalid }) => {
+  const predicted = predictedLapMs(t.bestLapTimeMs, deltaS);
+  const has = deltaS !== null && Number.isFinite(deltaS);
+  const gain = has && deltaS <= 0;
+  const frac = has ? Math.min(1, Math.abs(deltaS)) * 50 : 0;
+  return (
+    <section
+      aria-label="Live delta"
+      className="flex w-[228px] flex-col gap-1.5 rounded-md bg-(--tp-panel) px-2.5 py-1.5 text-(--tp-text)"
+    >
+      <div className="flex items-baseline justify-between gap-2 text-[13px] leading-none tabular-nums">
+        <span className="font-semibold" style={{ color: lapInvalid ? HUD_LOSS : deltaColor(deltaS) }}>
+          {has ? formatDelta(Math.max(-99.999, Math.min(99.999, deltaS))) : NO_TIME}
+        </span>
+        {lapInvalid ? (
+          <InvalidTag />
+        ) : (
+          <span className="text-[12px] text-(--tp-text-soft)">{formatLapTime(predicted ?? t.bestLapTimeMs)}</span>
+        )}
+      </div>
+      <div className="relative h-2 overflow-hidden rounded-sm bg-(--tp-bar)" aria-hidden>
+        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/30" />
+        {has ? (
+          <span
+            className="absolute inset-y-0"
+            style={{
+              left: gain ? `${50 - frac}%` : "50%",
+              width: `${frac}%`,
+              backgroundColor: gain ? HUD_GAIN : HUD_LOSS,
+            }}
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+};
+
+const IrDashiesRadar: React.FC<{ t: CarTelemetry }> = ({ t }) => {
+  const { blips, leftCar, rightCar, opacity } = evaluateRadar(t.radar ?? []);
+  if (opacity <= 0.01) return null;
+  const range = RADAR_VIEW_RANGE_M;
+  return (
+    <div
+      className="pointer-events-none absolute top-[53%] left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-150 ease-out"
+      style={{ width: 148, height: 148, opacity }}
+    >
+      <svg
+        viewBox={`${-range} ${-range} ${range * 2} ${range * 2}`}
+        className="size-full overflow-hidden rounded-full border border-white/10 bg-(--tp-panel) shadow-lg"
+        role="img"
+        aria-label="Proximity radar"
+      >
+        <circle r={8} fill="none" stroke="var(--tp-text-dim)" strokeOpacity={0.28} strokeWidth={0.3} />
+        <circle r={16} fill="none" stroke="var(--tp-text-dim)" strokeOpacity={0.18} strokeWidth={0.3} />
+        <line x1={0} y1={-range} x2={0} y2={range} stroke="var(--tp-text-dim)" strokeOpacity={0.14} strokeWidth={0.25} />
+        <line x1={-range} y1={0} x2={range} y2={0} stroke="var(--tp-text-dim)" strokeOpacity={0.14} strokeWidth={0.25} />
+        {leftCar ? (
+          <path
+            d={radarSideArcPath(-1, leftCar)}
+            fill="none"
+            stroke={leftCar.overlapLevel === 2 ? HUD_LOSS : HUD_CAUTION}
+            strokeOpacity={Math.max(0.6, leftCar.opacity)}
+            strokeWidth={leftCar.overlapLevel === 2 ? 2.1 : 1.5}
+            strokeLinecap="round"
+          />
+        ) : null}
+        {rightCar ? (
+          <path
+            d={radarSideArcPath(1, rightCar)}
+            fill="none"
+            stroke={rightCar.overlapLevel === 2 ? HUD_LOSS : HUD_CAUTION}
+            strokeOpacity={Math.max(0.6, rightCar.opacity)}
+            strokeWidth={rightCar.overlapLevel === 2 ? 2.1 : 1.5}
+            strokeLinecap="round"
+          />
+        ) : null}
+        {blips.map(({ blip: b, opacity: carOp, overlapLevel }, i) => (
+          <rect
+            key={i}
+            x={-RADAR_CAR_W / 2}
+            y={-RADAR_CAR_L / 2}
+            width={RADAR_CAR_W}
+            height={RADAR_CAR_L}
+            rx={0.5}
+            fill={overlapLevel === 2 ? HUD_LOSS : overlapLevel === 1 ? HUD_CAUTION : b.color}
+            fillOpacity={Math.max(0.3, carOp)}
+            stroke="var(--tp-bar)"
+            strokeWidth={0.3}
+            transform={`translate(${b.x.toFixed(2)} ${(-b.z).toFixed(2)}) rotate(${((b.yaw * 180) / Math.PI).toFixed(1)})`}
+          />
+        ))}
+        <rect
+          x={-RADAR_CAR_W / 2}
+          y={-RADAR_CAR_L / 2}
+          width={RADAR_CAR_W}
+          height={RADAR_CAR_L}
+          rx={0.5}
+          fill="var(--tp-player)"
+          stroke="var(--tp-bar)"
+          strokeWidth={0.35}
+        />
+      </svg>
+    </div>
+  );
+};
+
 /**
  * irDashies: standings (race) or the lap timer (practice) top-left, the frameless track map top-right, and the
  * shift-light pill over the input widget at the bottom centre
  */
-export const IrDashiesHud: React.FC<HudDesignProps> = ({ t, deltaS, map, revRange, scale, mfd, touch, lapInvalid, towerGaps = "interval", mapMode, leftExtra, rightExtra }) => (
+export const IrDashiesHud: React.FC<HudDesignProps> = ({
+  t,
+  deltaS,
+  map,
+  revRange,
+  scale,
+  mfd,
+  touch,
+  topInset,
+  lapInvalid,
+  towerGaps = "interval",
+  mapMode,
+  leftExtra,
+  rightExtra,
+  weather,
+  showDeltaBar,
+  showRadar,
+}) => (
   <div className={`pointer-events-none absolute inset-0 select-none ${palette.palette}`}>
     {/* With the touch controls up (a tablet), the standings start under their pause and camera buttons */}
     <div
       className="absolute top-[clamp(14px,2.2vw,24px)] left-[clamp(14px,2.2vw,24px)] flex flex-col items-start gap-2"
       style={{ ...(touch ? { top: 68 } : null), ...anchor(scale, "top left") }}
     >
-      {t.race ? <Standings t={t} lengthM={map.lengthM} gaps={towerGaps} /> : <LapTimer t={t} deltaS={deltaS} lapInvalid={lapInvalid} />}
+      {t.race ? <Standings t={t} lengthM={map.lengthM} gaps={towerGaps} weather={weather} /> : <LapTimer t={t} deltaS={deltaS} lapInvalid={lapInvalid} />}
       {leftExtra ? <div className="w-[244px] lg:w-[300px]">{leftExtra}</div> : null}
     </div>
 
+    {showDeltaBar ? (
+      <div
+        className="absolute left-1/2 hidden -translate-x-1/2 md:block"
+        style={{ top: topInset ?? "clamp(14px,2.2vw,24px)", ...anchor(scale, "top center") }}
+      >
+        <IrDashiesDeltaBar t={t} deltaS={deltaS} lapInvalid={lapInvalid} />
+      </div>
+    ) : null}
+
     <div className="absolute top-[clamp(14px,2.2vw,24px)] right-[clamp(14px,2.2vw,24px)] hidden w-[210px] md:block" style={anchor(scale, "top right")}>
       <MiniMap map={map} t={t} local={mapMode === "local"} className="block h-[150px] w-full drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]" stroke={20} />
+      {!t.race && weather ? (
+        <div className="mt-2">
+          <IrDashiesWeatherPanel weather={weather} />
+        </div>
+      ) : null}
       {rightExtra ? <div className="mt-2">{rightExtra}</div> : null}
     </div>
+
+    {showRadar ? <IrDashiesRadar t={t} /> : null}
 
     {mfd ? (
       <div className="absolute right-[clamp(14px,2.2vw,24px)] bottom-[clamp(14px,2.2vw,24px)] hidden lg:block" style={anchor(scale, "bottom right")}>

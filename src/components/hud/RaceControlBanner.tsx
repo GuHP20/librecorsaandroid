@@ -7,6 +7,7 @@ import { Icon } from "@/components/ui/icons/Icon";
 import type { IconName } from "@/components/ui/icons/registry";
 import { PenaltyBadge } from "@/components/ui/badges/PenaltyBadge";
 import { HUD_GLASS, HUD_LBL } from "./hud-format";
+import { SkinBanner, skinCss, SkinPanel, SkinTag, type SkinTone, useHudSkin } from "./styles/third-party-skin";
 
 type MessageKind = NonNullable<TrackLimitsStatus["message"]>["kind"];
 
@@ -22,11 +23,26 @@ const TONES: Record<MessageKind, { tone: BadgeTone; ring: string; label: string;
   no_advantage: { tone: "neutral", ring: "inset-ring-white/7", label: "No action", icon: "info" },
 };
 
+const SKIN_TONES: Record<MessageKind, SkinTone> = {
+  warning: "caution",
+  penalty: "loss",
+  lap_invalid: "loss",
+  cleared: "gain",
+  no_advantage: "default",
+};
+
 /** Strike pips: the warnings of the current cycle towards the next penalty, filled and outlined (never colour alone) */
-const Pips: React.FC<{ n: number; of: number }> = ({ n, of }) => (
+const Pips: React.FC<{ n: number; of: number; skinned?: boolean }> = ({ n, of, skinned = false }) => (
   <span className="inline-flex gap-1" role="img" aria-label={`${n} of ${of} warnings`}>
     {Array.from({ length: of }, (_, i) => (
-      <span key={i} className={`size-2 rounded-full ${i < n ? "bg-lc-caution" : "inset-ring-[1.5px] inset-ring-lc-keyline"}`} />
+      <span
+        key={i}
+        className={
+          skinned
+            ? `size-2 rounded-full ${i < n ? skinCss.fillCaution : skinCss.deepBox}`
+            : `size-2 rounded-full ${i < n ? "bg-lc-caution" : "inset-ring-[1.5px] inset-ring-lc-keyline"}`
+        }
+      />
     ))}
   </span>
 );
@@ -35,17 +51,51 @@ const Pips: React.FC<{ n: number; of: number }> = ({ n, of }) => (
  * Top-centre race-control banner for the judged track limits: the excursion under review, what is still to give
  * back, then the decision (warning n/3, a time penalty, lap deleted, advantage given back or no further action).
  */
-export const RaceControlBanner: React.FC<{ status: TrackLimitsStatus | undefined; offTrack: boolean; race: boolean }> = ({
+export const RaceControlBanner: React.FC<{ status: TrackLimitsStatus | undefined; offTrack: boolean; race: boolean; yellow?: boolean }> = ({
   status,
   offTrack,
   race,
+  yellow,
 }) => {
+  const skin = useHudSkin();
   const pending = status?.pending ?? null;
   const msg = status?.message ?? null;
 
   if (pending && pending.stage === "give_back") {
     const gain = pending.gainS;
     const giveBackPos = pending.giveBackPosition ?? null;
+    const actionText =
+      giveBackPos !== null
+        ? `Hand back position · drop to P${giveBackPos}`
+        : gain !== null
+          ? `Give back ${gain.toFixed(2)} s`
+          : "Lift to give the advantage back";
+    if (skin !== null) {
+      return (
+        <SkinPanel
+          role="alert"
+          cut="sm"
+          tone="caution"
+          className="mt-1.5 min-w-75"
+          innerClassName="flex flex-col gap-2 px-3 pt-2.5 pb-3"
+        >
+          <div className="flex items-center gap-3">
+            <SkinTag tone="caution" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+              <Icon name={giveBackPos !== null ? "overtake" : "trackLimits"} size="xs" />
+              {giveBackPos !== null ? "Illegal overtake" : "Track limits"}
+            </SkinTag>
+            <span className="flex-1 text-[16px] leading-none font-bold whitespace-nowrap">{actionText}</span>
+            <span className={`lc-data text-[12px] ${skinCss.inkCaution}`}>{pending.remainingS.toFixed(1)} s</span>
+          </div>
+          <span className={`relative h-1.5 w-full overflow-hidden ${skinCss.bgDeep} ${skinCss.radiusSm}`}>
+            <span
+              className={`absolute inset-0 origin-left transition-transform duration-100 ${skinCss.fillCaution}`}
+              style={{ transform: `scaleX(${Math.max(0, Math.min(1, pending.progress))})` }}
+            />
+          </span>
+        </SkinPanel>
+      );
+    }
     return (
       <div
         role="alert"
@@ -56,13 +106,7 @@ export const RaceControlBanner: React.FC<{ status: TrackLimitsStatus | undefined
           <Badge tone="warn" variant="solid" size="lg" icon={giveBackPos !== null ? "overtake" : "trackLimits"}>
             {giveBackPos !== null ? "Illegal overtake" : "Track limits"}
           </Badge>
-          <span className="lc-disp flex-1 text-[19px] leading-none whitespace-nowrap">
-            {giveBackPos !== null
-              ? `Hand back position · drop to P${giveBackPos}`
-              : gain !== null
-                ? `Give back ${gain.toFixed(2)} s`
-                : "Lift to give the advantage back"}
-          </span>
+          <span className="lc-disp flex-1 text-[19px] leading-none whitespace-nowrap">{actionText}</span>
           <span className="lc-data text-[12px] text-lc-caution">{pending.remainingS.toFixed(1)} s</span>
         </div>
         <span className="relative h-1.5 w-full overflow-hidden rounded-full bg-lc-titanium">
@@ -76,8 +120,32 @@ export const RaceControlBanner: React.FC<{ status: TrackLimitsStatus | undefined
   }
 
   if (msg) {
+    if (skin === "blocks" && !yellow && msg.kind === "lap_invalid" && !msg.detail) return null;
     const tone = TONES[msg.kind];
     const bad = tone.tone === "bad";
+    if (skin !== null) {
+      const skinTone = SKIN_TONES[msg.kind];
+      return (
+        <SkinBanner
+          role={bad || msg.kind === "warning" ? "alert" : "status"}
+          tone={skinTone}
+          cut="sm"
+          className={`relative mt-1.5 inline-flex min-h-11 items-center gap-3 py-1.5 pr-4 pl-2.5 ${bad ? "lc-alert" : ""}`}
+        >
+          <SkinTag tone={skinTone} filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+            <Icon name={msg.kind === "warning" ? "warning" : (tone.icon ?? "info")} size="xs" />
+            {tone.label}
+          </SkinTag>
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span className="text-[15px] font-bold whitespace-nowrap sm:text-[17px]">{msg.text}</span>
+            {msg.detail ? <span className={`text-[10px] uppercase ${skinCss.inkDim}`}>{msg.detail}</span> : null}
+          </span>
+          {race && status && (msg.kind === "warning" || msg.kind === "penalty") ? (
+            <Pips skinned n={status.warnings} of={status.strikesPerPenalty} />
+          ) : null}
+        </SkinBanner>
+      );
+    }
     return (
       <div
         role={bad || msg.kind === "warning" ? "alert" : "status"}
@@ -102,6 +170,19 @@ export const RaceControlBanner: React.FC<{ status: TrackLimitsStatus | undefined
   }
 
   if (offTrack || (pending && pending.stage !== "off")) {
+    if (skin === "blocks" && !yellow && offTrack && (!pending || pending.stage === "off")) return null;
+    if (skin !== null) {
+      return (
+        <SkinBanner role="status" tone="caution" cut="sm" className="relative mt-1.5 inline-flex h-10 items-center gap-2.5 pr-4 pl-2.5">
+          <SkinTag tone="caution" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+            <Icon name="trackLimits" size="xs" />
+            Track limits
+          </SkinTag>
+          <span className={`text-[12px] font-semibold uppercase ${skinCss.inkCaution}`}>{offTrack ? "Off track" : "Under review"}</span>
+          {race && status ? <Pips skinned n={status.warnings} of={status.strikesPerPenalty} /> : null}
+        </SkinBanner>
+      );
+    }
     return (
       <div
         role="status"

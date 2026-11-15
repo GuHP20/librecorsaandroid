@@ -22,9 +22,10 @@ import type { CarTelemetry, RaceStandingEntry } from "@/types/f1";
 import { Icon } from "@/components/ui/icons/Icon";
 import type { IconName } from "@/components/ui/icons/registry";
 import { useUnits } from "@/lib/settings/ui-prefs";
-import { aidsActive, formatSpeed, HUD_GAIN, HUD_INFO, HUD_LOSS, HUD_SHIFT, speedUnit } from "../hud-format";
+import { aidsActive, formatSpeed, formatTemp, HUD_GAIN, HUD_INFO, HUD_LOSS, HUD_SHIFT, speedUnit } from "../hud-format";
 import { aeroReadout } from "../aero-label";
-import { fuelLapsLeft, referenceLapS } from "../third-party-data";
+import { type WeatherHudState } from "../WeatherBadge";
+import { dayClock, fuelLapsLeft, referenceLapS, SURFACE_WORD, trackSurfaceState } from "../third-party-data";
 import { anchor, gearLabel, type HudDesignProps } from "./hud-style-parts";
 import { revLights, useFuelPerLap } from "./third-party-parts";
 import palette from "./h2h.module.css";
@@ -480,6 +481,78 @@ const Spotter: React.FC<{ t: CarTelemetry; top?: number }> = ({ t, top }) => {
   );
 };
 
+/* ---- Weather & race delta */
+
+const WeatherCard: React.FC<{ weather: WeatherHudState }> = ({ weather }) => {
+  const units = useUnits();
+  const surface = trackSurfaceState(weather.waterMm);
+  const rainIcon = weather.rain > 0.5 ? "weatherStorm" : weather.rain > 0.05 ? "weatherRain" : "weatherClear";
+  return (
+    <section aria-label="Weather" className="w-[236px] border border-(--tp-border) bg-(--tp-bg-a) text-(--tp-white)">
+      <div className="grid grid-cols-2 border-b border-(--tp-border)">
+        <div className="grid justify-items-center gap-1 px-2 py-2">
+          <Head icon={rainIcon}>Air</Head>
+          <span className="text-[16px] leading-none font-bold">{formatTemp(weather.airC, units)}</span>
+        </div>
+        <div className="grid justify-items-center gap-1 border-l border-(--tp-border) px-2 py-2">
+          <Head icon="conditions">Track</Head>
+          <span className="text-[16px] leading-none font-bold">{formatTemp(weather.trackC, units)}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 bg-(--tp-card-a)">
+        <div className="grid justify-items-center gap-1 px-2 py-1.5">
+          <span className="text-[10px] leading-none tracking-[0.15em] text-(--tp-dim) uppercase">Surface</span>
+          <span
+            className="text-[12px] leading-none font-bold uppercase"
+            style={{ color: surface === "dry" ? "var(--tp-white)" : surface === "damp" ? "var(--tp-yellow)" : HUD_INFO }}
+          >
+            {SURFACE_WORD[surface]}
+          </span>
+        </div>
+        <div className="grid justify-items-center gap-1 border-l border-(--tp-border) px-2 py-1.5">
+          <span className="text-[10px] leading-none tracking-[0.15em] text-(--tp-dim) uppercase">
+            {weather.rain > 0.05 ? "Rain" : "Time"}
+          </span>
+          <span className="text-[12px] leading-none font-bold">
+            {weather.rain > 0.05 ? `${Math.round(weather.rain * 100)}%` : weather.timeMoving ? dayClock(weather.clockH) : "FIXED"}
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const H2hDeltaBar: React.FC<{ t: CarTelemetry; deltaS: number | null; lapInvalid: boolean }> = ({ t, deltaS, lapInvalid }) => {
+  const has = deltaS !== null && Number.isFinite(deltaS);
+  const gain = has && deltaS < 0;
+  const frac = has ? Math.min(1, Math.abs(deltaS)) * 50 : 0;
+  return (
+    <section
+      aria-label="Live delta"
+      className="flex w-[228px] flex-col gap-1.5 border border-(--tp-border) bg-(--tp-bg-a) px-2.5 py-1.5 text-(--tp-white)"
+    >
+      <div className="flex items-baseline justify-between gap-2 text-[12px] leading-none font-bold">
+        <span className="tracking-[0.12em] text-(--tp-dim) uppercase">{lapInvalid ? "Invalid" : "Delta"}</span>
+        <span style={{ color: lapInvalid ? HUD_LOSS : deltaColor(deltaS) }}>{deltaText(deltaS)}</span>
+        <span className="text-(--tp-dim)">{lapTime(t.bestLapTimeMs)}</span>
+      </div>
+      <div className="relative h-1.5 overflow-hidden border border-(--tp-border) bg-(--tp-card-a)" aria-hidden>
+        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-(--tp-border)" />
+        {has ? (
+          <span
+            className="absolute inset-y-0"
+            style={{
+              left: gain ? `${50 - frac}%` : "50%",
+              width: `${frac}%`,
+              backgroundColor: gain ? HUD_GAIN : HUD_LOSS,
+            }}
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+};
+
 /* ---- The layout */
 
 const EDGE = "clamp(14px,2.2vw,24px)";
@@ -490,9 +563,24 @@ const EDGE = "clamp(14px,2.2vw,24px)";
  * running lap and the live delta. The car's cells (ABS, TC, brake bias, fuel or battery round the gear) sit low in
  * the centre, the fuel figures bottom-left, and the spotter's bars come up only while a car is alongside.
  */
-export const HeadToHeadHud: React.FC<HudDesignProps> = ({ t, deltaS, revRange, scale, mfd, touch, topInset, lapInvalid, leftExtra, rightExtra }) => {
+export const HeadToHeadHud: React.FC<HudDesignProps> = ({
+  t,
+  deltaS,
+  revRange,
+  scale,
+  mfd,
+  touch,
+  topInset,
+  lapInvalid,
+  leftExtra,
+  rightExtra,
+  weather,
+  showDeltaBar,
+  showRadar,
+}) => {
   const fuelPerLap = useFuelPerLap();
   const race = t.race;
+  const showRaceDelta = Boolean(race) && showDeltaBar !== false;
   // With the touch controls up their pause and camera buttons take the top-left, the pads both bottom corners
   const top = touch ? "68px" : EDGE;
   return (
@@ -504,13 +592,25 @@ export const HeadToHeadHud: React.FC<HudDesignProps> = ({ t, deltaS, revRange, s
         {leftExtra}
       </div>
 
-      {rightExtra ? (
-        <div className="absolute hidden w-[236px] md:block" style={{ top, right: EDGE, ...anchor(scale, "top right") }}>
+      {showRaceDelta ? (
+        <div
+          className="absolute left-1/2 hidden -translate-x-1/2 md:block"
+          style={{ top: topInset ?? EDGE, ...anchor(scale, "top center") }}
+        >
+          <H2hDeltaBar t={t} deltaS={deltaS} lapInvalid={lapInvalid} />
+        </div>
+      ) : null}
+
+      {weather || rightExtra ? (
+        <div className="absolute hidden w-[236px] flex-col items-end gap-2 md:flex" style={{ top, right: EDGE, ...anchor(scale, "top right") }}>
+          {weather ? <WeatherCard weather={weather} /> : null}
           {rightExtra}
         </div>
       ) : null}
 
-      <Spotter t={t} top={topInset} />
+      {showRadar !== false ? (
+        <Spotter t={t} top={topInset !== undefined ? topInset + (showRaceDelta ? 52 : 0) : undefined} />
+      ) : null}
 
       {/* Fuel bottom-left on cars that burn it, from a laptop up; the steering pad has the corner on a tablet */}
       {!touch && t.fuelKg > 0 ? (

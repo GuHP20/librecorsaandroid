@@ -44,9 +44,23 @@ import {
   tyreHeatColor,
 } from "../hud-format";
 import { aeroReadout } from "../aero-label";
+import { damageColor, worstPart } from "../DamageWidget";
 import { pedalLayers } from "../PedalBars";
+import { type WeatherHudState } from "../WeatherBadge";
 import { anchor, deltaColor, gearLabel, MiniMap, type HudDesignProps, type HudMap } from "./hud-style-parts";
-import { relativeCars, sessionBestLapMs, driverLabel } from "../third-party-data";
+import {
+  dayClock,
+  driverLabel,
+  evaluateRadar,
+  RADAR_CAR_L,
+  RADAR_CAR_W,
+  RADAR_VIEW_RANGE_M,
+  radarSideArcPath,
+  relativeCars,
+  sessionBestLapMs,
+  SURFACE_WORD,
+  trackSurfaceState,
+} from "../third-party-data";
 import { revLights, useLapHistory } from "./third-party-parts";
 import css from "./retro.module.css";
 
@@ -501,21 +515,59 @@ const TyreLife: React.FC<{ t: CarTelemetry; i: number; mirror: boolean }> = ({ t
   );
 };
 
-/** The car condition panel: four tyres round the car's outline */
-const ConditionPanel: React.FC<{ t: CarTelemetry }> = ({ t }) => (
-  <Frame size="large" faceClassName="grid grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-3 px-3 py-2.5">
-    <TyreLife t={t} i={0} mirror={false} />
-    <svg viewBox="0 0 40 100" className="row-span-2 h-[104px] w-[42px]" aria-hidden>
-      <path d="M20 2 L24 9 L16 9 Z" fill="var(--tp-outline)" />
-      <path d="M13 14 L27 14 L33 26 L33 80 L28 96 L12 96 L7 80 L7 26 Z" fill="var(--tp-surface)" stroke="var(--tp-metal)" strokeWidth={1.2} />
-      <path d={cutRect(13, 34, 14, 22, 3)} fill="none" stroke="var(--tp-outline-dim)" strokeWidth={1} />
-      <path d={cutRect(14, 62, 12, 22, 3)} fill="none" stroke="var(--tp-outline-dim)" strokeWidth={1} />
-    </svg>
-    <TyreLife t={t} i={1} mirror />
-    <TyreLife t={t} i={2} mirror={false} />
-    <TyreLife t={t} i={3} mirror />
-  </Frame>
-);
+/** The car condition panel: four tyres round the car's outline, plus chassis damage bands when damaged */
+const ConditionPanel: React.FC<{ t: CarTelemetry }> = ({ t }) => {
+  const dmg = t.race?.damage;
+  const wheels = dmg
+    ? [
+        { x: 4, y: 26, i: 1 },
+        { x: 33, y: 26, i: 0 },
+        { x: 4, y: 74, i: 3 },
+        { x: 33, y: 74, i: 2 },
+      ]
+    : [];
+  const hasDamage = Boolean(dmg && (dmg.overall >= 0.01 || dmg.terminal || dmg.punctured.some(Boolean)));
+  return (
+    <Frame size="large" faceClassName="grid grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-3 px-3 py-2.5">
+      <TyreLife t={t} i={0} mirror={false} />
+      <svg viewBox="0 0 40 100" className="row-span-2 h-[104px] w-[42px]" aria-hidden>
+        <path d="M20 2 L24 9 L16 9 Z" fill={dmg && dmg.front >= 0.05 ? damageColor(dmg.front) : "var(--tp-outline)"} />
+        <path d="M13 14 L27 14 L33 26 L33 80 L28 96 L12 96 L7 80 L7 26 Z" fill="var(--tp-surface)" stroke="var(--tp-metal)" strokeWidth={1.2} />
+        <path d={cutRect(13, 34, 14, 22, 3)} fill="none" stroke="var(--tp-outline-dim)" strokeWidth={1} />
+        <path d={cutRect(14, 62, 12, 22, 3)} fill="none" stroke="var(--tp-outline-dim)" strokeWidth={1} />
+        {dmg ? (
+          <>
+            <rect x="11" y="13" width="18" height="3.5" fill={damageColor(dmg.front)} />
+            <rect x="7.5" y="34" width="2.5" height="32" fill={damageColor(dmg.left)} />
+            <rect x="30" y="34" width="2.5" height="32" fill={damageColor(dmg.right)} />
+            <rect x="12" y="90" width="16" height="4" fill={damageColor(dmg.rear)} />
+            {wheels.map((w) => (
+              <rect
+                key={w.i}
+                x={w.x}
+                y={w.y}
+                width="3"
+                height="9"
+                fill={dmg.punctured[w.i] ? HUD_LOSS : damageColor(dmg.suspension[w.i])}
+              />
+            ))}
+          </>
+        ) : null}
+      </svg>
+      <TyreLife t={t} i={1} mirror />
+      <TyreLife t={t} i={2} mirror={false} />
+      <TyreLife t={t} i={3} mirror />
+      {hasDamage && dmg ? (
+        <div className="col-span-3 flex items-center justify-between gap-2 border-t border-(--tp-outline-dim) pt-1.5 text-[10px] leading-none uppercase">
+          <span className="text-(--tp-secondary)">{dmg.punctured.some(Boolean) ? "PUNCTURE" : worstPart(dmg)}</span>
+          <span style={{ color: dmg.terminal ? HUD_LOSS : damageColor(Math.max(0.05, dmg.overall)) }}>
+            {dmg.terminal ? "OUT" : `${Math.round(dmg.overall * 100)}%`}
+          </span>
+        </div>
+      ) : null}
+    </Frame>
+  );
+};
 
 /* ---------------------------------------------------------------- Map */
 
@@ -536,6 +588,106 @@ const MapPanel: React.FC<Pick<HudDesignProps, "t" | "map" | "mapMode">> = ({ t, 
   </Frame>
 );
 
+/* ---------------------------------------------------------------- Weather & Radar */
+
+const WeatherPanel: React.FC<{ weather: WeatherHudState }> = ({ weather }) => {
+  const units = useUnits();
+  const surface = trackSurfaceState(weather.waterMm);
+  return (
+    <Frame size="medium" faceClassName="grid grid-cols-2 gap-x-2 gap-y-1.5 px-2.5 py-2">
+      <div className="flex flex-col gap-0.5">
+        <span className={LBL}>Air</span>
+        <span className="text-[13px] leading-none">{formatTemp(weather.airC, units)}</span>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <span className={LBL}>Track</span>
+        <span className="text-[13px] leading-none">{formatTemp(weather.trackC, units)}</span>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <span className={LBL}>Surface</span>
+        <span
+          className="text-[11px] leading-none uppercase"
+          style={{ color: surface === "dry" ? undefined : surface === "damp" ? "var(--tp-amber)" : HUD_INFO }}
+        >
+          {SURFACE_WORD[surface]}
+        </span>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <span className={LBL}>{weather.rain > 0.05 ? "Rain" : "Clock"}</span>
+        <span className="text-[11px] leading-none">
+          {weather.rain > 0.05 ? `${Math.round(weather.rain * 100)}%` : weather.timeMoving ? dayClock(weather.clockH) : "FIXED"}
+        </span>
+      </div>
+    </Frame>
+  );
+};
+
+const RetroRadar: React.FC<{ t: CarTelemetry }> = ({ t }) => {
+  const { blips, leftCar, rightCar, opacity } = evaluateRadar(t.radar ?? []);
+  if (opacity <= 0.01) return null;
+  const range = RADAR_VIEW_RANGE_M;
+  const maxOverlap = Math.max(leftCar?.overlapLevel ?? 0, rightCar?.overlapLevel ?? 0);
+  const edgeStyle = maxOverlap === 2 ? { backgroundColor: HUD_LOSS } : maxOverlap === 1 ? { backgroundColor: "var(--tp-amber)" } : undefined;
+  return (
+    <div
+      className="pointer-events-none absolute top-[53%] left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-150 ease-out"
+      style={{ width: 152, height: 152, opacity }}
+    >
+      <Frame size="large" face="void" className="size-full" style={edgeStyle} faceClassName="size-full">
+        <svg viewBox={`${-range} ${-range} ${range * 2} ${range * 2}`} className="block size-full" role="img" aria-label="Proximity radar">
+          <circle r={8} fill="none" stroke="var(--tp-outline-dim)" strokeWidth={0.35} />
+          <circle r={16} fill="none" stroke="var(--tp-outline-dim)" strokeWidth={0.35} />
+          <line x1={0} y1={-range} x2={0} y2={range} stroke="var(--tp-outline-dim)" strokeWidth={0.25} />
+          <line x1={-range} y1={0} x2={range} y2={0} stroke="var(--tp-outline-dim)" strokeWidth={0.25} />
+          {leftCar ? (
+            <path
+              d={radarSideArcPath(-1, leftCar)}
+              fill="none"
+              stroke={leftCar.overlapLevel === 2 ? HUD_LOSS : HUD_CAUTION}
+              strokeOpacity={Math.max(0.65, leftCar.opacity)}
+              strokeWidth={leftCar.overlapLevel === 2 ? 2.1 : 1.5}
+              strokeLinecap="round"
+            />
+          ) : null}
+          {rightCar ? (
+            <path
+              d={radarSideArcPath(1, rightCar)}
+              fill="none"
+              stroke={rightCar.overlapLevel === 2 ? HUD_LOSS : HUD_CAUTION}
+              strokeOpacity={Math.max(0.65, rightCar.opacity)}
+              strokeWidth={rightCar.overlapLevel === 2 ? 2.1 : 1.5}
+              strokeLinecap="round"
+            />
+          ) : null}
+          {blips.map(({ blip: b, opacity: carOp, overlapLevel }, i) => (
+            <rect
+              key={i}
+              x={-RADAR_CAR_W / 2}
+              y={-RADAR_CAR_L / 2}
+              width={RADAR_CAR_W}
+              height={RADAR_CAR_L}
+              fill={overlapLevel === 2 ? HUD_LOSS : overlapLevel === 1 ? HUD_CAUTION : b.color}
+              fillOpacity={Math.max(0.35, carOp)}
+              stroke="var(--tp-void)"
+              strokeWidth={0.35}
+              transform={`translate(${b.x.toFixed(2)} ${(-b.z).toFixed(2)}) rotate(${((b.yaw * 180) / Math.PI).toFixed(1)})`}
+            />
+          ))}
+          <rect
+            x={-RADAR_CAR_W / 2}
+            y={-RADAR_CAR_L / 2}
+            width={RADAR_CAR_W}
+            height={RADAR_CAR_L}
+            fill="var(--tp-amber)"
+            stroke="var(--tp-void)"
+            strokeWidth={0.35}
+          />
+        </svg>
+      </Frame>
+    </div>
+  );
+};
+
 /* ---------------------------------------------------------------- Layout */
 
 /**
@@ -544,7 +696,23 @@ const MapPanel: React.FC<Pick<HudDesignProps, "t" | "map" | "mapMode">> = ({ t, 
  * bottom-left and the digital dial bottom-centre. With the touch controls up (a tablet) the bottom corners are the
  * pads': the condition panel steps aside and the dial gets smaller between them.
  */
-export const RetroHud: React.FC<HudDesignProps> = ({ t, deltaS, map, revRange, scale, mfd, lapInvalid, mapMode, leftExtra, rightExtra, touch, topInset }) => (
+export const RetroHud: React.FC<HudDesignProps> = ({
+  t,
+  deltaS,
+  map,
+  revRange,
+  scale,
+  mfd,
+  lapInvalid,
+  mapMode,
+  leftExtra,
+  rightExtra,
+  touch,
+  topInset,
+  weather,
+  showDeltaBar,
+  showRadar,
+}) => (
   <div className={cx("pointer-events-none absolute inset-0 select-none", css.palette)}>
     <div
       className="absolute flex w-[300px] flex-col gap-2 max-lg:w-[256px] max-md:w-[220px]"
@@ -554,14 +722,23 @@ export const RetroHud: React.FC<HudDesignProps> = ({ t, deltaS, map, revRange, s
       {leftExtra}
     </div>
 
-    <div className="absolute left-1/2 hidden -translate-x-1/2 md:block" style={{ top: topInset ?? EDGE, ...anchor(scale, "top center") }}>
-      <RetroDeltaBar t={t} deltaS={deltaS} lapInvalid={lapInvalid} />
-    </div>
+    {showDeltaBar !== false ? (
+      <div className="absolute left-1/2 hidden -translate-x-1/2 md:block" style={{ top: topInset ?? EDGE, ...anchor(scale, "top center") }}>
+        <RetroDeltaBar t={t} deltaS={deltaS} lapInvalid={lapInvalid} />
+      </div>
+    ) : null}
 
     <div className="absolute hidden w-[204px] md:block" style={{ top: EDGE, right: EDGE, ...anchor(scale, "top right") }}>
       <MapPanel t={t} map={map} mapMode={mapMode} />
+      {weather ? (
+        <div className="mt-2">
+          <WeatherPanel weather={weather} />
+        </div>
+      ) : null}
       {rightExtra ? <div className="mt-2">{rightExtra}</div> : null}
     </div>
+
+    {showRadar !== false ? <RetroRadar t={t} /> : null}
 
     {touch ? null : (
       <div data-hud-floor data-hud-avoid className="absolute w-[218px] compact:hidden" style={{ bottom: EDGE, left: EDGE, ...anchor(scale, "bottom left") }}>

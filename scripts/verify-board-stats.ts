@@ -14,7 +14,7 @@ import { handleApi, onlineConfig, SHARED_ANSWER_S } from '../cloudflare/api/inde
 import { PresenceCounter } from '../cloudflare/api/presence';
 import { formatCount, parseBoardPage } from '../src/lib/net/board-client';
 import { HEARTBEAT_MS, nextHeartbeatInMs } from '../src/lib/net/live-heartbeat';
-import { towerLines } from '../src/components/hud/BoardWidget';
+import { towerLines } from '../src/components/hud/board-data';
 import { ALL_CARS, currentPhysicsByCar, driverNameKey, listLaps, renameDriver, sha256Hex, type BoardDeps } from '../cloudflare/api/board';
 import { circuitTotals, driversToDate } from '../cloudflare/api/stats';
 import { recordUsage } from '../cloudflare/api/usage';

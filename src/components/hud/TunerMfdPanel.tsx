@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Icon } from "@/components/ui/icons/Icon";
 import { HUD_CAUTION, HUD_GLASS, HUD_INFO, HUD_LBL, aidsActive } from "./hud-format";
 import { HUD_CHOSEN, HUD_CONTROL, HUD_IDLE } from "./styles/hud-style-parts";
+import { SkinButton, skinCss, SkinPanel, skinRootClass, SkinTag, useHudSkin } from "./styles/third-party-skin";
 
 /** Every dial draws in chalk: the dial's name says which it is, so colour carries no meaning here */
 const DIAL_ACCENT = "var(--color-lc-chalk)";
@@ -99,14 +100,29 @@ const MFD_ROUND_FLASH = `border-transparent ${HUD_CHOSEN}`;
 const MFD_LBL = HUD_LBL;
 
 /** A thin live bar (0..1), scaled from the left (transform only) */
-const LiveBar: React.FC<{ frac: number; color: string }> = ({ frac, color }) => (
-  <span className="h-1.25 min-w-0 flex-1 overflow-hidden rounded-full bg-lc-titanium">
-    <span
-      className="block h-full origin-left rounded-full"
-      style={{ transform: `scaleX(${Math.min(1, Math.max(0, frac))})`, backgroundColor: color }}
-    />
-  </span>
-);
+const LiveBar: React.FC<{ frac: number; color?: string; skinned?: boolean; fillClass?: string }> = ({
+  frac,
+  color,
+  skinned = false,
+  fillClass,
+}) => {
+  const scale = `scaleX(${Math.min(1, Math.max(0, frac))})`;
+  if (skinned) {
+    return (
+      <span className={`h-1.25 min-w-0 flex-1 overflow-hidden ${skinCss.bgDeep} ${skinCss.radiusSm}`}>
+        <span
+          className={`block h-full origin-left ${skinCss.radiusSm} ${fillClass ?? ""}`}
+          style={fillClass ? { transform: scale } : { transform: scale, backgroundColor: color }}
+        />
+      </span>
+    );
+  }
+  return (
+    <span className="h-1.25 min-w-0 flex-1 overflow-hidden rounded-full bg-lc-titanium">
+      <span className="block h-full origin-left rounded-full" style={{ transform: scale, backgroundColor: color }} />
+    </span>
+  );
+};
 
 export interface TunerMfdPanelProps {
   telemetry: CarTelemetry;
@@ -130,8 +146,23 @@ export interface TunerMfdPanelProps {
 
 /** TC / ABS / bias / diff phase chips: the MFD's one-line status */
 export const MfdStatusChips: React.FC<{ telemetry: CarTelemetry }> = ({ telemetry }) => {
+  const skin = useHudSkin();
   const tuner = telemetry.liveTuner ?? FALLBACK_TUNER;
   const { tc: tcActive, abs: absActive } = aidsActive(telemetry);
+  if (skin !== null) {
+    return (
+      <div className="flex items-center gap-1">
+        <SkinTag tone={tcActive ? "caution" : "default"} filled={tcActive} className="px-1.5 py-0.5 text-[10px] font-semibold">
+          TC {tuner.tcLevel > 0 ? `${tuner.tcLevel}/${tuner.tc2Level}` : "Off"}
+        </SkinTag>
+        <SkinTag tone={absActive ? "caution" : "default"} filled={absActive} className="px-1.5 py-0.5 text-[10px] font-semibold">
+          ABS {tuner.absLevel > 0 ? tuner.absLevel : "Off"}
+        </SkinTag>
+        <SkinTag className="lc-mono px-1.5 py-0.5 text-[10px] font-semibold">BB {tuner.brakeBiasPct.toFixed(1)}</SkinTag>
+        <SkinTag className="px-1.5 py-0.5 text-[10px] font-semibold">{PHASE_LABEL[tuner.diffActivePhase]}</SkinTag>
+      </div>
+    );
+  }
   return (
     // An aid lights caution with a live dot while it intervenes; the rest are neutral read-outs
     <div className="flex items-center gap-1">
@@ -167,6 +198,7 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
   onCyclePage,
   onInteract,
 }) => {
+  const skin = useHudSkin();
   const tuner = telemetry.liveTuner ?? FALLBACK_TUNER;
 
   const dials = useMemo(() => ALL_DIALS.filter((d) => (d.id === "ers_mode" ? tuner.hasErs : true)), [tuner.hasErs]);
@@ -440,14 +472,17 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
   if (embedded && hidden) return null;
 
   // One live line under the dial: what that dial is doing right now
-  const live = (): React.ReactNode => {
+  const live = (skinned = false): React.ReactNode => {
     switch (activeDial.category) {
       case "tc":
         return (
           <>
-            <span className={MFD_LBL}>Cut</span>
-            <LiveBar frac={tuner.tcCutFraction} color={HUD_CAUTION} />
-            <span className="lc-data w-9.5 text-right text-[12px]" style={{ color: tcActive ? HUD_CAUTION : "var(--color-lc-chalk)" }}>
+            <span className={skinned ? `text-[10px] font-semibold uppercase ${skinCss.inkDim}` : MFD_LBL}>Cut</span>
+            {skinned ? <LiveBar frac={tuner.tcCutFraction} skinned fillClass={skinCss.fillCaution} /> : <LiveBar frac={tuner.tcCutFraction} color={HUD_CAUTION} />}
+            <span
+              className={`lc-data w-9.5 text-right text-[12px] ${skinned ? (tcActive ? skinCss.inkCaution : skinCss.ink) : ""}`}
+              style={skinned ? undefined : { color: tcActive ? HUD_CAUTION : "var(--color-lc-chalk)" }}
+            >
               {Math.round(tuner.tcCutFraction * 100)}%
             </span>
           </>
@@ -455,49 +490,187 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
       case "abs":
         return (["FL", "FR", "RL", "RR"] as const).map((c, i) => (
           <span key={c} className="flex min-w-0 flex-1 items-center gap-1">
-            <span className={`${HUD_LBL} tracking-normal`}>{c}</span>
-            <LiveBar frac={tuner.absCutPerWheel[i] ?? 0} color={HUD_CAUTION} />
+            <span className={skinned ? `text-[10px] font-semibold uppercase ${skinCss.inkDim}` : `${HUD_LBL} tracking-normal`}>{c}</span>
+            {skinned ? (
+              <LiveBar frac={tuner.absCutPerWheel[i] ?? 0} skinned fillClass={skinCss.fillCaution} />
+            ) : (
+              <LiveBar frac={tuner.absCutPerWheel[i] ?? 0} color={HUD_CAUTION} />
+            )}
           </span>
         ));
       case "bias":
         return (
           <>
-            <span className="lc-data text-[12px] text-lc-chalk">F {tuner.brakeBiasPct.toFixed(1)}</span>
-            <span className="flex h-1.25 min-w-0 flex-1 gap-px overflow-hidden rounded-full">
-              <span className="h-full bg-lc-chalk" style={{ width: `${tuner.brakeBiasPct}%` }} />
-              <span className="h-full flex-1 bg-lc-keyline" />
+            <span className={`lc-data text-[12px] ${skinned ? skinCss.ink : "text-lc-chalk"}`}>F {tuner.brakeBiasPct.toFixed(1)}</span>
+            <span className={`flex h-1.25 min-w-0 flex-1 gap-px overflow-hidden ${skinned ? skinCss.radiusSm : "rounded-full"}`}>
+              <span className={`h-full ${skinned ? skinCss.fillAccent : "bg-lc-chalk"}`} style={{ width: `${tuner.brakeBiasPct}%` }} />
+              <span className={`h-full flex-1 ${skinned ? skinCss.fillDim : "bg-lc-keyline"}`} />
             </span>
-            <span className="lc-data text-[12px] text-lc-fog">R {(100 - tuner.brakeBiasPct).toFixed(1)}</span>
+            <span className={`lc-data text-[12px] ${skinned ? skinCss.inkSoft : "text-lc-fog"}`}>R {(100 - tuner.brakeBiasPct).toFixed(1)}</span>
           </>
         );
       case "diff":
         return (
           <>
-            {(["ENTRY", "MID", "EXIT"] as const).map((ph) => (
-              <Badge key={ph} size="hud" variant={tuner.diffActivePhase === ph ? "solid" : "soft"} dot={tuner.diffActivePhase === ph ? true : undefined}>
-                {PHASE_LABEL[ph]}
-              </Badge>
-            ))}
-            <span className="lc-data ml-auto text-[12px] text-lc-chalk">{tuner.diffLockingTorqueNm} Nm</span>
+            {(["ENTRY", "MID", "EXIT"] as const).map((ph) =>
+              skinned ? (
+                <SkinTag
+                  key={ph}
+                  tone={tuner.diffActivePhase === ph ? "accent" : "default"}
+                  filled={tuner.diffActivePhase === ph}
+                  className="px-1.5 py-0.5 text-[9px] font-bold uppercase"
+                >
+                  {PHASE_LABEL[ph]}
+                </SkinTag>
+              ) : (
+                <Badge key={ph} size="hud" variant={tuner.diffActivePhase === ph ? "solid" : "soft"} dot={tuner.diffActivePhase === ph ? true : undefined}>
+                  {PHASE_LABEL[ph]}
+                </Badge>
+              ),
+            )}
+            <span className={`lc-data ml-auto text-[12px] ${skinned ? skinCss.ink : "text-lc-chalk"}`}>{tuner.diffLockingTorqueNm} Nm</span>
           </>
         );
       case "pwr":
         return activeDial.id === "engine_map" ? (
           <>
-            <span className={MFD_LBL}>Torque</span>
-            <span className="lc-data ml-auto text-[12px] text-lc-chalk">{ENGINE_MAPS[tuner.engineMap]?.torquePct ?? 100}%</span>
+            <span className={skinned ? `text-[10px] font-semibold uppercase ${skinCss.inkDim}` : MFD_LBL}>Torque</span>
+            <span className={`lc-data ml-auto text-[12px] ${skinned ? skinCss.ink : "text-lc-chalk"}`}>{ENGINE_MAPS[tuner.engineMap]?.torquePct ?? 100}%</span>
           </>
         ) : (
           <>
-            <span className={MFD_LBL}>Battery</span>
-            <LiveBar frac={telemetry.ersBatteryPercent / 100} color={HUD_INFO} />
-            <span className="lc-data w-9.5 text-right text-[12px] text-lc-info">
+            <span className={skinned ? `text-[10px] font-semibold uppercase ${skinCss.inkDim}` : MFD_LBL}>Battery</span>
+            {skinned ? (
+              <LiveBar frac={telemetry.ersBatteryPercent / 100} skinned fillClass={skinCss.fillInfo} />
+            ) : (
+              <LiveBar frac={telemetry.ersBatteryPercent / 100} color={HUD_INFO} />
+            )}
+            <span className={`lc-data w-9.5 text-right text-[12px] ${skinned ? skinCss.inkInfo : "text-lc-info"}`}>
               {Math.round(telemetry.ersBatteryPercent)}%
             </span>
           </>
         );
     }
   };
+
+  if (skin !== null) {
+    const skinnedBody = (
+      <div className={`flex h-53 flex-col gap-1.5 ${skinRootClass(skin) ?? ""}`}>
+        <div className="flex h-7 items-center gap-1">
+          <SkinButton
+            active={flashDir === "left"}
+            onClick={() => cycleDial(-1)}
+            className="size-7 shrink-0"
+            title="Previous dial (D-pad left or ,)"
+            aria-label="Previous dial"
+          >
+            <Icon name="previous" size="sm" />
+          </SkinButton>
+          <div className="flex min-w-0 flex-1 gap-0.5">
+            {CATEGORIES.map((cat) => (
+              <SkinButton
+                key={cat.id}
+                active={activeDial.category === cat.id}
+                onClick={() => {
+                  const first = dials.find((d) => d.category === cat.id);
+                  if (first) pickDial(first.id);
+                }}
+                className="h-7 min-w-0 flex-1 text-[10px] font-bold tracking-[0.06em] uppercase"
+              >
+                {cat.label}
+              </SkinButton>
+            ))}
+          </div>
+          <SkinButton
+            active={flashDir === "right"}
+            onClick={() => cycleDial(1)}
+            className="size-7 shrink-0"
+            title="Next dial (D-pad right or .)"
+            aria-label="Next dial"
+          >
+            <Icon name="next" size="sm" />
+          </SkinButton>
+        </div>
+
+        <div className="flex h-5.5 gap-1">
+          {categoryDials.map((d) => {
+            const selected = d.id === activeDial.id;
+            return (
+              <SkinButton
+                key={d.id}
+                active={selected}
+                soft
+                onClick={() => pickDial(d.id)}
+                className="h-5.5 min-w-0 flex-1 text-[9px] font-bold tracking-[0.06em] uppercase"
+              >
+                {d.label}
+              </SkinButton>
+            );
+          })}
+        </div>
+
+        <div className={`flex min-h-0 flex-1 flex-col justify-between px-2.5 py-2 ${skinCss.deepBox}`}>
+          <div className="flex items-baseline justify-between">
+            <span className={`text-[11px] font-bold tracking-[0.06em] uppercase ${skinCss.ink}`}>{activeDial.title}</span>
+            <span className={`text-[10px] font-semibold uppercase ${skinCss.inkDim}`}>{hero.tag}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <SkinButton
+              active={flashDir === "down"}
+              onClick={() => adjustActiveDial(-1)}
+              className="size-9 shrink-0"
+              aria-label={`Lower ${activeDial.title}`}
+              title={`${activeDial.lowHint} (D-pad down or -)`}
+            >
+              <Icon name="remove" size="sm" />
+            </SkinButton>
+            <span className={`lc-data text-[36px] leading-none ${hero.off ? skinCss.inkDim : skinCss.ink}`}>{hero.text}</span>
+            <SkinButton
+              active={flashDir === "up"}
+              onClick={() => adjustActiveDial(1)}
+              className="size-9 shrink-0"
+              aria-label={`Raise ${activeDial.title}`}
+              title={`${activeDial.highHint} (D-pad up or =)`}
+            >
+              <Icon name="add" size="sm" />
+            </SkinButton>
+          </div>
+          <div className="flex h-1.25 gap-0.5" aria-hidden>
+            {Array.from({ length: hero.segments }, (_, k) => (
+              <span
+                key={k}
+                className={`h-full flex-1 ${skinCss.radiusSm} ${!hero.off && k < hero.filled ? skinCss.fillAccent : skinCss.fillDim}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className={`flex h-7.5 items-center gap-2 px-2.5 ${skinCss.subBar} ${skinCss.radiusSm}`}>{live(true)}</div>
+      </div>
+    );
+
+    if (embedded) return <div className={`w-full ${className}`}>{skinnedBody}</div>;
+
+    return (
+      <SkinPanel
+        cut={collapsed ? "sm" : "md"}
+        className={`pointer-events-auto select-none ${collapsed ? "w-max" : "w-75"} ${className}`}
+        innerClassName={collapsed ? "p-1.5" : "flex flex-col gap-2 p-2.5"}
+      >
+        <div className="flex items-center justify-between gap-1">
+          <MfdStatusChips telemetry={telemetry} />
+          <SkinButton
+            onClick={() => setCollapsed((c) => !c)}
+            className="size-6.5 shrink-0"
+            aria-label={collapsed ? "Open the tuner" : "Fold the tuner"}
+          >
+            <Icon name={collapsed ? "collapse" : "expand"} size="xs" />
+          </SkinButton>
+        </div>
+        {collapsed ? null : skinnedBody}
+      </SkinPanel>
+    );
+  }
 
   const body = (
     <div className="flex h-53 flex-col gap-1.5">
