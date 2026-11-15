@@ -33,10 +33,10 @@ export interface VenueModel {
 }
 
 export const VENUE_MODELS: readonly VenueModel[] = [
-  { venue: "vir", build: "b79628d0", layouts: ["vir", "vir_grand_east", "vir_grand_west", "vir_north", "vir_patriot", "vir_patriot_reverse", "vir_south"] },
-  { venue: "spielberg", build: "a96cb481", layouts: ["spielberg", "spielberg_inner", "spielberg_south"] },
-  { venue: "sachsenring", build: "c4e8700f", layouts: ["sachsenring", "sachsenring_short"] },
-  { venue: "okayama", build: "710efbb4", layouts: ["okayama", "okayama_drift", "okayama_piper"] },
+  { venue: "vir", build: "b79628d0", ktx2Build: "13216544", layouts: ["vir", "vir_grand_east", "vir_grand_west", "vir_north", "vir_patriot", "vir_patriot_reverse", "vir_south"] },
+  { venue: "spielberg", build: "a96cb481", ktx2Build: "d03dab41", layouts: ["spielberg", "spielberg_inner", "spielberg_south"] },
+  { venue: "sachsenring", build: "c4e8700f", ktx2Build: "6903794c", layouts: ["sachsenring", "sachsenring_short"] },
+  { venue: "okayama", build: "710efbb4", ktx2Build: "095ff98a", layouts: ["okayama", "okayama_drift", "okayama_piper"] },
 ];
 
 /** A layout's two files (relative to the base path) */
