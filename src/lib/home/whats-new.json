@@ -1,5 +1,42 @@
 [
   {
+    "date": "2026-11-14",
+    "title": "LC-LMDH prototype, DualSense WebHID haptics, unified UI, and live lap boards",
+    "items": [
+      "Added the LC-LMDH twin-turbo V8 hybrid prototype with regulated shaft power, driveline whine, and hybrid motor audio layers, fitted Purple Sector's 2025 Pirelli tyre textures to the 2026 Prototype, and extended the Weekly challenge calendar to October 2027 with car-specific weeks.",
+      "Added PlayStation DualSense WebHID support featuring adaptive brake and throttle triggers, direct rumble, optional USB HD haptics, rev-light LEDs, and Bluetooth extended reports.",
+      "Unified the menus around a single UI kit and Settings screen with unit choices (km/h or mph, °C or °F, bar or psi), master volume, and colour-blind palettes, and added paginated My car and All cars leaderboards, a foldable HUD lap board, live driver counts, and Lap times and What's new tabs on the home hub.",
+      "Lightened phone controls with split tilt pedals, an Install app prompt, and Medium mobile graphics defaults, split multi-layout venues into shared downloads, and fixed converted-circuit tree flicker, overlapping off-road track limits, and curved flying-lap starts."
+    ],
+    "commits": 63,
+    "lastSha": "28c4d885aece99ee4026c9ac9b4bc22c9a0a2999"
+  },
+  {
+    "date": "2026-11-13",
+    "title": "Hill climbs and seven new venues, Skyline GT-R classics, and LC26 physics",
+    "items": [
+      "Added point-to-point hill climb timing alongside Barbagallo Raceway, Virginia International Raceway (seven layouts), Sachsenring, Norisring, Circuit de la Sarthe 1982, and the Goodwood and Borgloh hill climbs, plus combinable Type, Location, and Modder circuit filters.",
+      "Added a Classic GT & Touring class with the 1998 Nissan Skyline GT-R R33 JGTC and 1993 Nissan Skyline GT-R R32 JTCC, complete with centre-coupling four-wheel drive physics, full livery sets, and engine audio pitching all the way to each car's rev limiter.",
+      "Upgraded the 2026 Prototype (now LC26, carrying saved setups, personal bests, and online records over) with per-element aero drag, pressure-coupled tyre heat, temperature-dependent carbon brakes, fuel centre-of-gravity shift, Straight Mode on every straight, lift-off recovery in all gears, and an optional cockpit driver figure.",
+      "Updated AI opponents to use flat exit kerbs, account for punctured tyres, and reference leaderboard ghosts when optimising lines, refined keyboard steering return and smoothing controls, and fixed iOS tilt motion permission prompts."
+    ],
+    "commits": 49,
+    "lastSha": "febb51270c4bc8a407bdbbed5c6ccedc335a953d"
+  },
+  {
+    "date": "2026-11-12",
+    "title": "Grobnik and Oschersleben, WebHID wheel expansion, and 60 Hz binary netcode",
+    "items": [
+      "Added Automotodrom Grobnik and Motorsport Arena Oschersleben, added Source chips on every car and circuit card, and removed the circuits and F1 cars converted from ripped Sketchfab uploads.",
+      "Moved the 2026 Prototype onto Qvist Designs' 2026 concept body with articulated suspension, baked shading, and four liveries, and moved the Mercedes-AMG GT3 onto the Evo body with live GT3 cockpit dashes and rear-view mirrors.",
+      "Added WebHID force feedback for Logitech Driving Force GT, G25, G27, G29, G920, and G923 wheels (with G27 and G29 rev lights) and Thrustmaster T300RS, T248, TX, TS-XW, and TS-PC bases, alongside Windows Chrome HID PID fixes, a force curve setting, and cross-platform bridge telemetry.",
+      "Rebuilt multiplayer car sync around a 60 Hz binary protocol where stalled cars coast, turn see-through, and hide cleanly, replaced race course-cut lap losses with time penalties, refined rolling starts and AI slipstream passes, and removed replay flashbacks.",
+      "Added a Dash view over the wheel with a per-car seat adjustment panel, per-car keyboard steering curves with a road-wheel angle trace, driver renames that carry existing laps along, and live waiting-driver counts on the Races card."
+    ],
+    "commits": 127,
+    "lastSha": "22c31fcc7a66429a94f4e03c1884171478f75819"
+  },
+  {
     "date": "2026-11-11",
     "title": "Home hub launch, Istanbul Park, and full LC26 clean-room architecture",
     "items": [

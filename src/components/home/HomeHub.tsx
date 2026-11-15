@@ -415,18 +415,18 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
               <HomeLapTimes circuits={boardCircuits} circuit={layout.id} carTags={data.boardCars} scrollRoot={panelRef} onShown={setBoardShown} />
             ) : null}
 
-            {/* Day-by-day patch notes, newest first, written each morning from the day's commits */}
+            {/* Day-by-day patch notes, newest first */}
             {tab === "whats-new" ? (
               <div className="flex max-w-[880px] flex-col">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 pb-4">
-                  <p className="lc-body m-0 text-lc-slate">Day-by-day summary of every change to LibreCorsa, updated each morning.</p>
+                  <p className="lc-body m-0 text-lc-slate">Day-by-day summary of every change to LibreCorsa.</p>
                   <a href={`${data.repoUrl}/commits/main`} target="_blank" rel="noopener" onPointerEnter={focusOnHover} className={`inline-flex items-center gap-1 ${TEXT_LINK}`}>
                     Full commit log on GitHub
                     <Icon name="externalLink" />
                   </a>
                 </div>
                 {data.whatsNew.length === 0 ? (
-                  <EmptyState icon={<Icon name="info" size="lg" />}>The first day&apos;s notes appear here after the next morning&apos;s update.</EmptyState>
+                  <EmptyState icon={<Icon name="info" size="lg" />}>No patch notes yet.</EmptyState>
                 ) : (
                   <ol className="m-0 flex list-none flex-col p-0">
                     {data.whatsNew.map((entry, index) => (

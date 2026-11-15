@@ -67,7 +67,6 @@ export default function HomePage() {
     repoUrl: REPO_URL,
     supportUrl: SUPPORT_URL,
     boardCars: Object.fromEntries(VEHICLE_MODEL_IDS.map((v) => [v, carBoardTag(v)])),
-    // Written by .github/scripts/update_whats_new.py
     whatsNew: whatsNewJson as WhatsNewDay[],
   };
 
