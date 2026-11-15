@@ -344,6 +344,11 @@ export interface VehiclePhysicsOptions {
   drsEligibleAtDetection?: (zone: ZoneData_DRSZone) => boolean;
   /** Barrier walls (`Track_Collider_Wall_*`); none = no barriers */
   walls?: WallQuery;
+  /**
+   * The plan of the body this car wears when it is not the vehicle model's own (another car's body on the same
+   * physics): as `ChassisData.bodyPlan`, in its place
+   */
+  bodyPlan?: readonly (readonly [number, number])[];
   onEvent?: (event: VehicleEvent) => void;
 }
 
@@ -1360,7 +1365,7 @@ export class VehiclePhysics {
     const halfR = tr + 0.5 * geo.rear.width;
     const py = cfg.aero.floorOffsetY + 0.2;
     this.wallProbePoints = [];
-    const plan = ch.bodyPlan;
+    const plan = options.bodyPlan ?? ch.bodyPlan;
     if (plan?.length) {
       // The plan's z is from the axles' midpoint, which is 0.5 (a - b) ahead of the CG
       const mid = 0.5 * (a - b);

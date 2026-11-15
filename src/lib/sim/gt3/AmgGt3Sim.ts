@@ -86,6 +86,11 @@ export const AMG_GT3_SIM_PROFILE: CarSimProfile = {
   keyboardSteer: { lowSpeedRate: 1.6, highSpeedRate: 1.05, returnRate: 1.1 },
 };
 
-export function createAmgGt3Sim(track: BuiltTrackData, root?: THREE.Object3D | null): F12026CarSim {
-  return new F12026CarSim(track, root, AMG_GT3_SIM_PROFILE);
+/** An AMG GT3; `bodyPlan`, the plan of another GT3 body it wears (`CarDefinition.bodyPlan`) */
+export function createAmgGt3Sim(
+  track: BuiltTrackData,
+  root?: THREE.Object3D | null,
+  bodyPlan?: readonly (readonly [number, number])[]
+): F12026CarSim {
+  return new F12026CarSim(track, root, bodyPlan ? { ...AMG_GT3_SIM_PROFILE, bodyPlan } : AMG_GT3_SIM_PROFILE);
 }

@@ -57,7 +57,7 @@ export class SimRuntime {
           this.track = getActiveTrackData(1200);
         }
         if (!this.track) throw new Error("The simulation was given a car before its circuit");
-        this.car = vehicleModelSpec(command.vehicle).createSim(this.track, this.trackRoot);
+        this.car = vehicleModelSpec(command.vehicle).createSim(this.track, this.trackRoot, command.bodyPlan);
         this.carNumber = command.car;
         this.epoch = 0;
         this.inputs = {};

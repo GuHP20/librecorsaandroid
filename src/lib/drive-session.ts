@@ -624,8 +624,10 @@ export class DriveSession {
       (reason) => console.warn("[sim] worker unavailable, simulating on the page:", reason)
     );
     const createCar = (vehicle: VehicleModelId, prev: SimulatorCar | null, carId: CarId = carIdNow): SimulatorCar => {
-      const built = vehicleModelSpec(vehicle).createSim(track, trackRoot);
-      const car = simHost ? simHost.adopt(built, vehicle, trackRoot) : built;
+      // A body that is not its vehicle model's own brings its own outline for the barriers
+      const bodyPlan = carById(carId).bodyPlan;
+      const built = vehicleModelSpec(vehicle).createSim(track, trackRoot, bodyPlan);
+      const car = simHost ? simHost.adopt(built, vehicle, trackRoot, bodyPlan) : built;
       // An F1 car's overtaking aids by its year, and race control for them while a race is on (free in practice);
       // other classes have none
       const rules = carOvertakingRules(carById(carId));

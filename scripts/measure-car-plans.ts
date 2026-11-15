@@ -120,7 +120,7 @@ for (const car of CARS) {
   }
   if (chain[1][0] === 0) chain.reverse();
   const plan = simplify(chain, TOLERANCE_M);
-  const sim = model.createSim(track, null) as unknown as Partial<F12026CarSim>;
+  const sim = model.createSim(track, null, car.bodyPlan) as unknown as Partial<F12026CarSim>;
   const probes = sim.vehicle?.wallProbePoints.map((p) => `(${p.x.toFixed(2)}, ${p.z.toFixed(2)})`).join(' ') ?? '(not on the rigid-body engine)';
   const mid = ch.wheelbase * (0.5 - ch.frontWeightFraction);
   console.log(`${car.id} on ${car.physics}: body ${(nose - tail).toFixed(2)} m long from ${(tail + mid).toFixed(2)} to ${(nose + mid).toFixed(2)} m off the CG`);
