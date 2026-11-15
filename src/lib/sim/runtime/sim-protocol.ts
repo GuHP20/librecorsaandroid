@@ -81,7 +81,9 @@ export type SimCommand =
   /** This frame's controls; the car is driven with them until the next arrive. `epoch` as for `call` */
   | { type: "inputs"; inputs: Partial<ControlInputs> }
   /** Stop the clock (pause, a menu, the replay) until the next `inputs` */
-  | { type: "hold" };
+  | { type: "hold" }
+  /** `?perf=1`: time the simulation's work and send a `perf` event about once a second (or stop) */
+  | { type: "perf"; on: boolean };
 
 /** Worker → page */
 export type SimEvent =
@@ -102,4 +104,9 @@ export type SimEvent =
       /** Every few states: the whole telemetry */
       telemetry?: Partial<CarTelemetry>;
     }
+  /**
+   * The simulation's own timing since the last one (with `perf` on): `ticks` simulated in `spanMs` of wall time,
+   * `busyMs` spent simulating and sending them, `maxWakeMs` the longest single wake. Not about any one car
+   */
+  | { type: "perf"; spanMs: number; ticks: number; busyMs: number; maxWakeMs: number }
   | { type: "error"; message: string };
