@@ -234,7 +234,34 @@ def test_turn_names_over_the_start_line():
     assert got == ['Start Curve', 'Hairpin', 'Turn 3', 'Start Curve'], got
 
 
-TESTS = [test_route_start_cut, test_wall_lane_oval, test_glb_sparse_accessors, test_turn_names_over_the_start_line]
+def test_carry_previous_lines():
+    """A build without the optimiser keeps the previous build's lines when the centreline has as many samples, and
+    says it did, so they don't get the street hairpin margin again; otherwise it leaves the new data as it is"""
+    import port_ac_track as pat
+
+    def build(n, ro):
+        return {'metadata': {}, 'samples': [{'ro': ro, 'v': 100.0} for _ in range(n)]}
+    prev = build(4, 1.5)
+    prev['metadata']['lapTime'] = 61.2
+    for s in prev['samples']:
+        s['roGt3'] = 0.5
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, 'track_data.json')
+        with contextlib.redirect_stdout(io.StringIO()):
+            missing = pat.carry_previous_lines(path, build(4, 0.0))
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(prev, f)
+            other = build(5, 0.0)
+            moved = pat.carry_previous_lines(path, other)
+            same = build(4, 0.0)
+            kept = pat.carry_previous_lines(path, same)
+    assert not missing and not moved and kept, (missing, moved, kept)
+    assert all(s['ro'] == 0.0 and 'roGt3' not in s for s in other['samples']) and 'lapTime' not in other['metadata']
+    assert all(s['ro'] == 1.5 and s['roGt3'] == 0.5 for s in same['samples']) and same['metadata']['lapTime'] == 61.2
+
+
+TESTS = [test_route_start_cut, test_wall_lane_oval, test_glb_sparse_accessors, test_turn_names_over_the_start_line,
+         test_carry_previous_lines]
 
 if __name__ == '__main__':
     failed = 0
