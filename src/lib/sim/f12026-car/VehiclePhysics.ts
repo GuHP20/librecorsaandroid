@@ -2257,19 +2257,32 @@ export class VehiclePhysics {
     const lifted = braking || inp.throttle < this.config.aero.drsCloseThrottle;
     const canOpen = inZone && armed && dryEnoughForDrs && !lifted;
     // A press the flaps can't answer yet (before the zone, or in it off the throttle) is kept for the stretch the car
-    // is on or the next one within reach; elsewhere it does nothing, as before
+    // is on or the next one within reach; elsewhere it does nothing, as before. Never for a stretch where they can't
+    // open on this pass whatever the driver does: too wet, or a DRS zone whose detection point the car passed without
+    // earning it (before that point it is not known yet). A zone is the stretch's when its middle is on it (the joined
+    // stretches' ends are the zones' own, give or take the rounding of the join)
+    const barred = (w: LapWindow): boolean =>
+      !dryEnoughForDrs ||
+      (this.drsGatedByDetection &&
+        this.drsZones.some(
+          (z) =>
+            this.drsArmedZone !== z.id &&
+            inLapWindow(p, z.detection, z.end) &&
+            inLapWindow((z.start + ((((z.end - z.start) % 1) + 1) % 1) / 2) % 1, w.start, w.end)
+        ));
     if (this.drsRequested && !this.drsOpen && !canOpen) {
       this.drsRequested = false;
       const target = this.drsFitted && this.lapLengthM > 0 ? lapWindowFor(p, this.flapStretches(), this.lapLengthM, FLAP_PRESS_REACH_M) : null;
-      if (target) this.drsQueue = { window: target.window, reached: false, waitedS: 0 };
+      if (target && !barred(target.window)) this.drsQueue = { window: target.window, reached: false, waitedS: 0 };
     }
     const q = this.drsQueue;
     if (q) {
       q.waitedS += dt;
       const onIt = inLapWindow(p, q.window.start, q.window.end);
       q.reached ||= onIt;
-      // Lapses past the stretch, on the brake on it (that straight is over), or when the car never gets there
-      if (q.waitedS > FLAP_PRESS_MAX_WAIT_S || (q.reached && !onIt) || (onIt && braking)) this.drsQueue = null;
+      // Lapses past the stretch, on the brake on it (that straight is over), when the car never gets there, or once
+      // the flaps can't open there on this pass
+      if (q.waitedS > FLAP_PRESS_MAX_WAIT_S || (q.reached && !onIt) || (onIt && braking) || barred(q.window)) this.drsQueue = null;
       else if (onIt && canOpen) {
         this.drsRequested = true;
         this.drsQueue = null;
