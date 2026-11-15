@@ -21,7 +21,20 @@ export interface Ktx2Model {
   build: string;
 }
 
-export const KTX2_MODELS: readonly Ktx2Model[] = [];
+export const KTX2_MODELS: readonly Ktx2Model[] = [
+  { model: "/tracks/barbagallo/barbagallo.glb", build: "5c462137" },
+  { model: "/tracks/borgloh/borgloh.glb", build: "a259d6b5" },
+  { model: "/tracks/chang/chang.glb", build: "450cab73" },
+  { model: "/tracks/dunsfold/dunsfold.glb", build: "4fa2d903" },
+  { model: "/tracks/goodwood/goodwood.glb", build: "cdcb728e" },
+  { model: "/tracks/grobnik/grobnik.glb", build: "ebdf51b6" },
+  { model: "/tracks/istanbul_park/istanbul_park.glb", build: "0c859cf1" },
+  { model: "/tracks/le_mans_82/le_mans_82.glb", build: "01de9451" },
+  { model: "/tracks/monaco/monaco.glb", build: "55c3dc14" },
+  { model: "/tracks/norisring/norisring.glb", build: "89235a23" },
+  { model: "/tracks/oschersleben/oschersleben.glb", build: "2d1412e1" },
+  { model: "/tracks/rwanda_official/rwanda_official.glb", build: "3ccf135b" },
+];
 
 /** The KTX2 model that stands in for a circuit model, if it has one (relative to the base path) */
 export function ktx2ModelUrl(model: string | undefined): string | undefined {
