@@ -32,6 +32,13 @@ export const DRS_ZONE_FIXES: Readonly<Record<string, DrsZoneFix>> = {
       ZONE_2: { endM: 1120, why: "Turn 1 to Turn 3 runs through the Turn 2 kink to the braking point for Remus" },
     },
   },
+  norisring: {
+    lengthM: 2157.33,
+    zones: {
+      // Started at 1661 m, 85 m before the apex of the last corner (1746 m, a 100 m radius): the flaps could open into it
+      ZONE_0: { startM: 1830, why: "Starts where the last corner opens out (radius over 400 m), not before its apex" },
+    },
+  },
 };
 
 /** The circuit's zones with its corrections (`DRS_ZONE_FIXES`) made: new objects, ids and detection points kept */
