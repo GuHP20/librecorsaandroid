@@ -42,7 +42,14 @@ export const BUILT_IN_HUD_LAYOUTS = [
 ] as const satisfies readonly HudLayoutInfo[];
 
 /** Layouts recreated from other open-source HUD projects, credited to their authors */
-export const THIRD_PARTY_HUD_LAYOUTS = [] as const satisfies readonly HudLayoutInfo[];
+export const THIRD_PARTY_HUD_LAYOUTS = [
+  {
+    id: "irdashies",
+    label: "irDashies",
+    detail: "Standings, lap timer, inputs and shift lights",
+    credit: { author: "tariknz", repoUrl: "https://github.com/tariknz/irdashies", license: "MIT" },
+  },
+] as const satisfies readonly HudLayoutInfo[];
 
 export type HudPreset = (typeof BUILT_IN_HUD_LAYOUTS)[number]["id"] | (typeof THIRD_PARTY_HUD_LAYOUTS)[number]["id"];
 
