@@ -69,6 +69,8 @@ const MESSAGE_HOLD_MS = 4200;
  */
 const WALL_RIDE_S = 0.35;
 const WALL_RIDE_WINDOW_S = 3.0;
+/** In a race, a breach of the wall rule is time off the track until the car has been clear of the wall this long (s) */
+const WALL_CLEAR_S = 0.5;
 
 export const STRIKES_PER_PENALTY = 3;
 /** A course cut's penalty: the time it saved plus this, rounded up to the second, and at least the minimum (s) */
@@ -112,8 +114,8 @@ export interface TrackLimitsFrame {
   /** Racing (judging on) or not (lights, finished, autopilot, paused) */
   active: boolean;
   /**
-   * Seconds the car's body has touched a barrier while moving, summed since the car was made (its `wallContactS`
-   * channel): the contact between two frames is its rise. Absent: no barrier contact is judged
+   * Seconds the car's body has touched a barrier while moving, summed since the car was placed (its `wallContactS`
+   * channel): the contact between two frames is its rise (a drop, a placement, is none). Absent: none is judged
    */
   wallContactS?: number;
   /** How barrier contact is judged: "touch" (a hill climb: any touch), "ride" (a circuit: wall-riding only); absent: not */
@@ -186,6 +188,8 @@ export class TrackLimitsMonitor {
   /** A breach of the wall rule in progress (from the frame it broke it until the window holds no contact), and contact this frame */
   private wallBreach = false;
   private wallNow = false;
+  /** Session clock of the last frame with barrier contact */
+  private wallLastS = -Infinity;
   private message: TrackLimitsStatus["message"] = null;
   private readonly status: TrackLimitsStatus = {
     warnings: 0,
@@ -223,6 +227,7 @@ export class TrackLimitsMonitor {
     this.wallSumS = 0;
     this.wallBreach = false;
     this.wallNow = false;
+    this.wallLastS = -Infinity;
   }
 
   get mode(): TrackLimitsSession {
@@ -256,8 +261,10 @@ export class TrackLimitsMonitor {
     this.active = frame.active;
     this.clockS += frame.dtS;
     const wallBroken = this.wallFrame(frame);
-    // In a race, barrier contact that breaks the wall rule is judged as time off the track
-    const f = this.session === "race" && this.wallBreach && this.wallNow && !frame.offTrack ? { ...frame, offTrack: true } : frame;
+    // In a race, a breach of the wall rule is judged as time off the track, until the car is clear of the wall (it
+    // bounces along it, touching it a fifth to a third of the time)
+    const riding = this.wallBreach && this.clockS - this.wallLastS < WALL_CLEAR_S;
+    const f = this.session === "race" && riding && !frame.offTrack ? { ...frame, offTrack: true } : frame;
     if (this.courseCut(f)) {
       const race = this.session === "race";
       const deleted = race ? null : this.strict(f);
@@ -334,6 +341,7 @@ export class TrackLimitsMonitor {
     }
     const d = Math.max(0, total - prev);
     this.wallNow = d > 0;
+    if (this.wallNow) this.wallLastS = this.clockS;
     if (d > 0) {
       this.wallLog.push(this.clockS, d);
       this.wallSumS += d;
