@@ -1092,6 +1092,8 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       onRunReset,
       track,
       trackId,
+      // The save itself, read here as well as below: the state still holds the prerendered defaults at this point
+      settings: loadPlayerSettings(),
     });
     setSession(session);
     return () => {

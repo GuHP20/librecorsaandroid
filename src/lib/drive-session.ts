@@ -102,7 +102,7 @@ import { startSimWorker } from "@/lib/sim/runtime/worker-sim-host";
 import { steeringAssistSettings } from "@/lib/sim/steering-assist";
 import { applyTimeTrial, lowestFuelSetup, timeTrialRealism, type TimeTrialRules } from "@/lib/sim/time-trial";
 import { axleSlipFromTelemetry, createAxleSlipSample } from "@/lib/sim/tyre-slip";
-import { clampFov, DEFAULT_KEYBOARD_TUNING, defaultPlayerSettings, type PlayerSettings } from "@/lib/settings/player-settings";
+import { clampFov, DEFAULT_KEYBOARD_TUNING, type PlayerSettings } from "@/lib/settings/player-settings";
 import type { AeroSetupPreset, CameraMode, CarTelemetry, LiveTunerPatch, RadarBlip, TireCompound, TyreSetup, VehicleModelId } from "@/types/f1";
 
 /** Matches the aero package the track's target speeds / braking markers are computed for */
@@ -319,6 +319,11 @@ export interface DriveSessionHost {
   onRunReset: (reason: RunResetReason) => void;
   track: BuiltTrackData;
   trackId: string;
+  /**
+   * The player's saved settings at the start. The renderer, the sky and the warm-up are built for their graphics
+   * preset: started on the defaults (High on a desktop) the physical sky's GPU precompute ran even on Low (issue #123)
+   */
+  settings: PlayerSettings;
 }
 
 /**
@@ -429,6 +434,7 @@ export class DriveSession {
       onRunReset,
       track,
       trackId,
+      settings: initialSettings,
     } = host;
 
     let disposed = false;
@@ -562,11 +568,8 @@ export class DriveSession {
       this.unlockAudio();
       setSettings((prev) => ({ ...prev, audio: { ...prev.audio, muted: !prev.audio.muted } }));
     };
-    /**
-     * The player's preferences (applySettings), and what the frame loop derives from them. Until the save arrives,
-     * this device's defaults: a touch screen starts on Medium graphics rather than building High first
-     */
-    let settings: PlayerSettings = defaultPlayerSettings();
+    /** The player's preferences (applySettings), and what the frame loop derives from them: the saved ones at first */
+    let settings: PlayerSettings = initialSettings;
     let keyLookup = buildKeyLookup(settings.keys);
     let assistSettings = steeringAssistSettings(settings.padTuning, settings.keyboardTuning);
     const liveryFor = (id: string | null) => LIVERIES.find((l) => l.id === id) ?? LIVERIES[0];
