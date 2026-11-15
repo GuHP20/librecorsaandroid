@@ -2784,6 +2784,10 @@ export class DriveSession {
 
     this.teardown = () => {
       disposed = true;
+      // A context the browser gave back after a loss holds none of this session's GPU objects: let go of it first, and
+      // the disposals below are no-ops instead of a WebGL warning each
+      const gl = renderer.getContext();
+      if (gpuLost && !gl.isContextLost()) gl.getExtension("WEBGL_lose_context")?.loseContext();
       unsubscribeAssets();
       window.clearInterval(assetWatchdog);
       renderer.setAnimationLoop(null);
