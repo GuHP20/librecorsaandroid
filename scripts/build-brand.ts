@@ -10,6 +10,7 @@
  *   icon-192.png, icon-512.png   "any" app icons: the emblem edge to edge on transparency
  *   icon-maskable-192.png, icon-maskable-512.png
  *                                full-bleed void square, emblem inside the 80 % safe circle
+ *   icon-monochrome-512.png      512 px single-colour emblem on transparency, for Android notification and themed icons
  *   apple-touch-icon.png         180 px, composed like the maskable icon (iOS rounds it and has no transparency)
  *   favicon-16.png, favicon-32.png the favicon's two small frames as PNG files
  * public/favicon.ico             16 and 32 px from the small emblem, 48 px from the full one
@@ -142,6 +143,7 @@ async function main(): Promise<void> {
     put(join(BRANDING, `icon-${size}.png`), await emblemPng("full", size));
     put(join(BRANDING, `icon-maskable-${size}.png`), await maskableIcon(size));
   }
+  put(join(BRANDING, "icon-monochrome-512.png"), await png(emblemSvg("mono", "full", 512)));
   put(join(BRANDING, "apple-touch-icon.png"), await maskableIcon(180));
 
   const fav16 = await emblemPng("small", 16);
