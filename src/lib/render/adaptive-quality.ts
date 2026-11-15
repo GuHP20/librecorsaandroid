@@ -19,8 +19,10 @@
  *
  * When: once a second the frames drawn in that second are judged against the frame budget (16.7 ms, or 33.3 ms with
  * the 30 fps cap, or the screen's own rate when the system holds it lower). A second is slow when its 90th percentile
- * is over 1.25 x the budget: on a 60 Hz screen, where a late frame waits for the next vsync, that is more than one frame
- * in ten missing its vsync (the stutter players see), while one hitch a second (a garbage collection) is not. Three slow
+ * is over 1.3 x the budget: on a 60 Hz screen, where a late frame waits for the next vsync, that is more than one frame
+ * in ten missing its vsync (the stutter players see), while one hitch a second (a garbage collection) is not. Not 1.25:
+ * under the 30 fps cap a 120 Hz screen puts a frame that is one of its vsyncs late at 41.7 ms, exactly 1.25 x 33.3. An
+ * 8 ms slip barely shows, and in a throttled headless run all five steps for it bought 29 fps against 27.5. Three slow
  * seconds in a row step down once. Nothing is judged in the first 20 s on track (shader and texture warm-up), for 5 s
  * after a step (it may hitch itself) or 3 s after a pause, a menu, a hidden tab or a replay.
  *
@@ -126,7 +128,7 @@ export const STEP_DOWN = {
   /** A window is slow when this percentile of its drawn frames' intervals... */
   percentile: 0.9,
   /** ...is over the budget times this */
-  overBudget: 1.25,
+  overBudget: 1.3,
   /** Slow windows in a row that step down once */
   slowWindows: 3,
   /** A window with fewer drawn frames is not judged (a stall, the tab hidden) */

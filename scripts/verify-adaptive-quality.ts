@@ -1,6 +1,6 @@
 /**
  * Automatic quality (src/lib/render/adaptive-quality.ts): the ladder each preset steps down (and its floor), when a
- * second counts as slow (the 90th percentile over 1.25 x the budget, i.e. more than one frame in ten missing a 60 Hz
+ * second counts as slow (the 90th percentile over 1.3 x the budget, i.e. more than one frame in ten missing a 60 Hz
  * vsync), three slow seconds per step, the grace periods, the frame budget under the 30 fps cap and iOS Low Power Mode,
  * and the hysteresis: never back up within a session, one rung better at the next.
  *
@@ -213,6 +213,10 @@ check("Budget: the system's 30 Hz (iOS Low Power Mode) when it holds every page 
   const g2 = new QualityGovernor(5);
   const slow = drive(g2, 40, (i) => (i % 30 < 6 ? 3 * HZ60 : 2 * HZ60), 1000 / 30);
   check("Under the cap, 6 of 30 frames at 50 ms (under 30 fps): steps", slow.length >= 1);
+  // A 120 Hz screen under the cap: a frame one of its vsyncs late is 41.7 ms (1.25 x 33.3), a slip too small to see
+  const g3 = new QualityGovernor(5);
+  const slip = drive(g3, 120, (i) => (i % 30 < 6 ? 5 * (1000 / 120) + 0.4 : 1000 / 30), 1000 / 30);
+  check("Under the cap on 120 Hz, 6 of 30 frames one 120 Hz vsync late (41.7 ms): no step", slip.length === 0);
 }
 {
   // iOS Low Power Mode: the system holds rAF at 30 Hz, every frame 33.3 ms; the budget follows it
