@@ -2775,21 +2775,12 @@ def build_from_sources(tid, cfg, args, src):
     out_dir = os.path.join(ROOT, 'public', 'tracks', tid)
     os.makedirs(out_dir, exist_ok=True)
     json_out = os.path.join(out_dir, 'track_data.json')
-    if args.no_line_opt and os.path.exists(json_out):
-        try:
-            old_data = json.load(open(json_out, encoding='utf-8'))
-            if len(old_data.get('samples', [])) == len(data['samples']):
-                for p_new, p_old in zip(data['samples'], old_data['samples']):
-                    for k_opt in ('ro', 'roGt3', 'r', 'v', 'bL', 't'):
-                        if k_opt in p_old:
-                            p_new[k_opt] = p_old[k_opt]
-                if 'lapTime' in old_data.get('metadata', {}):
-                    data['metadata']['lapTime'] = old_data['metadata']['lapTime']
-        except Exception:
-            pass
+    keep_lines = args.no_line_opt
+    carried = keep_lines and carry_previous_lines(json_out, data)
     with open(json_out, 'w', encoding='utf-8') as f:
         json.dump(data, f, separators=(',', ':'), ensure_ascii=False)
-    if args.no_line_opt and from_mod:
+    # Lines carried over already have the street hairpin margin: a second pass would blend and smooth them again
+    if keep_lines and from_mod and not carried:
         apply_street_hairpin_margin(tid, cfg)
     log(f'  wrote {json_out} ({os.path.getsize(json_out) / 1e3:.0f} kB, {len(data["turns"])} turns, {len(data["cameras"])} cams, {len(data["pitLane"]["centerline"])} pit pts)')
 
@@ -2853,6 +2844,33 @@ def p2p_track_data(data, cfg, n, ds, L, finS, endS, stS, splitS, dead, pos3):
     m['widthMeters'] = f'{np.percentile(w, 10):.0f}m-{np.percentile(w, 90):.0f}m'
     log(f'  run: {finS:.0f} m, {len(keep)} corners, sectors at {b1:.0f} / {b2:.0f} m, '
         f'{pos3[i_fin, 1] - pos3[0, 1]:+.0f} m start to finish')
+
+
+def carry_previous_lines(json_out, data):
+    """A build that skips the racing-line optimiser keeps the previous build's lines: its F1 and GT3 offsets and
+    speeds (`ro`, `roGt3`, `r`, `v`, `bL`, `t`) and lap time, copied into `data` when the centreline has as many
+    samples. Returns whether they were; if not, `data` keeps the minimum-curvature line"""
+    if not os.path.exists(json_out):
+        log('  racing lines: no previous track_data.json, the minimum-curvature line')
+        return False
+    try:
+        old_data = json.load(open(json_out, encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        log(f'  racing lines: previous track_data.json unreadable ({e}), the minimum-curvature line')
+        return False
+    old_samples = old_data.get('samples', [])
+    if len(old_samples) != len(data['samples']):
+        log(f'  racing lines: the centreline has {len(data["samples"])} samples, the previous build {len(old_samples)}: '
+            'the minimum-curvature line')
+        return False
+    for p_new, p_old in zip(data['samples'], old_samples):
+        for k_opt in ('ro', 'roGt3', 'r', 'v', 'bL', 't'):
+            if k_opt in p_old:
+                p_new[k_opt] = p_old[k_opt]
+    if 'lapTime' in old_data.get('metadata', {}):
+        data['metadata']['lapTime'] = old_data['metadata']['lapTime']
+    log("  racing lines: kept the previous build's")
+    return True
 
 
 def apply_street_hairpin_margin(tid, cfg):
