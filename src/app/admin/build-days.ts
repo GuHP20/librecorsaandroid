@@ -36,15 +36,29 @@ export interface BuildDay {
 /** A newer build must carry this share of its first day's sessions to count as a deploy */
 export const DEPLOY_SHARE = 0.01;
 
-export function buildDays(perDay: BuildUse[], firstSeen: { build: string; day: string }[], days: string[]): BuildDay[] {
+/**
+ * The day each build was first reported. The API sends its sessions that day and that day's sessions on any build, so
+ * a first day before the range is judged as one inside it; without them the range's own rows are read
+ */
+export interface BuildFirstSeen {
+  build: string;
+  day: string;
+  sessions?: number;
+  dayTotal?: number;
+}
+
+export function buildDays(perDay: BuildUse[], firstSeen: BuildFirstSeen[], days: string[]): BuildDay[] {
   const first = new Map(firstSeen.map((b) => [b.build, b.day]));
   const dayTotal = new Map<string, number>();
   for (const r of perDay) dayTotal.set(r.day, (dayTotal.get(r.day) ?? 0) + r.sessions);
-  // The days a deploy was first seen: a build first seen before the range counts, as its first day is out of sight
+  // The days a deploy was first seen: a build whose first day's share is not known (that day out of the range and no
+  // share sent with it) counts, as its first day is out of sight
   const deployDays = new Set<string>();
-  for (const [build, day] of first) {
-    const onDay = perDay.find((r) => r.build === build && r.day === day);
-    if (!onDay || onDay.sessions >= DEPLOY_SHARE * (dayTotal.get(day) ?? 0)) deployDays.add(day);
+  for (const b of firstSeen) {
+    const onDay = perDay.find((r) => r.build === b.build && r.day === b.day);
+    const sessions = b.sessions ?? onDay?.sessions;
+    const total = b.dayTotal ?? (onDay ? dayTotal.get(b.day) : undefined);
+    if (sessions === undefined || total === undefined || sessions >= DEPLOY_SHARE * total) deployDays.add(b.day);
   }
   const sortedDeploys = [...deployDays].sort();
 

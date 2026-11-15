@@ -93,9 +93,10 @@ export interface AdminStats {
   extras: { input: UsageGroup[]; device: UsageGroup[]; weather: UsageGroup[]; assists: UsageGroup[]; build: UsageGroup[] } | null;
   /**
    * The builds sessions ran on, per day, and the day each build was first reported (over all time, so a build from
-   * before the range keeps its real age); null before migration 0004
+   * before the range keeps its real age) with its sessions that day and that day's sessions on any build; null before
+   * migration 0004
    */
-  builds: { perDay: (UsageTotal & { day: string; build: string })[]; firstSeen: { build: string; day: string }[] } | null;
+  builds: { perDay: (UsageTotal & { day: string; build: string })[]; firstSeen: { build: string; day: string; sessions: number; dayTotal: number }[] } | null;
   board: {
     /** Claimed driver names, and those seen on the boards in the range */
     drivers: number;
@@ -229,9 +230,10 @@ export async function adminStats(deps: AdminDeps, url: URL): Promise<Answer> {
           "SELECT day, value AS build, sessions, minutes FROM usage_extra WHERE name = 'build' AND day >= ? ORDER BY day, sessions DESC",
           from,
         ),
-        // Over all time, for the builds seen in the range only
-        all<{ build: string; day: string }>(
-          "SELECT value AS build, MIN(day) AS day FROM usage_extra WHERE name = 'build' AND value IN (SELECT value FROM usage_extra WHERE name = 'build' AND day >= ?) GROUP BY value",
+        // Over all time, for the builds seen in the range only: each one's first day, with its sessions that day and that
+        // day's sessions on any build (a first day before the range is out of the per-day rows)
+        all<{ build: string; day: string; sessions: number; dayTotal: number }>(
+          "SELECT f.build AS build, f.day AS day, e.sessions AS sessions, (SELECT SUM(t.sessions) FROM usage_extra t WHERE t.name = 'build' AND t.day = f.day) AS dayTotal FROM (SELECT value AS build, MIN(day) AS day FROM usage_extra WHERE name = 'build' AND value IN (SELECT value FROM usage_extra WHERE name = 'build' AND day >= ?) GROUP BY value) f JOIN usage_extra e ON e.name = 'build' AND e.value = f.build AND e.day = f.day",
           from,
         ),
       ]),
@@ -369,7 +371,7 @@ export async function adminStats(deps: AdminDeps, url: URL): Promise<Answer> {
     builds: buildRows
       ? {
           perDay: buildRows[0].map((r) => ({ day: String(r.day), build: String(r.build), ...total(r) })),
-          firstSeen: buildRows[1].map((r) => ({ build: String(r.build), day: String(r.day) })),
+          firstSeen: buildRows[1].map((r) => ({ build: String(r.build), day: String(r.day), sessions: num(r.sessions), dayTotal: num(r.dayTotal) })),
         }
       : null,
     board: {

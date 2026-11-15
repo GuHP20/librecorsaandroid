@@ -225,6 +225,7 @@ async function main(): Promise<void> {
     const build = (day: string, value: string, sessions: number) =>
       db.prepare("INSERT INTO usage_extra (day, name, value, sessions, minutes) VALUES (?, 'build', ?, ?, ?)").bind(day, value, sessions, sessions * 3).run();
     await build('2026-10-30', 'aaaaaaa', 3);
+    await build('2026-10-30', 'eeeeeee', 297);
     await build('2026-11-13', 'aaaaaaa', 6);
     await build('2026-11-13', 'bbbbbbb', 4);
     await build('2026-10-01', 'ccccccc', 9);
@@ -236,6 +237,15 @@ async function main(): Promise<void> {
         .map((r) => `${r.build}:${r.day}`)
         .sort()
         .join() === 'aaaaaaa:2026-10-30,bbbbbbb:2026-11-13',
+      JSON.stringify(b?.firstSeen),
+    );
+    // With its share of that first day, out of the range or not, so a stray report is told from a deploy either way
+    check(
+      'builds: each with its sessions on its first day, of all the builds reported that day',
+      b?.firstSeen
+        .map((r) => `${r.build}:${r.sessions}/${r.dayTotal}`)
+        .sort()
+        .join() === 'aaaaaaa:3/300,bbbbbbb:4/10',
       JSON.stringify(b?.firstSeen),
     );
 
@@ -317,6 +327,33 @@ async function main(): Promise<void> {
     check('builds: the day after a deploy, the build it replaced is behind', replacedOn('2026-11-15') === '22c31fc' && on('2026-11-15').replaced === 100, replacedOn('2026-11-15'));
     check('builds: builds first seen on the same day never count as replacing each other', !on('2026-11-15').builds.find((b) => b.build === 'ec04521')?.replaced);
     check('builds: a stray report under 1% of its day is not a deploy', replacedOn('2026-11-16') === '22c31fc' && !on('2026-11-16').builds.find((b) => b.build === 'c31ac20')?.replaced, replacedOn('2026-11-16'));
+
+    // A stray build first seen before the range (1 session of 1001 on 5 Nov) that reports again in it: the API gives its
+    // first day's share, so it is no deploy there either, and the current build is not "replaced" by it. The 30-day view,
+    // which sees 5 Nov itself, says the same
+    const strayFirst = [
+      { build: 'aaaaaaa', day: '2026-11-02', sessions: 900, dayTotal: 900 },
+      { build: 'fffffff', day: '2026-11-05', sessions: 1, dayTotal: 1001 },
+    ];
+    const strayInRange = [
+      { day: '2026-11-12', build: 'aaaaaaa', sessions: 800 },
+      { day: '2026-11-12', build: 'fffffff', sessions: 1 },
+      { day: '2026-11-13', build: 'aaaaaaa', sessions: 700 },
+    ];
+    const week = buildDays(strayInRange, strayFirst, ['2026-11-12', '2026-11-13']);
+    const month = buildDays(
+      [{ day: '2026-11-02', build: 'aaaaaaa', sessions: 900 }, { day: '2026-11-05', build: 'aaaaaaa', sessions: 1000 }, { day: '2026-11-05', build: 'fffffff', sessions: 1 }, ...strayInRange],
+      strayFirst,
+      ['2026-11-02', '2026-11-05', '2026-11-12', '2026-11-13'],
+    );
+    const replacedIn = (v: typeof week) => v.filter((d) => d.day >= '2026-11-12').map((d) => `${d.day}:${d.replaced}`).join();
+    check('builds: a stray first seen before the range is not a deploy either', replacedIn(week) === '2026-11-12:0,2026-11-13:0', replacedIn(week));
+    check('builds: and the 7- and 30-day views agree on it', replacedIn(week) === replacedIn(month), `${replacedIn(week)} | ${replacedIn(month)}`);
+    // A real deploy first seen before the range still is one: what was live before it is behind in the range
+    const deployFirst = [...strayFirst, { build: 'bbbbbbb', day: '2026-11-08', sessions: 400, dayTotal: 1400 }];
+    const deployUse = [...strayInRange, { day: '2026-11-12', build: 'bbbbbbb', sessions: 900 }];
+    const withDeploy = buildDays(deployUse, deployFirst, ['2026-11-12', '2026-11-13']);
+    check('builds: a deploy first seen before the range still counts', withDeploy[0].builds.filter((x) => x.replaced).map((x) => x.build).join() === 'aaaaaaa,fffffff', JSON.stringify(withDeploy[0].builds));
     const dashboard = readFileSync(join(__dirname, '..', 'src', 'app', 'admin', 'Dashboard.tsx'), 'utf8');
     check('builds: the page no longer calls a deploy day\'s build older', !/on an older build|older build than|newest build/i.test(dashboard));
   }
