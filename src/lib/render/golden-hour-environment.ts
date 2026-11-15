@@ -153,6 +153,11 @@ export interface GoldenHourEnvironment {
   probeSky: { material: { uniforms: Record<string, { value: unknown }> } };
   /** Graphics preset: the physical sky on Medium and High, the classic sky on Low */
   setQuality(quality: "low" | "medium" | "high"): void;
+  /**
+   * With `deferPhysicalSky`: the physical sky may be built from now on (on Medium and High), once the loading's own GPU
+   * work is done. Its atmosphere precompute then never runs alongside the circuit's uploads and warm-up frame.
+   */
+  startPhysicalSky(): void;
   /** Weak warm-blue / olive fill; added to the scene by createGoldenHourEnvironment. */
   fillLight: THREE.HemisphereLight;
   /** Call once per frame before rendering: keeps the sky dome centred on the camera (the shadow cascades fit the rendering camera on their own) */
@@ -441,8 +446,11 @@ class SkyBaker {
 export function createGoldenHourEnvironment(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
-  /** `physicalSky`: allow the physically based sky on Medium and High (default false: the classic sky everywhere) */
-  options: { physicalSky?: boolean } = {}
+  /**
+   * `physicalSky`: allow the physically based sky on Medium and High (default false: the classic sky everywhere).
+   * `deferPhysicalSky`: build it only after startPhysicalSky()
+   */
+  options: { physicalSky?: boolean; deferPhysicalSky?: boolean } = {}
 ): GoldenHourEnvironment {
   const sunDirection = sunDirectionUnit();
 
@@ -528,9 +536,12 @@ export function createGoldenHourEnvironment(
     rebake();
   };
 
+  let physicalSkyHeld = options.deferPhysicalSky === true;
+  let qualityNow: "low" | "medium" | "high" = "high";
   const setQuality = (quality: "low" | "medium" | "high") => {
     if (disposed) return;
-    if (!physicalSky && options.physicalSky && quality !== "low") {
+    qualityNow = quality;
+    if (!physicalSky && options.physicalSky && !physicalSkyHeld && quality !== "low") {
       physicalSky = new PhysicalSky(renderer, applySkyChoice);
       scene.add(physicalSky.mesh);
       baker.setPhysicalSky(physicalSky.bakeMesh);
@@ -616,6 +627,11 @@ export function createGoldenHourEnvironment(
 
     setConditions,
     setQuality,
+    startPhysicalSky(): void {
+      if (!physicalSkyHeld) return;
+      physicalSkyHeld = false;
+      setQuality(qualityNow);
+    },
 
     dispose(): void {
       if (disposed) return;
