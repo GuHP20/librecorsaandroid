@@ -4,10 +4,13 @@
  * 1. A straight with a 10 m road band, grass bands past it, a kerb on the left, barriers at 10 m and a drawn street
  *    12 m either side: grass under the drawn street between the barriers becomes road, grass past the barriers and
  *    under a drawn sand patch stays grass, and kerb under drawn cubes becomes a sausage only in the rule's stretch,
- *    with the kerb's texture coordinates kept. A circuit without rules is left as it is.
+ *    with the kerb's texture coordinates kept. A circuit without rules is left as it is. A band renames only between
+ *    its offsets on its side, and a rule over the road collider lays run-off on it, at its height, leaving it as it is.
  * 2. Norisring: the street out to the barriers is the track (s 760, the Schoeller S and the inside lane into the Grundig
- *    hairpin), the gravel inside the hairpin and the car park past its outside kerb are not. Red Bull Ring (and its South course): a car past the red and white kerb inside Castrol Edge and
- *    Remus is off the track, one on the kerb is not.
+ *    hairpin), the gravel inside the hairpin and the car park past its outside kerb are not. Red Bull Ring (and its
+ *    South course): a car past the red and white kerb inside Castrol Edge and Remus is off the track, one on the kerb
+ *    is not; past the white line on the pit exit and the gore island, on the anti-cut rumble and on Remus's exit
+ *    astroturf it is off; the asphalt out to the white line is on; the pit exit merge is as it was.
  *
  *   npx tsx scripts/verify-drawn-surfaces.ts
  */
@@ -116,6 +119,33 @@ function mergeTwo(a: THREE.BufferGeometry, b: THREE.BufferGeometry): THREE.Buffe
   check('a circuit without rules is left as it is', Object.keys(applyDrawnSurfaceRules(other, { ...track, id: 'no_rules_here' }, ['road2'])).length === 0 && (other.getObjectByName('Track_Surface_Grass') as THREE.Mesh).geometry === geo);
 }
 
+// A band (a stretch's side between two offsets) and a rule laid over the road collider, on a road collider 20 m either
+// side with a road surface 5 m either side, grass on the left and the street drawn 12 m either side
+{
+  const track = createFlatTestTrack(200, 10, 100);
+  const root = new THREE.Group();
+  root.add(strip('Track_Collider_Road', -20, 20, { userData: { collider: 'road', hidden: true } }));
+  root.add(strip('Track_Surface_Road', -5, 5, { userData: { surface: 'road', grip: 1, hidden: true } }));
+  root.add(strip('Track_Surface_Grass', -20, -5, { userData: { surface: 'grass', hidden: true } }));
+  root.add(strip('street', -12, 12, { y: 0.005, material: 'road2' }));
+  root.updateMatrixWorld(true);
+  const collider = root.getObjectByName('Track_Collider_Road') as THREE.Mesh;
+  const colliderGeo = collider.geometry;
+  const RULES: DrawnSurfaceRule[] = [
+    { materials: ['road2'], surface: 'road', from: ['grass'], within: { bands: [[20, 60, -1, 5, 8]] }, note: 'band' },
+    { materials: null, surface: 'runoff', from: ['road'], overRoadCollider: true, within: { bands: [[100, 140, 1, 8, 14]] }, note: 'over the road collider' },
+  ];
+  const hit = createGroundHit();
+  const at = (q: TrackColliderQuery, s: number, lat: number) => (q.query(-lat, s, 1, hit) ? hit.surface : 'none');
+  const q = TrackColliderQuery.fromTrackRoot(root, DEFAULT_SURFACE_TABLE, { conformSurfaces: true, prepare: (r) => applyDrawnSurfaceRules(r, track, [], RULES) });
+  check('a band: drawn street over grass is road between its offsets, on its side, along its stretch', at(q, 40, -6.5) === 'road' && at(q, 40, -9) === 'grass' && at(q, 80, -6.5) === 'grass',
+    [at(q, 40, -6.5), at(q, 40, -9), at(q, 80, -6.5)].join(' '));
+  const off = at(q, 120, 10);
+  check("over the road collider: run-off within the band, off the track, at the collider's height", off === 'runoff' && !hit.props.validTrack && Math.abs(hit.height) < 1e-3, `${off} ${hit.height}`);
+  check('the road collider is left as it is, and road past the band', collider.geometry === colliderGeo && [at(q, 120, 6), at(q, 120, 15), at(q, 160, 10)].every((s) => s === 'road'),
+    [at(q, 120, 6), at(q, 120, 15), at(q, 160, 10)].join(' '));
+}
+
 // ---- 2. The hosted circuits
 /** All four wheels (±1.8 m along, ±0.8 m across) of a car centred at lap distance s, lateral lat: off the track? */
 function carOff(ground: TrackColliderQuery, s: number, lat: number): boolean {
@@ -127,6 +157,13 @@ function carOff(ground: TrackColliderQuery, s: number, lat: number): boolean {
     const x = q.position.x + (b.x / bl) * (lat + dw), z = q.position.z + (b.z / bl) * (lat + dw);
     return !(ground.query(x, z, q.position.y + 2, hit) && hit.props.validTrack);
   }));
+}
+/** The ground at lap distance s, lateral lat: on the track? */
+function pointOn(ground: TrackColliderQuery, s: number, lat: number): boolean {
+  const q = getActiveTrackData(1200).getSampleAtDistance(s);
+  const b = q.binormal, bl = Math.hypot(b.x, b.z) || 1;
+  const hit = createGroundHit();
+  return ground.query(q.position.x + (b.x / bl) * lat, q.position.z + (b.z / bl) * lat, q.position.y + 2, hit) && hit.props.validTrack;
 }
 function load(id: string): { before: TrackColliderQuery; after: TrackColliderQuery } | null {
   const path = `public/tracks/${id}/track_data.json`;
@@ -160,11 +197,28 @@ if (rbr) {
   check('Red Bull Ring: past the red and white kerb inside Castrol Edge and Remus, on the track before', !carOff(rbr.before, 330, 9) && !carOff(rbr.before, 1270, 7.5));
   check('and off it now', carOff(rbr.after, 330, 9) && carOff(rbr.after, 1270, 7.5));
   check('Red Bull Ring: a car with its wheels on the kerb, and on the road, is on the track', !carOff(rbr.after, 330, 7.5) && !carOff(rbr.after, 1267.5, 6) && !carOff(rbr.after, 1267.5, 2));
+  // The corner images' marks: the pit exit past the white line before Castrol Edge (9 m out) and the gore island past
+  // its apex, the anti-cut rumble outside its exit, the astroturf behind Remus's outside exit kerb
+  const cuts: [number, number][] = [[270, 9], [358, 9.5], [380, -12.5], [1300, -9.5]];
+  check('Red Bull Ring: on the pit exit and gore island past the white line, the anti-cut rumble and the astroturf, on the track before',
+    cuts.every(([s, l]) => !carOff(rbr.before, s, l)), cuts.filter(([s, l]) => carOff(rbr.before, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
+  check('and off it now', cuts.every(([s, l]) => carOff(rbr.after, s, l)), cuts.filter(([s, l]) => !carOff(rbr.after, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
+  // The asphalt out to the white line round the outside of Castrol Edge and Remus and inside Remus, called run-off
+  const asphalt: [number, number][] = [[330, -9], [1268, -8.25], [1250, 7.5], [1290, 7.4]];
+  check('Red Bull Ring: the racing asphalt out to the white line at Castrol Edge and Remus is the track now (off before)',
+    asphalt.every(([s, l]) => !pointOn(rbr.before, s, l) && pointOn(rbr.after, s, l)), asphalt.filter(([s, l]) => !pointOn(rbr.after, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
+  // Where the pit exit lane merges after Castrol Edge (its right side, s 375-415), as it was
+  const merge: [number, number][] = [];
+  for (let s = 375; s <= 415; s += 5) for (let l = 0; l <= 12; l += 1) merge.push([s, l]);
+  check('Red Bull Ring: the pit exit merge after Castrol Edge is as it was', merge.every(([s, l]) => pointOn(rbr.before, s, l) === pointOn(rbr.after, s, l)),
+    merge.filter(([s, l]) => pointOn(rbr.before, s, l) !== pointOn(rbr.after, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
 }
 const south = load('spielberg_south');
 if (south) {
   check('Red Bull Ring South: past the red and white kerb inside Castrol Edge is off the track (on before)', !carOff(south.before, 330, 9) && carOff(south.after, 330, 9));
   check('and on the kerb it is on the track', !carOff(south.after, 330, 7.5));
+  check('Red Bull Ring South: on the pit exit past the white line and the anti-cut rumble off the track (on before)',
+    !carOff(south.before, 270, 9) && !carOff(south.before, 380, -12.5) && carOff(south.after, 270, 9) && carOff(south.after, 380, -12.5));
 }
 
 if (failures.length) {
