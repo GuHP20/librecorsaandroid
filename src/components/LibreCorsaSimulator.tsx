@@ -65,7 +65,9 @@ import { nameProblem } from "@/lib/net/name-filter";
 import { clampFov, codeFromName, DEFAULT_PLAYER_SETTINGS, loadCarChoice, loadOnboarded, loadPlayerSettings, loadRumble, pushLibraryRecent, saveCarChoice, saveOnboarded, toggleLibraryFavorite, type LibraryKind, sanitizeDriverName, savePlayerSettings, saveRumble, type BoardWidgetMode, type PlayerSettings } from "@/lib/settings/player-settings";
 import { signalBoardLap } from "@/components/hud/BoardWidget";
 import type { AeroSetupPreset, AssistPreset, CameraMode, LiveTunerPatch, LiveryConfig, TireCompound, TyreSetup, VehicleModelId } from "@/types/f1";
-import { aiFieldOf, autoCompoundFor, DEFAULT_AERO_PRESET, DriveSession, idleDriveSnapshot, mpRaceOf, type AppPhase, type SessionRace } from "@/lib/drive-session";
+import { aiFieldOf, autoCompoundFor, DEFAULT_AERO_PRESET, DriveSession, idleDriveSnapshot, mpRaceOf, WebGLUnavailableError, type AppPhase, type SessionRace } from "@/lib/drive-session";
+import { GpuLostNotice } from "@/components/menu/GpuLostNotice";
+import { browserStore, lostRecently, probeRenderer, settleLoss } from "@/lib/render/gpu-health";
 import { startAiRace, type RaceSetup } from "@/lib/sim/race-setup";
 import type { PodiumUi } from "@/lib/render/podium-shot";
 import { useRaceHistory } from "@/components/hud/useRaceHistory";
@@ -147,12 +149,16 @@ export interface LibreCorsaSimulatorProps {
   /** Title menu circuit picker */
   /** Switches circuit: settles once the load lands (the scene remounts) or fails (the old circuit stays) */
   onSelectTrack?: (id: string) => void | Promise<void>;
+  /** Mounts the circuit again from scratch (a new canvas and WebGL context), after the GPU context was lost */
+  onRestart?: () => void;
 }
 
-export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackId = DEFAULT_TRACK_ID, onSelectTrack }) => {
+export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackId = DEFAULT_TRACK_ID, onSelectTrack, onRestart }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   /** The drive on the mounted circuit: the scene, the car and the frame loop (created once the container exists) */
   const [session, setSession] = useState<DriveSession | null>(null);
+  /** The browser gave this page no WebGL context: only a page reload (or a browser restart) can bring it back */
+  const [webglRefused, setWebglRefused] = useState(false);
 
   const track = useMemo(() => getActiveTrackData(1200), []);
   /** The chosen car, and the vehicle model it drives on */
@@ -193,6 +199,7 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     timeTrial,
     autoQualityLowered,
     qualityNotice,
+    gpuLost,
   } = useSyncExternalStore(session?.subscribe ?? noSubscribe, session?.getSnapshot ?? (() => idleSnapshot), () => idleSnapshot);
 
   const [aeroPreset, setAeroPreset] =
@@ -1079,22 +1086,67 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     if (silence) session?.silenceFeedback();
   }, [session, paused, phase]);
 
+  // The GPU context is gone: an online race goes on without this car, as when the player leaves it (a guest drops out,
+  // a host ends it for everyone rather than leave them waiting on a car that no longer moves)
+  useEffect(() => {
+    if (gpuLost) endMpRace(true);
+  }, [gpuLost, endMpRace]);
+  /**
+   * The way back from a lost context: the circuit mounts again on a new canvas, with Low saved first when asked. A
+   * browser that refuses WebGL to the page after a reset would only fail again: then the notice asks for a page reload.
+   */
+  const restartAfterGpuLoss = useCallback(
+    (lower: boolean) => {
+      if (probeRenderer() === null) {
+        setWebglRefused(true);
+        return;
+      }
+      // The player chose: the next start does not switch the preset by itself
+      settleLoss(browserStore(), Date.now());
+      if (lower) {
+        const s = settingsRef.current;
+        savePlayerSettings({ ...s, graphics: { ...s.graphics, quality: "low" } });
+      }
+      if (onRestart) onRestart();
+      else window.location.reload();
+    },
+    [onRestart]
+  );
+  const gpuNoticeKind = webglRefused
+    ? lostRecently()
+      ? "blocked"
+      : "unavailable"
+    : gpuLost
+      ? gpuLost.hidden
+        ? "background"
+        : "lost"
+      : null;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const session = new DriveSession(container, {
-      car: carIdRef.current,
-      cycleCamera,
-      getTrackEnv,
-      handleToggleRacingLine,
-      setSettings,
-      setRaceKind,
-      onRunReset,
-      track,
-      trackId,
-      // The save itself, read here as well as below: the state still holds the prerendered defaults at this point
-      settings: loadPlayerSettings(),
-    });
+    let session: DriveSession;
+    try {
+      session = new DriveSession(container, {
+        car: carIdRef.current,
+        cycleCamera,
+        getTrackEnv,
+        handleToggleRacingLine,
+        setSettings,
+        setRaceKind,
+        onRunReset,
+        track,
+        trackId,
+        // The save itself, read here as well as below: the state still holds the prerendered defaults at this point
+        settings: loadPlayerSettings(),
+      });
+    } catch (err) {
+      // No WebGL for this page (switched off, or refused after a GPU reset): say so rather than the error screen
+      if (!(err instanceof WebGLUnavailableError)) throw err;
+      console.warn("[gpu]", err.message);
+      setWebglRefused(true);
+      return;
+    }
     setSession(session);
     return () => {
       session.dispose();
@@ -1609,7 +1661,9 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
     <div
       className="relative h-screen w-screen overflow-hidden bg-lc-void supports-[height:100dvh]:h-dvh"
       onPointerDown={() => {
-        if (phaseRef.current !== "loading") session?.unlockAudio();
+        // Not for a press on the GPU notice: that session is about to go, and a sound bank loading then lands on its
+        // closed audio context
+        if (phaseRef.current !== "loading" && !gpuNoticeKind) session?.unlockAudio();
       }}
     >
       <div ref={containerRef} className="h-full w-full" />
@@ -1846,7 +1900,18 @@ export const LibreCorsaSimulator: React.FC<LibreCorsaSimulatorProps> = ({ trackI
       <DualSensePairPrompt wanted={phase === "title" && !settingsOpen && !(hidFfbWanted && settings.wheel.steer !== null)} />
 
       {loadingVisible ? (
-        <LoadingScreen track={track} ready={assetsReady} onStart={handleLoadingStart} onDone={handleLoadingDone} />
+        // Under the GPU notice it takes no press: the notice's own buttons would start it too
+        <LoadingScreen track={track} ready={assetsReady && !gpuNoticeKind} onStart={handleLoadingStart} onDone={handleLoadingDone} />
+      ) : null}
+
+      {gpuNoticeKind ? (
+        <GpuLostNotice
+          kind={gpuNoticeKind}
+          canLower={settings.graphics.quality !== "low"}
+          onLower={() => restartAfterGpuLoss(true)}
+          onRetry={() => restartAfterGpuLoss(false)}
+          onReloadPage={() => window.location.reload()}
+        />
       ) : null}
     </div>
   );
