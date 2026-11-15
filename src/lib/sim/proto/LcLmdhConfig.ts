@@ -689,6 +689,8 @@ const config = (finalDrive: number, rearWingDeg: number) =>
       ffbMechanicalTrailM: 0.02,
       // Power steering, engine-driven: the same assist at any speed [est]
       powerSteering: { steeringRatio: 12.5, deadbandNm: 2, rampNm: 15, maxRatio: 1.2 },
+      // The body's plan at barrier height, measured from lc-lmdh.glb (`scripts/measure-car-plans.ts`)
+      bodyPlan: [[0.00, 2.69], [0.55, 2.61], [0.92, 2.45], [1.00, 2.00], [1.00, 0.72], [0.96, -2.40], [0.00, -2.41]],
     },
     engine: ENGINE,
     ers: ERS,

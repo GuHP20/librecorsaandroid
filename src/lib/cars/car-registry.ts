@@ -201,6 +201,11 @@ export interface CarDefinition {
   year: number;
   /** A ported GLB on the generic rig (`ported-car-model.ts`); absent: the vehicle model's own car */
   modelUrl?: string;
+  /**
+   * The plan of its body at barrier height when the body is not its vehicle model's own (`ChassisData.bodyPlan`, as
+   * `scripts/measure-car-plans.ts` prints it): the barriers meet this car's outline, not the other's
+   */
+  bodyPlan?: readonly (readonly [number, number])[];
   /** The liveries a player can pick for it (the first is the one its GLB is painted in); absent: its factory paint */
   skins?: readonly CarSkin[];
   sound: CarSoundSource;
@@ -272,6 +277,8 @@ const ALL_CARS: readonly CarDefinition[] = [
     physics: "amg-gt3",
     year: 2025,
     modelUrl: "/cars/bmw-m4-gt3/model/bmw-m4-gt3.glb",
+    // 28 cm longer than the AMG's, its tail 18 cm further back
+    bodyPlan: [[0.0, 2.32], [0.61, 2.24], [0.94, 2.01], [1.02, 1.84], [1.02, 0.8], [1.02, -1.83], [0.87, -2.27], [0.61, -2.46], [0.48, -2.52], [0.0, -2.52]],
     sound: BMW_M4_GT3_SOUND,
   },
   {

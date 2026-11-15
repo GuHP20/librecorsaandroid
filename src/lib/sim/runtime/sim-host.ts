@@ -25,9 +25,15 @@ export interface SimTransport {
 export interface SimHost {
   /**
    * The car to hand to the game in place of `twin` (the page's own car of that model). `trackRoot`: the circuit's
-   * loaded mesh when the twin was built on it already (a root loaded later reaches the car's `attachTrackRoot`)
+   * loaded mesh when the twin was built on it already (a root loaded later reaches the car's `attachTrackRoot`).
+   * `bodyPlan`: the plan of another body the car wears, as the twin was given it
    */
-  adopt(twin: SimulatorCar, vehicle: VehicleModelId, trackRoot?: THREE.Object3D | null): SimulatorCar;
+  adopt(
+    twin: SimulatorCar,
+    vehicle: VehicleModelId,
+    trackRoot?: THREE.Object3D | null,
+    bodyPlan?: readonly (readonly [number, number])[]
+  ): SimulatorCar;
   /**
    * Once per frame, after the frame's step: the simulation behind the transport drives the adopted car when
    * `wantRemote` and it is able to, else the page does
@@ -52,7 +58,7 @@ export function createSimHost(transport: SimTransport, wallNowMs: () => number =
     current?.receive(event);
   });
   return {
-    adopt(twin, vehicle, trackRoot) {
+    adopt(twin, vehicle, trackRoot, bodyPlan) {
       const mine = ++carNumber;
       const sendColliders = (root: THREE.Object3D) => {
         if (sentRoots.has(root)) return;
@@ -71,7 +77,14 @@ export function createSimHost(transport: SimTransport, wallNowMs: () => number =
       );
       if (trackRoot) sendColliders(trackRoot);
       // Before anything the game sets on the car: its commands follow, so the simulation's car is set up alike
-      transport.post({ type: "init", car: mine, track: trackSent ? undefined : getActiveTrackSource(), vehicle, lc26Rigid: lc26OnRigidBody() });
+      transport.post({
+        type: "init",
+        car: mine,
+        track: trackSent ? undefined : getActiveTrackSource(),
+        vehicle,
+        ...(bodyPlan ? { bodyPlan: bodyPlan.map(([x, z]) => [x, z] as [number, number]) } : {}),
+        lc26Rigid: lc26OnRigidBody(),
+      });
       trackSent = true;
       return current.car;
     },

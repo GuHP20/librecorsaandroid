@@ -804,6 +804,8 @@ export const MTR_496R_CONFIG = {
     maxRoadWheelDeg: 240 / 14,
     // The kingpin (WBTYRE_BOTTOM → WBTYRE_TOP) leans back 9.1° and meets the ground 45 mm ahead of the contact patch [derived]
     ffbMechanicalTrailM: 0.045,
+    // The body's plan at barrier height, measured from mtr-496r.glb (`scripts/measure-car-plans.ts`)
+    bodyPlan: [[0.00, 2.40], [0.74, 2.35], [0.93, 2.18], [0.95, 0.16], [0.95, -2.05], [0.00, -2.20]],
   },
   engine: ENGINE,
   ers: ERS,

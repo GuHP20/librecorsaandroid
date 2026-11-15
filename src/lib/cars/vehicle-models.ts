@@ -37,8 +37,11 @@ export interface TyreSetupRanges {
 export interface VehicleModel {
   id: VehicleModelId;
   classId: CarClassId;
-  /** A new car of this model on a circuit; `trackRoot` is the circuit mesh its ground queries hit */
-  createSim(track: BuiltTrackData, trackRoot: THREE.Object3D | null): SimulatorCar;
+  /**
+   * A new car of this model on a circuit; `trackRoot` is the circuit mesh its ground queries hit. `bodyPlan`: the plan
+   * of another body it wears (`CarDefinition.bodyPlan`), taken by the models that carry more than one body (the GT3)
+   */
+  createSim(track: BuiltTrackData, trackRoot: THREE.Object3D | null, bodyPlan?: readonly (readonly [number, number])[]): SimulatorCar;
   /** Rev limiter (rpm): the shift beep sounds 150 rpm short of it */
   limiterRpm: number;
   /** Top of the telemetry-out packet's rpm bar */
@@ -90,7 +93,7 @@ export const VEHICLE_MODELS: Readonly<Record<VehicleModelId, VehicleModel>> = {
   "amg-gt3": {
     id: "amg-gt3",
     classId: "gt3",
-    createSim: (track, trackRoot) => createAmgGt3Sim(track, trackRoot),
+    createSim: (track, trackRoot, bodyPlan) => createAmgGt3Sim(track, trackRoot, bodyPlan),
     limiterRpm: AMG_GT3_CONFIG.gearbox.gears.redline_rpm,
     telemetryMaxRpm: 8250,
     tyreSetupRanges: AMG_GT3_SIM_PROFILE,

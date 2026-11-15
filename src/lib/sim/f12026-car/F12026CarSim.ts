@@ -268,6 +268,8 @@ export interface CarSimProfile {
   fuelLPerS1000Rpm?: number;
   /** The TC / ABS dial positions of each driver-assist preset */
   assistDials: Record<DriverAssistPreset, AidDials>;
+  /** The plan of the body worn when it is not the vehicle model's own (`VehiclePhysicsOptions.bodyPlan`) */
+  bodyPlan?: readonly (readonly [number, number])[];
   /**
    * Steering-wheel angle per road-wheel angle: the rim's lock is `maxRoadWheelDeg` × this, which the steering's
    * hand-speed limit turns through at 900°/s. Default 12.6
@@ -987,6 +989,7 @@ export class F12026CarSim implements SimulatorCar {
         return p.s / L;
       },
       drsEligibleAtDetection: (zone) => (this.raceControl?.racing ? this.raceControl.earnedAtDetection(zone.id) : true),
+      bodyPlan: profile.bodyPlan,
       onEvent: (e) => this.onVehicleEvent(e),
     });
     const v = this.vehicle;

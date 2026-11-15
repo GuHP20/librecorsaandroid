@@ -505,6 +505,8 @@ export const SUZUKI_LIANA_CONFIG = {
     maxRoadWheelDeg: 540 / 15,
     // 3.3° caster on a 0.288 m tyre [derived]
     ffbMechanicalTrailM: 0.017,
+    // The body's plan at barrier height, measured from liana.glb (`scripts/measure-car-plans.ts`)
+    bodyPlan: [[0.00, 2.10], [0.51, 2.01], [0.75, 1.86], [0.90, 0.56], [0.76, -2.00], [0.61, -2.14], [0.00, -2.22]],
   },
   engine: ENGINE,
   ers: ERS,
