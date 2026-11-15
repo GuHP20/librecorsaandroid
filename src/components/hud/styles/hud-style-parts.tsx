@@ -116,8 +116,14 @@ export interface HudDesignProps {
   ffb?: React.ReactNode;
   /** Live Tuner Multi-Function Display (MFD) */
   mfd?: React.ReactNode;
-  /** The on-screen touch controls are up (their pause and camera buttons sit top-left) */
+  /**
+   * The on-screen touch controls are up: their pause and camera buttons sit top-left (to about 64 px down), the
+   * steering pad bottom-left and the pedals with their buttons bottom-right. A layout that stays up on a tablet keeps
+   * out of those three places.
+   */
   touch?: boolean;
+  /** Where a layout's top-centre group starts (px from the top) while the virtual mirror takes the top centre */
+  topInset?: number;
   /** The running lap was cut (`useLapInvalid`, the one reading every style shows): its clock stays red until the next lap */
   lapInvalid: boolean;
   /** Timing tower gaps: to the car ahead or to the leader */

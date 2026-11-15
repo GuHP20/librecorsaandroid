@@ -16,6 +16,12 @@ export interface HudLayoutCredit {
   license: "MIT" | "GPL-3.0";
 }
 
+/** Where each licence a credited layout comes under can be read */
+export const HUD_LICENSE_URL: Record<HudLayoutCredit["license"], string> = {
+  MIT: "https://opensource.org/license/mit",
+  "GPL-3.0": "https://www.gnu.org/licenses/gpl-3.0.html",
+};
+
 export interface HudLayoutInfo<Id extends string = string> {
   id: Id;
   /** Player-facing name */
@@ -51,6 +57,15 @@ export const DEFAULT_HUD_PRESET: HudPreset = "broadcast";
 /** A layout's entry; an id this build doesn't know gets the default's */
 export function hudLayout(id: string): HudLayoutInfo<HudPreset> {
   return HUD_LAYOUTS.find((l) => l.id === id) ?? HUD_LAYOUTS.find((l) => l.id === DEFAULT_HUD_PRESET)!;
+}
+
+/**
+ * Whether the HUD draws the Phone HUD instead of the chosen layout. A phone-sized screen always does. With the touch
+ * controls up (their pads take both bottom corners and the top-left), the game's own layouts give way to it at any
+ * size, while a third-party layout keeps its look on a tablet and steps out of the pads' way itself.
+ */
+export function showsPhoneHud(preset: HudPreset, screen: { phone: boolean; touchControls: boolean }): boolean {
+  return screen.phone || (screen.touchControls && !hudLayout(preset).credit);
 }
 
 /**
