@@ -6,8 +6,12 @@
  *    under a drawn sand patch stays grass, and kerb under drawn cubes becomes a sausage only in the rule's stretch,
  *    with the kerb's texture coordinates kept. A circuit without rules is left as it is. A band renames only between
  *    its offsets on its side, and a rule over the road collider lays run-off on it, at its height, leaving it as it is.
+ *    An area (a world outline) renames inside it, less an area excepted, and a later rule renames what an earlier one
+ *    made.
  * 2. Norisring: the street out to the barriers is the track (s 760, the Schoeller S and the inside lane into the Grundig
- *    hairpin), the gravel inside the hairpin and the car park past its outside kerb are not. Red Bull Ring (and its
+ *    hairpin), the gravel inside the hairpin and the car park past its outside kerb are not; from the marked images of
+ *    turns 2-6, the back straight's promenades and the apron past the start-finish straight's edge are off the track,
+ *    the Schöller S's inside street and turn 6's outer lane and pit entry on it. Red Bull Ring (and its
  *    South course): a car past the red and white kerb inside Castrol Edge and Remus is off the track, one on the kerb
  *    is not; past the white line on the pit exit and the gore island, on the anti-cut rumble and on Remus's exit
  *    astroturf it is off; the asphalt out to the white line is on; the pit exit merge is as it was.
@@ -146,6 +150,32 @@ function mergeTwo(a: THREE.BufferGeometry, b: THREE.BufferGeometry): THREE.Buffe
     [at(q, 120, 6), at(q, 120, 15), at(q, 160, 10)].join(' '));
 }
 
+// Areas (world outlines, x = -lat, z = s here): grass inside one becomes road; road inside another becomes run-off, except
+// inside an area excepted, and a later rule renames what an earlier one made
+{
+  const track = createFlatTestTrack(200, 10, 100);
+  const root = new THREE.Group();
+  root.add(strip('Track_Collider_Road', -20, 20, { userData: { collider: 'road', hidden: true } }));
+  root.add(strip('Track_Surface_Road', -5, 5, { userData: { surface: 'road', grip: 1, hidden: true } }));
+  const grass = strip('Track_Surface_Grass', 5, 20, { userData: { surface: 'grass', hidden: true } });
+  grass.geometry = mergeTwo(grass.geometry as THREE.BufferGeometry, strip('', -20, -5).geometry as THREE.BufferGeometry);
+  root.add(grass);
+  root.updateMatrixWorld(true);
+  const rect = (lat0: number, lat1: number, s0: number, s1: number) => [-lat0, s0, -lat1, s0, -lat1, s1, -lat0, s1];
+  const RULES: DrawnSurfaceRule[] = [
+    { materials: null, surface: 'road', from: ['grass'], within: { areas: [rect(7, 12, 30, 60)] }, note: 'track' },
+    { materials: null, surface: 'runoff', from: ['road'], within: { areas: [rect(-11, 11, 100, 120), rect(7, 12, 40, 50)], except: [rect(-2, 2, 100, 120)] }, note: 'off' },
+  ];
+  const hit = createGroundHit();
+  const at = (q: TrackColliderQuery, s: number, lat: number) => (q.query(-lat, s, 1, hit) ? hit.surface : 'none');
+  const q = TrackColliderQuery.fromTrackRoot(root, DEFAULT_SURFACE_TABLE, { conformSurfaces: true, prepare: (r) => applyDrawnSurfaceRules(r, track, [], RULES) });
+  const inA = [at(q, 35, 9), at(q, 35, 13), at(q, 70, 9)];
+  check('an area: grass inside it is road, grass outside it stays grass', inA.join() === 'road,grass,grass', inA.join(' '));
+  const inB = [at(q, 110, 4), at(q, 110, 0), at(q, 130, 4)];
+  check('an area less the area excepted: road inside it is run-off, road in the excepted area and outside stays road', inB.join() === 'runoff,road,road', inB.join(' '));
+  check('a later rule renames what an earlier one made (road made from grass, then run-off)', at(q, 45, 9) === 'runoff' && at(q, 55, 9) === 'road', `${at(q, 45, 9)} ${at(q, 55, 9)}`);
+}
+
 // ---- 2. The hosted circuits
 /** All four wheels (±1.8 m along, ±0.8 m across) of a car centred at lap distance s, lateral lat: off the track? */
 function carOff(ground: TrackColliderQuery, s: number, lat: number): boolean {
@@ -190,6 +220,15 @@ if (nori) {
   check('Norisring: the inside lane into the Grundig hairpin is on the track now (off before)', carOff(nori.before, 440, -8) && !carOff(nori.after, 440, -8));
   // (the hairpin's outside kerb ends 11.1 m out; the barrier opens to 35 m round the car park behind it)
   check("Norisring: the car park past the Grundig hairpin's outside kerb is still off the track", carOff(nori.after, 480, 16) && carOff(nori.after, 480, 20));
+  // The marked corner images of turns 2-6
+  const promenades: [number, number][] = [[1150, 10.5], [1150, -10.5], [1250, -10.5]];
+  check("Norisring: on the back straight's promenades a car was on the track (they were kerb), and is off it now",
+    promenades.every(([s, l]) => !carOff(nori.before, s, l) && carOff(nori.after, s, l)), promenades.filter(([s, l]) => !carOff(nori.after, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
+  const marked: [number, number][] = [[935, -12], [1900, 13]];
+  check("Norisring: the Schöller S's inside street past the lap's barrier distance and turn 6's outer lane and pit entry are on the track now",
+    marked.every(([s, l]) => carOff(nori.before, s, l) && !carOff(nori.after, s, l)), marked.filter(([s, l]) => carOff(nori.after, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
+  check("Norisring: past the start-finish straight's edge, where road faces jut onto the apron, is off the track now; its road stays on it",
+    !carOff(nori.before, 2030, -11) && carOff(nori.after, 2030, -11) && !carOff(nori.after, 2029, -8.4));
 }
 const rbr = load('spielberg');
 if (rbr) {
