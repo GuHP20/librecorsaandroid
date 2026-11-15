@@ -17,3 +17,24 @@ export function revRangeFor(carId: string | undefined): [number, number] {
   if (carId === "nissan-r32-jtcc") return [6300, 7500];
   return carId === "amg-gt3" ? [6200, 7500] : [10_800, 14_600];
 }
+
+/** A rev light's colour band: the HUD and the car's own wheel paint the same LED in the same band */
+export type RevLedBand = "green" | "yellow" | "red" | "shift";
+
+/** The band of LED `i` of `count` (15 lights: 5 green, 5 yellow, 3 red, 2 shift) */
+export function revLedBand(i: number, count: number): RevLedBand {
+  if (i < count / 3) return "green";
+  if (i < (2 * count) / 3) return "yellow";
+  if (i < (13 * count) / 15) return "red";
+  return "shift";
+}
+
+/**
+ * How many of `count` rev lights are lit at `rpm`, and whether the car is at its shift point (every light on): one
+ * reading for the HUD, the car's wheel and the pad's lights, so they never disagree on where the shift is
+ */
+export function revLeds(rpm: number, [start, full]: readonly [number, number], count: number): { lit: number; atShift: boolean } {
+  const r = Number.isFinite(rpm) ? rpm : 0;
+  const lit = Math.max(0, Math.min(count, Math.round(((r - start) / (full - start)) * count)));
+  return { lit, atShift: r >= full };
+}

@@ -28,13 +28,16 @@ import {
 } from "./hud-format";
 import { AidLamp } from "./F12026ChannelsPanel";
 import { aeroReadout } from "./aero-label";
+import { revLedBand, type RevLedBand } from "@/lib/sim/rev-range";
 import { AeroBadge } from "./styles/hud-style-parts";
 
 /** Rev lights: 15 LEDs over the top end of the rev range (green, amber, red; all in the shift colour at the shift point) */
 const REV_LEDS = 15;
 const LED_INDEXES = Array.from({ length: REV_LEDS }, (_, i) => i);
 
-const ledColor = (i: number) => (i < 5 ? HUD_GREEN : i < 10 ? HUD_YELLOW : i < 13 ? HUD_RED : HUD_SHIFT);
+/** The HUD's colour for each band; the car's own wheel lights the same LED in the same band (`revLedBand`) */
+const LED_BAND_COLOR: Record<RevLedBand, string> = { green: HUD_GREEN, yellow: HUD_YELLOW, red: HUD_RED, shift: HUD_SHIFT };
+const ledColor = (i: number) => LED_BAND_COLOR[revLedBand(i, REV_LEDS)];
 
 interface SpeedClusterProps {
   telemetry: CarTelemetry;
