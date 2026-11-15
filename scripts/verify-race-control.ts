@@ -280,6 +280,50 @@ console.log("Track limits · strict outside a race");
   check("practice: a lap the autopilot starts takes the next lap's deletion with it", !p.nextLapForfeit && drive(p, 0.2, { lapCount: 4, sector: 1 }).length === 0);
 }
 
+console.log("Track limits · barrier contact");
+{
+  // The car's contact total grows by `share` of each frame (1 = touching the whole frame)
+  let total = 0;
+  const walls = (m: TrackLimitsMonitor, seconds: number, share: number, wallRule: TrackLimitsFrame["wallRule"], f: Partial<TrackLimitsFrame> = {}): TrackLimitsEvent[] => {
+    const events: TrackLimitsEvent[] = [];
+    for (let t = 0; t < seconds - 1e-9; t += DT) {
+      total += share * DT;
+      events.push(...drive(m, DT, { sector: 1, wallContactS: total, wallRule, ...f }));
+    }
+    return events;
+  };
+  const p = new TrackLimitsMonitor();
+  p.reset("practice");
+  walls(p, 0.5, 0, "ride");
+  const brushes = [...walls(p, 0.15, 1, "ride"), ...walls(p, 1.35, 0, "ride"), ...walls(p, 0.15, 1, "ride"), ...walls(p, 3.2, 0, "ride")];
+  check("a circuit: two brushes off the wall (0.15 s each) in 3 s keep the lap", brushes.length === 0, JSON.stringify(brushes));
+  const ride = walls(p, 1.5, 0.3, "ride");
+  check("a circuit: leaning on the wall (a third of the time) deletes the lap once it adds up to 0.35 s", ride.length === 1 && ride[0].kind === "lap_invalid" && ride[0].reason === "wall_contact" && ride[0].lap === 1, JSON.stringify(ride));
+  const said = p.snapshot(clock * 1000).message;
+  check("and the banner says why", said?.text === "Wall contact · lap deleted" && said?.detail === "Rode the wall", JSON.stringify(said));
+  check("scraping on along it is the same breach, one deletion", walls(p, 2, 1, "ride").length === 0);
+  walls(p, 3.2, 0, "ride");
+  check("a second ride after 3 clean seconds is another", walls(p, 0.5, 1, "ride", { lapCount: 2 }).length === 1);
+  walls(p, 3.2, 0, "ride", { lapCount: 2 });
+  const touch = walls(p, DT, 0.1, "touch", { lapCount: 3 });
+  check("a hill climb: any touch ends the run", touch.length === 1 && p.snapshot(clock * 1000).message?.detail === "Touched the barrier", JSON.stringify(touch));
+  walls(p, 3.2, 0, "touch", { lapCount: 3 });
+  check("no wall rule (past a hill climb's finish), no verdict", walls(p, 1, 1, undefined, { lapCount: 3 }).length === 0);
+  check("the autopilot is not judged", walls(p, 1, 1, "ride", { lapCount: 3, active: false }).length === 0);
+  check("the contact the autopilot had is not counted when the driver takes over", walls(p, 0.2, 0, "ride", { lapCount: 3 }).length === 0);
+
+  // In a race, riding the wall is judged as time off the track: an excursion, warnings and penalties as any other
+  const r = new TrackLimitsMonitor();
+  r.reset("race");
+  walls(r, 0.5, 0, "ride", { deltaS: 0 });
+  check("a race: a brush is nothing", walls(r, 0.15, 1, "ride", { deltaS: 0 }).length === 0 && !r.judging);
+  walls(r, 3.2, 0, "ride", { deltaS: 0 });
+  walls(r, 1.0, 1, "ride", { deltaS: 0, lateralM: 4 });
+  check("a race: a wall-ride is under review like an excursion", r.judging);
+  const verdict = [...walls(r, 0.4, 0, "ride", { deltaS: -0.5, lateralM: 4 }), ...walls(r, 8, 0, "ride", { deltaS: -0.5 })];
+  check("a race: gaining time by it is a warning", verdict.length === 1 && verdict[0].kind === "warning", JSON.stringify(verdict));
+}
+
 console.log("Track limits · every engine honours strict and judged");
 {
   const track = getActiveTrackData(1200);

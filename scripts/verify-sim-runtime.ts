@@ -283,6 +283,18 @@ for (const [name, vehicle] of [['f12026-car', 'f12026-car'], ['LC26 as it ships'
   for (let t = 0; t < 20 - 1e-9; t += SIM_TICK_S) flat.step(SIM_TICK_S, {});
   check(`${name}: (a car on the track samples' ground ends elsewhere)`, worstDifference(poseOf(flat), poseOf(direct)) > 1e-3);
 
+  if (vehicle === 'f12026-car') {
+    // Barrier contact, summed over every tick in the simulation, crosses to the game with the telemetry (race control's
+    // wall rules read it): the car steered into the left barrier before turn 1
+    r.car.aiAutopilot = false;
+    r.car.teleportToDistance(225, 25, -7);
+    for (let f = 0; f < 120 && (sim.telemetry.f12026?.wallContactS ?? 0) === 0; f++) frame(r, { throttle: 0.5, analogSteer: -1 });
+    for (let f = 0; f < 30; f++) frame(r, { throttle: 0.5, analogSteer: -1 });
+    const there = sim.telemetry.f12026?.wallContactS ?? 0;
+    const here = r.car.telemetry.f12026?.wallContactS ?? 0;
+    check(`${name}: barrier contact, summed in the simulation, reaches the game`, there > 0 && Math.abs(here - there) < 0.02, `${there.toFixed(3)} s there, ${here.toFixed(3)} s here`);
+  }
+
   if (vehicle === 'lc26') {
     // The kerbs' blocks (the circuit's surface table, read off the kerb meshes' texture coordinates) are the same under
     // the simulation's car as under the page's: every kerb the track data flags, 0.7 m out from the road's edge
