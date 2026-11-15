@@ -60,7 +60,7 @@ export function PerfReportCard({ report }: { report: () => string }) {
       description={
         done === "failed"
           ? "Copying didn't work here. Save it as a file instead."
-          : "How smoothly the game has run since you opened it. Copy it or save it, and send it to me with what you saw."
+          : "How smoothly the game has run on this track so far. Copy it or save it, and send it to me with what you saw."
       }
     >
       <div className="flex flex-wrap gap-2">

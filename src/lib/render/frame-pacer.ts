@@ -17,8 +17,6 @@ export const TOLERANCE_MS = 4;
 export class FramePacer {
   /** When the last drawn frame was due (ms, the frame clock); -Infinity before the first */
   private dueMs = -Infinity;
-  /** When the last frame was drawn (ms) */
-  private drawnMs = -Infinity;
 
   /** `capFps`: frames drawn per second at most; 0 = every frame */
   constructor(private capFps = 0) {}
@@ -36,22 +34,13 @@ export class FramePacer {
 
   /** Whether the frame stamped `nowMs` draws */
   shouldDraw(nowMs: number): boolean {
-    if (!(this.capFps > 0)) {
-      this.drawnMs = nowMs;
-      return true;
-    }
+    if (!(this.capFps > 0)) return true;
     const intervalMs = 1000 / this.capFps;
     const sinceDueMs = nowMs - this.dueMs;
     if (sinceDueMs < intervalMs - TOLERANCE_MS) return false;
     const nextDueMs = this.dueMs + intervalMs;
     // On time (within the tolerance either side): keep the schedule; late or the first frame: start it from here
     this.dueMs = Math.abs(nowMs - nextDueMs) <= TOLERANCE_MS ? nextDueMs : nowMs;
-    this.drawnMs = nowMs;
     return true;
-  }
-
-  /** Time since the last drawn frame (ms), for what is measured per drawn frame */
-  sinceDrawnMs(nowMs: number): number {
-    return nowMs - this.drawnMs;
   }
 }

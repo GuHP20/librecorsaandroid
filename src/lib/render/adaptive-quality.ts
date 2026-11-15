@@ -311,8 +311,3 @@ export function carriedLevel(quality: GraphicsQuality, renderScale: number, nowM
 export function rememberLevel(quality: GraphicsQuality, renderScale: number, level: number, nowMs: number): void {
   lastSession = level > 0 ? { key: choiceKey(quality, renderScale), level, atMs: nowMs } : null;
 }
-
-/** The step a level stands for (its rung's id and label), for the caller filling in a StepEvent */
-export function rungAt(quality: GraphicsQuality, renderScale: number, level: number): Rung | null {
-  return ladderFor(quality, renderScale)[level - 1] ?? null;
-}
