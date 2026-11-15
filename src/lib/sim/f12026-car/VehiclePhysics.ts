@@ -158,6 +158,7 @@ import {
   type LapWindow,
   lapWindowFor,
   mergeLapWindows,
+  STRAIGHT_NOTICE_M,
 } from '../straight-mode-zones';
 import { beginSettle } from './settle-memo';
 
@@ -318,6 +319,11 @@ export type VehicleEvent =
   | { type: 'GEAR'; gear: number }
   /** Crossed a `ZoneData_DRSZone` detection point; `eligible` = DRS may open in that zone */
   | { type: 'DRS_DETECTION'; zone: string; eligible: boolean }
+  /**
+   * A car whose flaps open on every straight (2026 Straight Mode, no detection) came within `STRAIGHT_NOTICE_M` of
+   * one, or left the one before it when that ends nearer
+   */
+  | { type: 'STRAIGHT_MODE_AHEAD' }
   /** Started touching a barrier at `speedMs` into the wall */
   | {
       type: 'WALL_IMPACT';
@@ -349,7 +355,8 @@ export interface VehiclePhysicsOptions {
   locateProgress?: (x: number, z: number) => number;
   /**
    * The lap's length (m) `locateProgress` measures: with it a press of the flap button before a zone is kept for it
-   * (`FLAP_PRESS_REACH_M`). Without it a press only acts where the flaps may open at once
+   * (`FLAP_PRESS_REACH_M`) and a 2026 car is told of each straight ahead. Without it a press only acts where the
+   * flaps may open at once
    */
   lapLengthM?: number;
   /** Asked at each detection point whether DRS is earned (e.g. within 1 s of the car ahead); default yes */
@@ -1096,8 +1103,11 @@ export class VehiclePhysics {
   private readonly locateProgress?: (x: number, z: number) => number;
   private readonly lapLengthM: number;
   private readonly drsEligibleAtDetection?: (zone: ZoneData_DRSZone) => boolean;
-  /** Where the flaps may open as one list (`flapStretches`), for the rules it was made for */
-  private flapStretchCache: { gated: boolean; list: readonly LapWindow[] } | null = null;
+  /**
+   * Where the flaps may open as one list (`flapStretches`), for the rules it was made for, with the lap fraction at
+   * which a 2026 car is told of each (`STRAIGHT_MODE_AHEAD`)
+   */
+  private flapStretchCache: { gated: boolean; list: readonly LapWindow[]; noticeAt: readonly number[] } | null = null;
   /**
    * A press of the flap button the flaps could not answer yet, kept for one stretch: it opens them there once they
    * may open, and lapses on leaving that stretch, on the brake inside it, on a second press or after
@@ -2168,11 +2178,24 @@ export class VehiclePhysics {
    * detection (2026 Straight Mode) its straights too, joined where they meet
    */
   private flapStretches(): readonly LapWindow[] {
+    return this.flapStretchInfo().list;
+  }
+
+  private flapStretchInfo(): { list: readonly LapWindow[]; noticeAt: readonly number[] } {
     const gated = this.drsGatedByDetection;
     if (this.flapStretchCache?.gated !== gated) {
-      this.flapStretchCache = { gated, list: mergeLapWindows(gated ? this.drsZones : [...this.drsZones, ...this.straightZones]) };
+      const list = mergeLapWindows(gated ? this.drsZones : [...this.drsZones, ...this.straightZones]);
+      // `STRAIGHT_NOTICE_M` before each; where that is still on the stretch before it (a short corner or a kink
+      // between two), as the car leaves that one
+      const lead = this.lapLengthM > 0 ? STRAIGHT_NOTICE_M / this.lapLengthM : 0;
+      const noticeAt = list.map((w) => {
+        const at = (((w.start - lead) % 1) + 1) % 1;
+        const before = list.find((o) => o !== w && inLapWindow(at, o.start, o.end));
+        return before ? before.end : at;
+      });
+      this.flapStretchCache = { gated, list, noticeAt };
     }
-    return this.flapStretchCache.list;
+    return this.flapStretchCache;
   }
 
   private updateDrs(inp: VehicleInputs, dt: number): void {
@@ -2196,6 +2219,17 @@ export class VehiclePhysics {
               const eligible = this.drsEligibleAtDetection ? this.drsEligibleAtDetection(zone) : true;
               this.drsArmedZone = eligible ? zone.id : null;
               this.onEvent?.({ type: 'DRS_DETECTION', zone: zone.id, eligible });
+            }
+          }
+          // 2026 Straight Mode has no detection: the car is told of each stretch `STRAIGHT_NOTICE_M` before it starts
+          // (or as it leaves the one before, when that is nearer)
+          if (!this.drsGatedByDetection && this.lapLengthM > 0) {
+            for (const at of this.flapStretchInfo().noticeAt) {
+              const ahead = (((at - prev) % 1) + 1) % 1;
+              if (ahead > 0 && ahead <= d) {
+                this.onEvent?.({ type: 'STRAIGHT_MODE_AHEAD' });
+                break;
+              }
             }
           }
         }

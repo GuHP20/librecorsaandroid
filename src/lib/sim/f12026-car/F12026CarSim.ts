@@ -862,6 +862,8 @@ export class F12026CarSim implements SimulatorCar {
     drsAvailable: false,
     drsQueued: false,
     drsDetection: null,
+    straightModeAhead: null,
+    overtakeDetection: null,
     circleFraction: [0, 0, 0, 0],
     performanceMode: 'RAC',
     carId: 'f12026-car',
@@ -1720,7 +1722,10 @@ export class F12026CarSim implements SimulatorCar {
     }
     if (ticks > 0 || rim === null) this.lastRimSteer = rim;
     if (this.rules === 'straight-mode-2026' && this.profile.hasDrs) {
-      this.overtake.observe(progressBefore, v.trackProgress, RWANDA_DRS_ZONES, this.raceControl);
+      // Race control's verdict at the detection point, for the HUD (judged only in a race)
+      if (this.overtake.observe(progressBefore, v.trackProgress, RWANDA_DRS_ZONES, this.raceControl)) {
+        this.channels.overtakeDetection = { earned: this.overtake.earned, atMs: this.simTimeMs };
+      }
     }
     this.simTimeMs += steppedS * 1000;
     if (this.recoverIfLost()) return this.telemetry;
@@ -2208,6 +2213,9 @@ export class F12026CarSim implements SimulatorCar {
       case 'DRS_DETECTION':
         c.drsDetection = { zone: e.zone, eligible: e.eligible, atMs: this.simTimeMs };
         break;
+      case 'STRAIGHT_MODE_AHEAD':
+        c.straightModeAhead = { atMs: this.simTimeMs };
+        break;
       case 'WALL_IMPACT':
         c.wallImpact = { speedMs: e.speedMs, atMs: this.simTimeMs, localX: e.localX, localZ: e.localZ };
         break;
@@ -2297,6 +2305,8 @@ export class F12026CarSim implements SimulatorCar {
     c.CHANGED_DRS_OPEN = false;
     c.drsOpenEvents = 0;
     c.drsDetection = null;
+    c.straightModeAhead = null;
+    c.overtakeDetection = null;
     c.drsQueued = false;
     c.wallImpact = null;
     this.syncPose();

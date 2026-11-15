@@ -648,6 +648,10 @@ export interface F12026Channels {
   drsQueued: boolean;
   /** Last detection point crossed: zone id, whether DRS was earned, sim time (ms) */
   drsDetection: { zone: string; eligible: boolean; atMs: number } | null;
+  /** 2026 Straight Mode: the last time a stretch where the flaps may open came up ahead (sim time, ms) */
+  straightModeAhead: { atMs: number } | null;
+  /** 2026, in a race: race control's last Overtake Mode verdict at the detection point (sim time, ms) */
+  overtakeDetection: { earned: boolean; atMs: number } | null;
   /** Share of the friction circle in use per tyre (telemetry only, 1 = at the limit) */
   circleFraction: [number, number, number, number];
   performanceMode: string;
