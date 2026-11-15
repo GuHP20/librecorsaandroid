@@ -2207,17 +2207,19 @@ export class MultiplayerSyncManager {
 
   /**
    * Publishes the local car's state (STATE_SEND_HZ, on a fixed schedule) across BroadcastChannel, WebRTC data channels
-   * and the race server, and returns the remote cars as drawn now.
+   * and the race server, and returns the remote cars as drawn now. With no car to send (`null`: the game lost its
+   * picture and waits) the room still runs, but nothing goes out: the others see the car fade and go, as when a player
+   * leaves, rather than a car parked where it stopped.
    */
   public update(
     nowMs: number,
-    localPacket: Omit<NetworkVehiclePacket, 'peerId' | 'timestampMs'>
+    localPacket: Omit<NetworkVehiclePacket, 'peerId' | 'timestampMs'> | null
   ): InterpolatedPeerState[] {
     // A fixed schedule: the next packet is due one interval after the last was due, not after it went out, so the rate
     // holds at any frame rate. A frame up to a quarter interval early counts (display frames jitter); a frame more
     // than an interval late (a hitch, a tab in the background) starts the schedule again rather than sending a burst
     const intervalMs = 1000 / this.stateSendHz;
-    if (nowMs >= this.nextSendDueMs - intervalMs / 4) {
+    if (localPacket && nowMs >= this.nextSendDueMs - intervalMs / 4) {
       this.nextSendDueMs = nowMs - this.nextSendDueMs >= intervalMs ? nowMs + intervalMs : this.nextSendDueMs + intervalMs;
       // Stamped with the frame's time, the moment its pose is from; how much later it leaves goes with it, so a
       // receiver's timing counts from the send (a clock other than the frame's reads as on time)
