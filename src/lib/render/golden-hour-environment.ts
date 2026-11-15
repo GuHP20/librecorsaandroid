@@ -15,6 +15,7 @@ import {
 } from "postprocessing";
 import { patchShader } from "./shader-patch";
 import { PhysicalSky } from "./physical-sky";
+import type { RenderPlan } from "./adaptive-quality";
 import type { CloudsEffect } from "@takram/three-clouds";
 
 /*
@@ -167,29 +168,28 @@ export interface PostFx {
   setSize(width: number, height: number): void;
   /** swap the camera used by the render pass (the sim uses a single camera, but keep it safe) */
   setCamera(camera: THREE.Camera): void;
-  /** Graphics preset: MSAA samples and bloom on / off */
-  setQuality(quality: "low" | "medium" | "high"): void;
+  /** Graphics preset: MSAA samples and bloom on / off; `msaa` false turns both off whatever the preset (the step-down) */
+  setQuality(quality: "low" | "medium" | "high", msaa?: boolean): void;
   /** Puts the physical sky's clouds into the chain, right after the scene render (once; later calls are no-ops) */
   setClouds(sky: { readonly clouds: CloudsEffect; readonly cloudsActive: boolean }): void;
   dispose(): void;
 }
 
 /**
- * Applies a graphics preset to the running renderer: resolution (device pixel ratio x the player's render scale),
- * the sun's shadow, MSAA and bloom. Cheap to call again; the caller re-sizes the composer afterwards.
+ * Applies a graphics plan to the running renderer: resolution (device pixel ratio x the render scale), the sun's
+ * shadow, MSAA and bloom, from the preset and what the automatic step-down turned down on top of it
+ * (adaptive-quality.ts). Cheap to call again; the caller re-sizes the composer afterwards.
  */
-export function applyGraphicsQuality(
-  renderer: THREE.WebGLRenderer,
-  postFx: PostFx,
-  env: GoldenHourEnvironment,
-  quality: "low" | "medium" | "high",
-  renderScale: number
-): void {
+export function applyGraphicsQuality(renderer: THREE.WebGLRenderer, postFx: PostFx, env: GoldenHourEnvironment, plan: RenderPlan): void {
+  const { quality, renderScale } = plan;
   const dprCap = quality === "low" ? 1 : 1.5;
   renderer.setPixelRatio(Math.max(0.35, Math.min(window.devicePixelRatio, dprCap) * renderScale));
   // Toggling the light's shadow recompiles the lit materials on their own (shadow count is part of the program key)
   env.sunLight.castShadow = quality !== "low";
-  postFx.setQuality(quality);
+  // Half the texels per side: three resizes the shadow map in place, with no shader change
+  const shadowSize = plan.shadows === "half" ? SHADOW_MAP_SIZE / 2 : SHADOW_MAP_SIZE;
+  env.sunLight.shadow.mapSize.set(shadowSize, shadowSize);
+  postFx.setQuality(quality, plan.msaa);
   env.setQuality(quality);
   if (env.physicalSky) postFx.setClouds(env.physicalSky);
   // Scenery noise and bump off on Low (the baked tree shading stays); fewer instanced trees and shrubs below High
@@ -735,9 +735,9 @@ export function createPostFx(
       plainPass.mainCamera = next;
     },
 
-    setQuality(quality: "low" | "medium" | "high"): void {
-      composer.multisampling = quality === "high" ? 4 : quality === "medium" ? 2 : 0;
-      bloomPass.enabled = quality === "high";
+    setQuality(quality: "low" | "medium" | "high", msaa = true): void {
+      composer.multisampling = !msaa ? 0 : quality === "high" ? 4 : quality === "medium" ? 2 : 0;
+      bloomPass.enabled = msaa && quality === "high";
       plainPass.enabled = !bloomPass.enabled;
     },
 

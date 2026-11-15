@@ -77,6 +77,21 @@ import { assetProgress } from "@/lib/loading/asset-progress";
 import { prefetchSoundBank } from "@/lib/sim/lc26-audio";
 import { CarReflectionProbe } from "@/lib/render/car-reflection-probe";
 import { StartupMonitor } from "@/lib/render/startup-monitor";
+import { SessionPerfMonitor, type PerfPhase } from "@/lib/render/session-perf";
+import { FramePacer } from "@/lib/render/frame-pacer";
+import {
+  carriedLevel,
+  DisplayRate,
+  frameBudgetMs,
+  ladderFor,
+  loweredSummary,
+  planAt,
+  presetPlan,
+  QualityGovernor,
+  rememberLevel,
+  type GovernorEvent,
+} from "@/lib/render/adaptive-quality";
+import { pageBuild } from "@/lib/build-id";
 import { addContactShadow, seatContactShadow } from "@/lib/render/contact-shadow";
 import { buildKeyLookup, HUD_TOGGLE_EVENT, type KeyAction } from "@/lib/input/bindings";
 import { carWheelLockDeg, connectedPads, DeviceInputReader, findPad } from "@/lib/input/device-input";
@@ -148,6 +163,9 @@ const MP_CLOCK_UNSYNCED_FRAME: MultiplayerRaceFrame = { phase: "countdown", ligh
 /** A loading task with no progress for this long is given up on (the procedural stand-in stays) */
 const ASSET_STALL_MS = 25_000;
 
+/** The HUD says the graphics were lowered at most this often (ms); later steps in the meantime go by quietly */
+const QUALITY_NOTICE_GAP_MS = 60_000;
+
 /** Slicks or rain tyres for the line's water; a car on slicks keeps its own slick */
 export const autoCompoundFor = (lineWaterMm: number, current: TireCompound | undefined): TireCompound =>
   recommendedCompound(lineWaterMm, current && !isRainCompound(current) ? current : "soft");
@@ -202,6 +220,16 @@ export interface DriveSnapshot {
   chassisSetup: ChassisSetup;
   /** The time trial being driven (the weekly challenge's fixed conditions), or none */
   timeTrial: TimeTrialRules | null;
+  /**
+   * What the automatic quality has lowered on top of the player's graphics ("resolution 70%, car reflections off"),
+   * or null with nothing lowered
+   */
+  autoQualityLowered: string | null;
+  /**
+   * The HUD's quiet note about it, a new `id` each time: "lowered" after a step down (at most one a minute), "floor"
+   * once when every step is taken and the frames are still slow
+   */
+  qualityNotice: { id: number; kind: "lowered" | "floor" } | null;
 }
 
 /** The snapshot before the drive exists: a throwaway LC26's numbers, as the menus need something to show */
@@ -233,6 +261,8 @@ export function idleDriveSnapshot(track: BuiltTrackData): DriveSnapshot {
     defaultTyreSetup: car.getTyreSetup(),
     chassisSetup: DEFAULT_CHASSIS_SETUP,
     timeTrial: null,
+    autoQualityLowered: null,
+    qualityNotice: null,
   };
 }
 
@@ -375,8 +405,10 @@ export class DriveSession {
   readonly replaySpeed: (speed: number) => void;
   /** Swaps the player's car in the running scene (the run starts over with it) */
   readonly setCar: (car: CarId) => void;
-  /** Applies the graphics preset to the running renderer */
-  readonly applyGraphics: (quality: "low" | "medium" | "high", renderScale: number) => void;
+  /** Applies the player's graphics to the running renderer, with what the automatic quality has lowered on top */
+  readonly applyGraphics: () => void;
+  /** `?perf=1`: the whole-session performance report as text, to copy or save; null without `?perf=1` */
+  readonly perfReport: (() => string) | null;
   /** Asks the headset for a VR session (one request at a time) */
   readonly enterVr: () => void;
   /** Opens the instant replay a moment back, paused, or closes it */
@@ -692,6 +724,8 @@ export class DriveSession {
       boostLatch: false,
       ...carSetup,
       timeTrial: null,
+      autoQualityLowered: null,
+      qualityNotice: null,
     };
 
     /**
@@ -857,8 +891,18 @@ export class DriveSession {
     const postFx = createPostFx(renderer, scene, camera);
     // Live reflections of the world on the cars (High / Medium); Low keeps the sky's
     const reflectionProbe = new CarReflectionProbe(renderer, scene);
-    // `?perf=1`: a report of the first 30 s on track (startup-monitor.ts)
+    // `?perf=1`: a report of the first 30 s on track (startup-monitor.ts), and a line every 10 s for the whole session
+    // (session-perf.ts) with the simulation worker's own timing in it
     const startupMonitor = StartupMonitor.requested() ? new StartupMonitor(renderer) : null;
+    const sessionPerf = SessionPerfMonitor.requested() ? new SessionPerfMonitor(renderer) : null;
+    if (sessionPerf) {
+      (window as unknown as { __lcPerfReport?: SessionPerfMonitor }).__lcPerfReport = sessionPerf;
+      simWorker?.listen((event) => {
+        if (event.type === "perf") sessionPerf.worker(event.spanMs, event.busyMs, event.maxWakeMs);
+      });
+      simWorker?.post({ type: "perf", on: true });
+    }
+    this.perfReport = sessionPerf ? () => sessionPerf.report(pageBuild()) : null;
     reflectionProbe.setSky(env.probeSky);
     // Top-centre virtual rear-view mirror for the views without wing mirrors in shot
     const virtualMirror = new VirtualMirror(renderer, scene);
@@ -995,13 +1039,65 @@ export class DriveSession {
     });
     this.lapRecorder = lapRecorder;
 
-    this.applyGraphics = (quality, renderScale) => {
+    // Automatic quality (adaptive-quality.ts): steps down on top of the player's graphics while the frames stay slow on
+    // track, never touching the saved settings or the simulation. The frame-rate cap (frame-pacer.ts) picks the
+    // frames that draw; input, the simulation, the network and the laps run on every frame.
+    const pacer = new FramePacer(settings.graphics.fpsCap);
+    const displayRate = new DisplayRate();
+    const ladderLength = (g: PlayerSettings["graphics"]) => ladderFor(g.quality, g.renderScale).length;
+    const startLevel = settings.graphics.autoQuality
+      ? carriedLevel(settings.graphics.quality, settings.graphics.renderScale, performance.now())
+      : 0;
+    const governor = new QualityGovernor(ladderLength(settings.graphics), startLevel);
+    // Carried in from the last session: this one ending without a step leaves the next one rung better again
+    if (startLevel > 0) rememberLevel(settings.graphics.quality, settings.graphics.renderScale, startLevel, performance.now());
+    /** The governor was fed last frame (driving), so the frame that stops driving restarts its grace once */
+    let governorFed = false;
+    let qualityNoticeId = 0;
+    let lastQualityNoticeMs = -Infinity;
+    const graphicsLine = (g: PlayerSettings["graphics"], lowered: string | null) =>
+      [
+        `${g.quality[0].toUpperCase()}${g.quality.slice(1)}`,
+        `render ${Math.round(g.renderScale * 100)}%`,
+        `auto quality ${g.autoQuality ? "on" : "off"}`,
+        g.fpsCap ? `${g.fpsCap} fps cap` : "no fps cap",
+        `lowered: ${lowered ?? "nothing"}`,
+        `pixel ratio ${renderer.getPixelRatio().toFixed(2)}`,
+        simWorker ? "sim worker" : "sim on the page",
+      ].join(" · ");
+    this.applyGraphics = () => {
       if (disposed) return;
-      applyGraphicsQuality(renderer, postFx, env, quality, renderScale);
-      reflectionProbe.setQuality(quality === "low" ? "off" : quality);
+      const g = settings.graphics;
+      const level = g.autoQuality ? governor.level : 0;
+      const plan = level > 0 ? planAt(g.quality, g.renderScale, level) : presetPlan(g.quality, g.renderScale);
+      applyGraphicsQuality(renderer, postFx, env, plan);
+      reflectionProbe.setQuality(plan.reflections && g.quality !== "low" ? g.quality : "off");
       postFx.setSize(container.clientWidth, container.clientHeight);
+      const lowered = level > 0 ? loweredSummary(g.quality, g.renderScale, level) : null;
+      if (lowered !== this.snapshot.autoQualityLowered) this.publish({ autoQualityLowered: lowered });
+      sessionPerf?.setRenderState({ settings: graphicsLine(g, lowered), level });
     };
-    this.applyGraphics(settings.graphics.quality, settings.graphics.renderScale);
+    this.applyGraphics();
+    /** The governor's decision on a frame: take the step (and say so, quietly), or note that every step is taken */
+    const onQualityEvent = (event: GovernorEvent, nowMs: number) => {
+      const g = settings.graphics;
+      const why = `90% of frames within ${event.p90Ms.toFixed(1)} ms against a ${event.budgetMs.toFixed(1)} ms budget`;
+      if (event.kind === "floor") {
+        sessionPerf?.note(nowMs, `still slow with every step taken (${why})`);
+        // The one thing left is the player's: 30 fps
+        if (g.fpsCap === 0) this.publish({ qualityNotice: { id: ++qualityNoticeId, kind: "floor" } });
+        return;
+      }
+      rememberLevel(g.quality, g.renderScale, event.level, nowMs);
+      this.applyGraphics();
+      const lowered = loweredSummary(g.quality, g.renderScale, event.level);
+      console.info(`[quality] stepped down (${event.level}/${governor.floor}): ${lowered}; ${why}`);
+      sessionPerf?.note(nowMs, `stepped down ${event.level}/${governor.floor}: ${lowered} (${why})`);
+      if (nowMs - lastQualityNoticeMs >= QUALITY_NOTICE_GAP_MS) {
+        lastQualityNoticeMs = nowMs;
+        this.publish({ qualityNotice: { id: ++qualityNoticeId, kind: "lowered" } });
+      }
+    };
     setDriverBodyShown(settings.graphics.driverBody);
     this.applySettings = (next) => {
       const prev = settings;
@@ -1026,10 +1122,23 @@ export class DriveSession {
         livery = liveryFor(next.liveryId);
         carRig.setLivery(livery);
       }
-      if (next.graphics.quality !== prev.graphics.quality || next.graphics.renderScale !== prev.graphics.renderScale) {
-        this.applyGraphics(next.graphics.quality, next.graphics.renderScale);
+      const g = next.graphics;
+      const pg = prev.graphics;
+      if (g.quality !== pg.quality || g.renderScale !== pg.renderScale || g.autoQuality !== pg.autoQuality) {
+        // The player's own choice: the automatic steps start over from it
+        governor.reset(ladderLength(g), 0);
+        rememberLevel(g.quality, g.renderScale, 0, performance.now());
+        this.applyGraphics();
+        sessionPerf?.note(performance.now(), `graphics set to ${g.quality}, render ${Math.round(g.renderScale * 100)}%, auto quality ${g.autoQuality ? "on" : "off"}`);
       }
-      if (next.graphics.driverBody !== prev.graphics.driverBody) setDriverBodyShown(next.graphics.driverBody);
+      if (g.fpsCap !== pg.fpsCap) {
+        pacer.setCap(g.fpsCap);
+        // A new frame budget: judged afresh
+        governor.interrupt();
+        sessionPerf?.setRenderState({ settings: graphicsLine(g, this.snapshot.autoQualityLowered), level: g.autoQuality ? governor.level : 0 });
+        sessionPerf?.note(performance.now(), g.fpsCap ? `frame rate capped at ${g.fpsCap} fps` : "frame rate cap off");
+      }
+      if (g.driverBody !== pg.driverBody) setDriverBodyShown(g.driverBody);
       // Another field size needs another field: a race running restarts from the lights with it
       if (next.race.opponents !== prev.race.opponents) {
         aiFieldSpare = null;
@@ -1344,6 +1453,8 @@ export class DriveSession {
       if (!document.hidden) return;
       wheelFfb.stop();
       releaseHeldKeys();
+      // The first frames back are no measure of the frame rate
+      governor.interrupt();
     };
     // Leaving the page: the WebHID wheel gets its stop commands now (emergencyStop), as no later promise may run
     const onPageHide = () => {
@@ -1369,6 +1480,11 @@ export class DriveSession {
     window.addEventListener("blur", onWindowBlur);
 
     let lastTimeMs = performance.now();
+    /** The frame-rate cap: when the scene was last drawn, and the time since that the next drawn frame shows */
+    let lastDrawMs = lastTimeMs;
+    let pendingDrawS = 0;
+    /** `?perf=1`: the page's own simulation in this frame (ms) */
+    let frameSimMs = 0;
     let lastHudSyncMs = 0;
     let lastTelemetryOutMs = 0;
     // Instant replay: session clock while driving, and the live pose saved while a replay plays
@@ -1644,8 +1760,19 @@ export class DriveSession {
       // A hitch (GC, shader compile, a slow commit) is caught up in full, up to a quarter second, so the car never
       // drops into slow motion; a longer stall (hidden tab, debugger) is not
       const dtSeconds = Math.min((nowMs - lastTimeMs) / 1000, MAX_FRAME_CATCH_UP_S);
+      displayRate.add(nowMs - lastTimeMs);
       lastTimeMs = nowMs;
-      if (appPhaseNow === "driving") startupMonitor?.frame(nowMs);
+      // The frame-rate cap: this frame draws, or only runs input, the simulation, the network and the laps. The
+      // drawing catches up with the time since the last drawn frame. Never in a headset, which sets its own rate.
+      const draw = renderer.xr.isPresenting || pacer.shouldDraw(nowMs);
+      pendingDrawS += dtSeconds;
+      const drawDtS = draw ? pendingDrawS : 0;
+      const drawIntervalMs = draw ? nowMs - lastDrawMs : 0;
+      if (draw) {
+        pendingDrawS = 0;
+        lastDrawMs = nowMs;
+      }
+      if (appPhaseNow === "driving" && draw) startupMonitor?.frame(nowMs);
 
       // Optional Gamepad / Sim Racing Wheel Polling. Controllers with the standard mapping (Xbox,
       // DualShock, DualSense …) send the raw thumbstick through the physics' gamepad steering
@@ -1859,8 +1986,10 @@ export class DriveSession {
           physics.aiPaceScale = autopilotPace.pace * (physics.aiAutopilot ? trackEnv.weatherPaceScale(physics) : 1) * coolDown.paceScale;
         }
         startupMonitor?.begin();
+        const simStartMs = sessionPerf ? performance.now() : 0;
         if (!aiField?.playerFrozen && !mpFrozen) physics.step(dtSeconds, coolDown.active ? coolDown.inputs() : inputs);
         aiField?.update(dtSeconds);
+        if (sessionPerf) frameSimMs = performance.now() - simStartMs;
         startupMonitor?.end("sim");
         // A hill climb: off the end of its road, or stopped past the finish, the car goes back to the start line
         const p2p = track.pointToPoint;
@@ -2248,108 +2377,114 @@ export class DriveSession {
       if (view.driverEye) camera.layers.disable(DRIVER_HEAD_LAYER);
       else camera.layers.enable(DRIVER_HEAD_LAYER);
 
-      // The fixed-step physics leaves up to 2 ms unstepped each frame: draw the car (and the cameras on it) where it
-      // is at the frame's time, the pose carried forward by its velocity over that remainder
-      renderCarPos
-        .copy(carVelocityWorld)
-        .multiplyScalar(physics.renderLeadS ?? 0)
-        .add(physics.worldPosition);
-      carRig.root.position.copy(renderCarPos);
-      carRig.root.quaternion.copy(physics.worldQuaternion);
-      carRig.chassisGroup.position.y = physics.rideHeightOffsetM;
-      if (physics.tyreVisuals) {
-        playerWheels.tyres = physics.tyreVisuals;
-        playerWheels.ground = physics.groundQuery ?? null;
-        playerWheels.quaternion = physics.worldQuaternion;
-      }
-      carRig.updateFromTelemetry(
-        physics.telemetry,
-        physics.pitchRad,
-        physics.rollRad,
-        physics.wheelRotationRad,
-        dtSeconds,
-        physics.tyreVisuals ? playerWheels : undefined
-      );
-      seatContactShadow(carRig.root, physics.tyreVisuals ? playerWheels : undefined);
-      podium.drawPlayer(carRig, physics.telemetry, physics.groundQuery ?? null, dtSeconds);
+      lapDelta.update(physics.telemetry);
+      // The cars as drawn this frame (the podium shot parks them); the opponents' engines play from where they are drawn
+      const drawnPeers = podium.drawPeers(renderPeers);
 
-      const lc26Body = carRig.getLc26Body();
-      // Built once per body (keyed on the body, not on the wheel display: a body without STEER_BASE has no display,
-      // and keying on it rebuilt the mirrors' render target every frame)
-      if (lc26Body && lc26ExtrasFor !== lc26Body) {
-        lc26ExtrasFor = lc26Body;
-        const steerBase = lc26Body.getObjectByName("STEER_BASE");
-        if (steerBase) wheelDisplay = new SteeringWheelDisplay(steerBase);
-        wingMirrors = new WingMirrors(renderer, scene, lc26Body);
-      }
-      if (!lc26Body && !portedDash && carById(carRigCar).modelUrl && portedProbeFrame++ % 30 === 0) {
-        portedDash = PortedWheelDash.from(carRig.chassisGroup, revRangeFor(carById(carRigCar).physics));
-      }
-      // A ported body's anchors are set once its GLB has loaded; a body without the Evo's screen or mirror glass
-      // gets an empty display and no mirrors, so it is probed once
-      if (!lc26Body && !gt3Dash && carById(carRigCar).modelUrl && cockpitProbeFrame++ % 30 === 0) {
-        const anchors = carRig.getCameraAnchors();
-        if (anchors) {
-          gt3Dash = new Gt3DashDisplay(carRig.chassisGroup, revRangeFor(carById(carRigCar).physics));
-          const glassPatches = gt3MirrorPatches(carRig.chassisGroup);
-          if (glassPatches.length) {
-            wingMirrors = new WingMirrors(renderer, scene, carRig.chassisGroup, {
-              materials: [],
-              eyeInModel: anchors.cockpit.pos,
-              glassPatches,
-            });
+      // Everything from here to the cameras only moves what is drawn: a frame the cap skips leaves it for the next
+      // drawn one, which moves it on by the time since the last (drawDtS)
+      if (draw) {
+        // The fixed-step physics leaves up to 2 ms unstepped each frame: draw the car (and the cameras on it) where it
+        // is at the frame's time, the pose carried forward by its velocity over that remainder. The worker's car comes
+        // carried forward to this frame already (remote-car.ts), so a capped 30 fps still draws it where it is now.
+        renderCarPos
+          .copy(carVelocityWorld)
+          .multiplyScalar(physics.renderLeadS ?? 0)
+          .add(physics.worldPosition);
+        carRig.root.position.copy(renderCarPos);
+        carRig.root.quaternion.copy(physics.worldQuaternion);
+        carRig.chassisGroup.position.y = physics.rideHeightOffsetM;
+        if (physics.tyreVisuals) {
+          playerWheels.tyres = physics.tyreVisuals;
+          playerWheels.ground = physics.groundQuery ?? null;
+          playerWheels.quaternion = physics.worldQuaternion;
+        }
+        carRig.updateFromTelemetry(
+          physics.telemetry,
+          physics.pitchRad,
+          physics.rollRad,
+          physics.wheelRotationRad,
+          drawDtS,
+          physics.tyreVisuals ? playerWheels : undefined
+        );
+        seatContactShadow(carRig.root, physics.tyreVisuals ? playerWheels : undefined);
+        podium.drawPlayer(carRig, physics.telemetry, physics.groundQuery ?? null, drawDtS);
+
+        const lc26Body = carRig.getLc26Body();
+        // Built once per body (keyed on the body, not on the wheel display: a body without STEER_BASE has no display,
+        // and keying on it rebuilt the mirrors' render target every frame)
+        if (lc26Body && lc26ExtrasFor !== lc26Body) {
+          lc26ExtrasFor = lc26Body;
+          const steerBase = lc26Body.getObjectByName("STEER_BASE");
+          if (steerBase) wheelDisplay = new SteeringWheelDisplay(steerBase);
+          wingMirrors = new WingMirrors(renderer, scene, lc26Body);
+        }
+        if (!lc26Body && !portedDash && carById(carRigCar).modelUrl && portedProbeFrame++ % 30 === 0) {
+          portedDash = PortedWheelDash.from(carRig.chassisGroup, revRangeFor(carById(carRigCar).physics));
+        }
+        // A ported body's anchors are set once its GLB has loaded; a body without the Evo's screen or mirror glass
+        // gets an empty display and no mirrors, so it is probed once
+        if (!lc26Body && !gt3Dash && carById(carRigCar).modelUrl && cockpitProbeFrame++ % 30 === 0) {
+          const anchors = carRig.getCameraAnchors();
+          if (anchors) {
+            gt3Dash = new Gt3DashDisplay(carRig.chassisGroup, revRangeFor(carById(carRigCar).physics));
+            const glassPatches = gt3MirrorPatches(carRig.chassisGroup);
+            if (glassPatches.length) {
+              wingMirrors = new WingMirrors(renderer, scene, carRig.chassisGroup, {
+                materials: [],
+                eyeInModel: anchors.cockpit.pos,
+                glassPatches,
+              });
+            }
           }
         }
-      }
-      lapDelta.update(physics.telemetry);
-      // The wheel is only in shot from the onboard views; the display redraws itself at 30 Hz
-      if (view.wheelInShot && (wheelDisplay || gt3Dash?.found || portedDash?.found)) {
-        const delta = lapDelta.delta(physics.telemetry);
-        const deltaMs = delta === null ? null : delta * 1000;
-        if (wheelDisplay) {
-          displayExtra.deltaMs = deltaMs;
-          wheelDisplay.update(physics.telemetry, nowMs, displayExtra);
+        // The wheel is only in shot from the onboard views; the display redraws itself at 30 Hz
+        if (view.wheelInShot && (wheelDisplay || gt3Dash?.found || portedDash?.found)) {
+          const delta = lapDelta.delta(physics.telemetry);
+          const deltaMs = delta === null ? null : delta * 1000;
+          if (wheelDisplay) {
+            displayExtra.deltaMs = deltaMs;
+            wheelDisplay.update(physics.telemetry, nowMs, displayExtra);
+          }
+          if (gt3Dash?.found) gt3Dash.update(physics.telemetry, nowMs, { deltaMs });
+          if (portedDash?.found) portedDash.update(physics.telemetry, nowMs, { deltaMs });
         }
-        if (gt3Dash?.found) gt3Dash.update(physics.telemetry, nowMs, { deltaMs });
-        if (portedDash?.found) portedDash.update(physics.telemetry, nowMs, { deltaMs });
+
+        // Update persistent 4-wheel skidmark ribbons, tire smoke/gravel/rooster-tail particles & opponent 3D cars
+        // The player's car only lays skidmarks and throws smoke / spray while it is simulated: paused, in menus or in a
+        // replay its wheel state is the last driven frame, which would keep emitting on the spot
+        visualFx.update(
+          drawDtS,
+          physics.worldQuaternion,
+          physics.vxMs,
+          physics.wheels,
+          drawnPeers,
+          driving
+        );
+
+        floorSparks.update(drawDtS, driving && rigModel(carRigCar).floorSparks ? physics : null);
+
+        if (!podium.placeCamera(camera)) cameraRig.update({
+          dt: drawDtS,
+          nowMs,
+          mode,
+          car: physics,
+          carPos: renderCarPos,
+          carVelocity: carVelocityWorld,
+          anchor: onboardViews.resolve(lc26Cams, mode, carRigCar, settingsNow.cameraNudges),
+          chassis: carRig.chassisGroup,
+          onboardFovShift,
+          headMovement: settingsNow.hud.headMovement,
+          driving,
+          inVr,
+          menu: inMenu
+            ? { close: appPhase === "wizard" && wizardStep === "car", width: container.clientWidth, height: container.clientHeight }
+            : null,
+        });
+
+        builtCircuit.updateEnvironment(nowMs * 0.001);
+        builtCircuit.setGrooveRubber(getTrackEnv().trackEvolution.meanRacingLineRubber());
       }
-
-      // Update persistent 4-wheel skidmark ribbons, tire smoke/gravel/rooster-tail particles & opponent 3D cars
-      // The player's car only lays skidmarks and throws smoke / spray while it is simulated: paused, in menus or in a
-      // replay its wheel state is the last driven frame, which would keep emitting on the spot
-      const drawnPeers = podium.drawPeers(renderPeers);
-      visualFx.update(
-        dtSeconds,
-        physics.worldQuaternion,
-        physics.vxMs,
-        physics.wheels,
-        drawnPeers,
-        driving
-      );
-
-
-      floorSparks.update(dtSeconds, driving && rigModel(carRigCar).floorSparks ? physics : null);
-
-      if (!podium.placeCamera(camera)) cameraRig.update({
-        dt: dtSeconds,
-        nowMs,
-        mode,
-        car: physics,
-        carPos: renderCarPos,
-        carVelocity: carVelocityWorld,
-        anchor: onboardViews.resolve(lc26Cams, mode, carRigCar, settingsNow.cameraNudges),
-        chassis: carRig.chassisGroup,
-        onboardFovShift,
-        headMovement: settingsNow.hud.headMovement,
-        driving,
-        inVr,
-        menu: inMenu
-          ? { close: appPhase === "wizard" && wizardStep === "car", width: container.clientWidth, height: container.clientHeight }
-          : null,
-      });
-
-      builtCircuit.updateEnvironment(nowMs * 0.001);
-      builtCircuit.setGrooveRubber(getTrackEnv().trackEvolution.meanRacingLineRubber());
       opponentAudio.update({
         context: audio?.context ?? null,
         output: audio?.output ?? null,
@@ -2393,8 +2528,7 @@ export class DriveSession {
 
       // Weather: sun, sky, fill and fog, the wet look of the road, spray, and rain around the camera
       const wx = trackEnv.weather;
-      // The ripples' clock runs every frame with the real frame time; the rest of the sky updates at 10 Hz below
-      advanceAsphaltRain(dtSeconds);
+      // The sky updates at 10 Hz; the ripples' clock and the rain around the camera with each drawn frame, below
       if (nowMs - lastSkyMs > 100) {
         lastSkyMs = nowMs;
         const sun = wx.sun;
@@ -2407,26 +2541,6 @@ export class DriveSession {
         // The water under the player's own wheels, not the lap's mean line water
         visualFx.setWetness(trackEnv.weatherSampleFor(physics)?.wetness ?? wetnessFromWater(wx.lineWaterMm));
       }
-      camera.getWorldPosition(rainCamPos);
-      if (dtSeconds > 0) rainCamVel.subVectors(rainCamPos, rainCamPrev).divideScalar(dtSeconds).clampLength(0, 110);
-      rainCamPrev.copy(rainCamPos);
-      // Spray thrown up by the cars ahead (the wake model's, from their speed, gap and the water)
-      const sprayWake = trackEnv.weatherSampleFor(physics)?.sprayIntensity ?? 0;
-      // Droplets on the visor only from the driver's eye (the mirrors render without this layer)
-      if (view.driverEye && !inVr) camera.layers.enable(RAIN_VISOR_LAYER);
-      else camera.layers.disable(RAIN_VISOR_LAYER);
-      const skyLight = THREE.MathUtils.clamp((skyConditions.elevationDeg + 3) / 17, 0, 1) * (1 - 0.4 * wx.cloudCover);
-      visualFx.setLightLevel(skyLight);
-      rainFx.update(
-        dtSeconds,
-        wx.rainIntensity,
-        camera,
-        rainCamVel,
-        skyLight,
-        wx.windVxMs,
-        wx.windVzMs,
-        THREE.MathUtils.clamp(sprayWake, 0, 1)
-      );
       if (nowMs - lastWeatherHudMs > 500) {
         lastWeatherHudMs = nowMs;
         const next: WeatherHudState = {
@@ -2443,47 +2557,86 @@ export class DriveSession {
           setWeatherHud(next);
         }
       }
-      env.update(physics.worldPosition, camera);
-      startupMonitor?.begin();
-      reflectionProbe.update(podium.focus ?? physics.worldPosition, carRig.root, scene.environmentIntensity);
-      startupMonitor?.end("probe");
-      // Virtual mirror: on its own in the views whose wing mirrors are off screen (or that have none), and in the
-      // chase view too when the player asked for it always
-      const vmSetting = settingsNow.hud.virtualMirror;
-      const vmView =
-        view.virtualMirror === "always" ||
-        (view.virtualMirror === "noSideMirrors" && !(wingMirrors?.found && wingMirrors.coversSides)) ||
-        (view.virtualMirror === "onRequest" && vmSetting === "always");
-      const vmOn = driving && !inVr && !podium.playing && container.clientWidth >= 640 && vmSetting !== "off" && vmView;
-      virtualMirror.update(frameIndex, vmOn, carRig.chassisGroup, carRig.root);
-      if (vmOn !== virtualMirrorShown) {
-        virtualMirrorShown = vmOn;
-        setVirtualMirrorOn(vmOn);
-      }
-      // Rear view into the mirrors' render target (cockpit only, every 2nd frame), then the main frame
-      wingMirrors?.update(frameIndex, view.driverEye && !inVr, carRig.chassisGroup);
-      // Counted here, not inside the optional call above: without wing mirrors it never advanced, which also
-      // disabled the virtual mirror's every-other-frame throttle
-      frameIndex++;
-      if (inVr) {
-        // The head pose is added on top of the driver's eye point (a "local" space starts at the head)
-        xrRig.position.copy(camera.position);
-        xrRig.quaternion.copy(camera.quaternion);
-        renderer.render(scene, xrCamera);
-      } else {
-        const t0 = loggedFirstFrame ? 0 : performance.now();
+      // The drawing itself (a frame the cap skips draws nothing)
+      if (draw) {
+        advanceAsphaltRain(drawDtS);
+        camera.getWorldPosition(rainCamPos);
+        if (drawDtS > 0) rainCamVel.subVectors(rainCamPos, rainCamPrev).divideScalar(drawDtS).clampLength(0, 110);
+        rainCamPrev.copy(rainCamPos);
+        // Spray thrown up by the cars ahead (the wake model's, from their speed, gap and the water)
+        const sprayWake = trackEnv.weatherSampleFor(physics)?.sprayIntensity ?? 0;
+        // Droplets on the visor only from the driver's eye (the mirrors render without this layer)
+        if (view.driverEye && !inVr) camera.layers.enable(RAIN_VISOR_LAYER);
+        else camera.layers.disable(RAIN_VISOR_LAYER);
+        const skyLight = THREE.MathUtils.clamp((skyConditions.elevationDeg + 3) / 17, 0, 1) * (1 - 0.4 * wx.cloudCover);
+        visualFx.setLightLevel(skyLight);
+        rainFx.update(
+          drawDtS,
+          wx.rainIntensity,
+          camera,
+          rainCamVel,
+          skyLight,
+          wx.windVxMs,
+          wx.windVzMs,
+          THREE.MathUtils.clamp(sprayWake, 0, 1)
+        );
+        env.update(physics.worldPosition, camera);
         startupMonitor?.begin();
-        postFx.render(dtSeconds);
-        virtualMirror.draw();
-        startupMonitor?.end("render");
-        if (!loggedFirstFrame) {
-          loggedFirstFrame = true;
-          if (process.env.NODE_ENV !== "production") {
-            // The frame right after the loading screen: it stalls when the warm-up missed something
-            renderer.getContext().finish();
-            console.info(`[load] first visible frame: ${(performance.now() - t0).toFixed(0)} ms`);
+        reflectionProbe.update(podium.focus ?? physics.worldPosition, carRig.root, scene.environmentIntensity);
+        startupMonitor?.end("probe");
+        // Virtual mirror: on its own in the views whose wing mirrors are off screen (or that have none), and in the
+        // chase view too when the player asked for it always
+        const vmSetting = settingsNow.hud.virtualMirror;
+        const vmView =
+          view.virtualMirror === "always" ||
+          (view.virtualMirror === "noSideMirrors" && !(wingMirrors?.found && wingMirrors.coversSides)) ||
+          (view.virtualMirror === "onRequest" && vmSetting === "always");
+        const vmOn = driving && !inVr && !podium.playing && container.clientWidth >= 640 && vmSetting !== "off" && vmView;
+        // The mirrors refresh every other frame, 30 times a second at 60 fps; under the 30 fps cap every drawn frame
+        // does, which keeps them at 30
+        const mirrorFrame = pacer.cap > 0 ? 0 : frameIndex;
+        virtualMirror.update(mirrorFrame, vmOn, carRig.chassisGroup, carRig.root);
+        if (vmOn !== virtualMirrorShown) {
+          virtualMirrorShown = vmOn;
+          setVirtualMirrorOn(vmOn);
+        }
+        // Rear view into the mirrors' render target (cockpit only, every 2nd frame), then the main frame
+        wingMirrors?.update(mirrorFrame, view.driverEye && !inVr, carRig.chassisGroup);
+        // Counted here, not inside the optional call above: without wing mirrors it never advanced, which also
+        // disabled the virtual mirror's every-other-frame throttle
+        frameIndex++;
+        if (inVr) {
+          // The head pose is added on top of the driver's eye point (a "local" space starts at the head)
+          xrRig.position.copy(camera.position);
+          xrRig.quaternion.copy(camera.quaternion);
+          renderer.render(scene, xrCamera);
+        } else {
+          const t0 = loggedFirstFrame ? 0 : performance.now();
+          startupMonitor?.begin();
+          postFx.render(drawDtS);
+          virtualMirror.draw();
+          startupMonitor?.end("render");
+          if (!loggedFirstFrame) {
+            loggedFirstFrame = true;
+            if (process.env.NODE_ENV !== "production") {
+              // The frame right after the loading screen: it stalls when the warm-up missed something
+              renderer.getContext().finish();
+              console.info(`[load] first visible frame: ${(performance.now() - t0).toFixed(0)} ms`);
+            }
           }
         }
+      }
+
+      // Automatic quality: judged on the frames drawn while driving (not paused, in a menu or a replay)
+      if (driving && settingsNow.graphics.autoQuality && !inVr) {
+        governorFed = true;
+        if (draw) {
+          const event = governor.frame(nowMs, drawIntervalMs, frameBudgetMs(pacer.cap, displayRate.intervalMs));
+          if (event) onQualityEvent(event, nowMs);
+        }
+      } else if (governorFed) {
+        governorFed = false;
+        governor.interrupt();
       }
 
       // Paused, the car is frozen but the pause menu (and the HUD under it) would still re-render at 30 Hz for nothing;
@@ -2528,8 +2681,26 @@ export class DriveSession {
       }
     };
 
+    // `?perf=1`: each frame's own time on the page, whether it drew, and what the game was doing, for the report
+    const timedAnimate = (nowMs: number) => {
+      const startMs = performance.now();
+      frameSimMs = 0;
+      animate(nowMs);
+      if (!sessionPerf) return;
+      const phase: PerfPhase =
+        appPhaseNow === "loading"
+          ? "load"
+          : appPhaseNow !== "driving"
+            ? "menu"
+            : replay.active
+              ? "replay"
+              : this.snapshot.paused || this.snapshot.seatPanel
+                ? "pause"
+                : "drive";
+      sessionPerf.frame(nowMs, lastDrawMs === nowMs, phase, performance.now() - startMs, frameSimMs);
+    };
     // setAnimationLoop runs on window rAF normally and on the headset's frame loop in VR
-    renderer.setAnimationLoop(animate);
+    renderer.setAnimationLoop(sessionPerf ? timedAnimate : animate);
 
     this.teardown = () => {
       disposed = true;
