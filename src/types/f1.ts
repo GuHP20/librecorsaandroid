@@ -644,6 +644,8 @@ export interface F12026Channels {
   /** Inside a DRS zone / armed by its detection point */
   drsZone: boolean;
   drsAvailable: boolean;
+  /** A press of the flap button is kept for the zone the car is on or coming to: it opens the flaps once they may open */
+  drsQueued: boolean;
   /** Last detection point crossed: zone id, whether DRS was earned, sim time (ms) */
   drsDetection: { zone: string; eligible: boolean; atMs: number } | null;
   /** Share of the friction circle in use per tyre (telemetry only, 1 = at the limit) */

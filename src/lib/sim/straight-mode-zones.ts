@@ -17,9 +17,26 @@ export interface LapWindow {
 export const STRAIGHT_MAX_CURVATURE = 1 / 800;
 /** m: three seconds at 300 km/h [est] */
 export const STRAIGHT_MIN_M = 250;
+/**
+ * m: how far before a stretch a 2026 car is told it is coming (`STRAIGHT_MODE_AHEAD`); nearer, as it leaves the
+ * stretch before, when the corner between them is shorter (the Red Bull Ring's Turn 1: 140 m)
+ */
+export const STRAIGHT_NOTICE_M = 150;
+/**
+ * m: a press of the flap button this far before a stretch (or on it, while the flaps can't open yet) is kept and opens
+ * the flaps once they may open there. The notice comes at `STRAIGHT_NOTICE_M`, so a press when it shows always counts
+ */
+export const FLAP_PRESS_REACH_M = 250;
+/**
+ * s: the longest a kept press waits, however slowly the car gets there (a spin, a stop). Room for a hairpin between
+ * the press and the straight (the Red Bull Ring's Remus, at under 50 km/h)
+ */
+export const FLAP_PRESS_MAX_WAIT_S = 12;
 
 export const inLapWindow = (p: number, start: number, end: number): boolean =>
   start <= end ? p >= start && p <= end : p >= start || p <= end;
+
+const wrap01 = (x: number): number => ((x % 1) + 1) % 1;
 
 const cache = new WeakMap<BuiltTrackData, LapWindow[]>();
 
@@ -53,4 +70,67 @@ export function straightModeWindows(track: BuiltTrackData): readonly LapWindow[]
   }
   cache.set(track, out);
   return out;
+}
+
+/**
+ * Overlapping or touching stretches joined into one, in lap order from the line (a stretch over the line last, as
+ * `start` > `end`)
+ */
+export function mergeLapWindows(windows: readonly LapWindow[]): LapWindow[] {
+  // Unwrapped onto [0, 1]: a stretch over the line is two pieces
+  const pieces: [number, number][] = [];
+  for (const w of windows) {
+    const a = wrap01(w.start);
+    const b = w.end >= 1 ? 1 : wrap01(w.end);
+    if (a <= b) pieces.push([a, b]);
+    else pieces.push([a, 1], [0, b]);
+  }
+  pieces.sort((x, y) => x[0] - y[0]);
+  const merged: [number, number][] = [];
+  for (const [a, b] of pieces) {
+    const last = merged[merged.length - 1];
+    if (last && a <= last[1] + 1e-9) last[1] = Math.max(last[1], b);
+    else merged.push([a, b]);
+  }
+  // One piece ending at the line and one starting there are a stretch over it
+  if (merged.length > 1 && merged[0][0] <= 1e-9 && merged[merged.length - 1][1] >= 1 - 1e-9) {
+    const head = merged.shift()!;
+    merged[merged.length - 1] = [merged[merged.length - 1][0], head[1]];
+  }
+  return merged.map(([start, end]) => ({ start, end: end >= 1 ? 1 : end }));
+}
+
+/**
+ * The stretch a flap press at lap fraction `p` is for: the one the car is on, else the nearest one starting within
+ * `reachM` ahead. Null: none near enough
+ */
+export function lapWindowFor(
+  p: number,
+  windows: readonly LapWindow[],
+  lapM: number,
+  reachM: number
+): { window: LapWindow; aheadM: number } | null {
+  if (!Number.isFinite(p)) return null;
+  let best: { window: LapWindow; aheadM: number } | null = null;
+  for (const w of windows) {
+    if (inLapWindow(p, w.start, w.end)) return { window: w, aheadM: 0 };
+    const aheadM = wrap01(w.start - p) * lapM;
+    if (aheadM <= reachM && (!best || aheadM < best.aheadM)) best = { window: w, aheadM };
+  }
+  return best;
+}
+
+const stretchCache = new WeakMap<BuiltTrackData, { zones: readonly LapWindow[]; count: number; list: LapWindow[] }>();
+
+/**
+ * Where a 2026 car's flaps may open: the circuit's own zones and its straights (`straightModeWindows`), joined, as
+ * `VehiclePhysics` joins them for the player's car and the AI field alike
+ */
+export function straightModeStretches(track: BuiltTrackData, zones: readonly LapWindow[]): readonly LapWindow[] {
+  const known = stretchCache.get(track);
+  // The zones are the active circuit's array: refilled in place only for another circuit, which is another track
+  if (known && known.zones === zones && known.count === zones.length) return known.list;
+  const list = mergeLapWindows([...zones, ...straightModeWindows(track)]);
+  stretchCache.set(track, { zones, count: zones.length, list });
+  return list;
 }

@@ -860,6 +860,7 @@ export class F12026CarSim implements SimulatorCar {
     drsOpenEvents: 0,
     drsZone: false,
     drsAvailable: false,
+    drsQueued: false,
     drsDetection: null,
     circleFraction: [0, 0, 0, 0],
     performanceMode: 'RAC',
@@ -988,6 +989,7 @@ export class F12026CarSim implements SimulatorCar {
         this.progressHintS = p.s;
         return p.s / L;
       },
+      lapLengthM: L,
       drsEligibleAtDetection: (zone) => (this.raceControl?.racing ? this.raceControl.earnedAtDetection(zone.id) : true),
       bodyPlan: profile.bodyPlan,
       onEvent: (e) => this.onVehicleEvent(e),
@@ -2295,6 +2297,7 @@ export class F12026CarSim implements SimulatorCar {
     c.CHANGED_DRS_OPEN = false;
     c.drsOpenEvents = 0;
     c.drsDetection = null;
+    c.drsQueued = false;
     c.wallImpact = null;
     this.syncPose();
     this.prevS = this.s;
@@ -2649,6 +2652,7 @@ export class F12026CarSim implements SimulatorCar {
     c.LSD_LOCKING_TORQUE = vt.LSD_LOCKING_TORQUE;
     c.drsZone = vt.drsZone;
     c.drsAvailable = vt.drsAvailable;
+    c.drsQueued = vt.drsQueued;
     for (let i = 0; i < 4; i++) c.circleFraction[i] = vt.circleFraction[i];
     c.performanceMode = v.performanceMode;
     c.tcActive = this.tcCut < 0.98;
