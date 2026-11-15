@@ -3,6 +3,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { Button, Card, Segmented, Select, SettingRow, TextField, Toggle } from "@/components/ui";
 import { Icon } from "@/components/ui/icons";
+import { gpuReportLine, probeRenderer } from "@/lib/render/gpu-health";
 
 /**
  * Feedback goes to GitHub as a pre-filled issue form (.github/ISSUE_TEMPLATE): bug-report.yml, wheel-report.yml,
@@ -130,18 +131,12 @@ function browserName(ua: string): string {
   return `${browser} on ${os}`;
 }
 
-/** The GPU the browser reports (unmasked when allowed) */
+/**
+ * The GPU the game started on (unmasked when allowed), and whether its WebGL context was lost: read when the session
+ * started, as a fresh probe after a loss may only find "no WebGL" (issue #123)
+ */
 function gpuName(): string {
-  try {
-    const gl = document.createElement("canvas").getContext("webgl");
-    if (!gl) return "no WebGL";
-    const ext = gl.getExtension("WEBGL_debug_renderer_info");
-    const name = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
-    gl.getExtension("WEBGL_lose_context")?.loseContext();
-    return name.replace(/^ANGLE \((.*)\)$/, "$1").slice(0, 120);
-  } catch {
-    return "unknown GPU";
-  }
+  return gpuReportLine(probeRenderer);
 }
 
 export interface SystemInfo {
