@@ -159,18 +159,25 @@ async function verifyMonacoBarrierHitboxes() {
 
   // Include standard Armco stations AND stepping runoff stations (S/F s=2m, Sainte Devote s=205m, Nouvelle Chicane s=2095m, Piscine s=2710m, Rascasse s=2955m)
   const testS = [2, 100, 205, 450, 880, 1700, 2095, 2480, 2710, 2955];
+  /** The barrier's distance from the centreline on `side` where the car is (the most of the three samples from there) */
+  const wallAt = (s: number, side: -1 | 1) => {
+    const n = raw.samples.length;
+    const i0 = ((Math.round((s / track.totalLengthM) * n) % n) + n) % n;
+    const ws = side < 0 ? wLs : wRs;
+    return Math.max(ws[i0], ws[(i0 + 1) % n], ws[(i0 + 2) % n]);
+  };
   for (const carKind of ['lc26', 'f12026', 'gt3'] as const) {
     for (const side of [-1, 1] as const) {
       for (const s0 of testS) {
         const dt = 1 / 120;
-        let maxLat = 0;
-        const idx0 = Math.round((s0 / track.totalLengthM) * raw.samples.length) % raw.samples.length;
-        const idx1 = (idx0 + 1) % raw.samples.length;
-        const idx2 = (idx0 + 2) % raw.samples.length;
-        const wallDist =
-          side < 0
-            ? Math.max(wLs[idx0], wLs[idx1], wLs[idx2])
-            : Math.max(wRs[idx0], wRs[idx1], wRs[idx2]);
+        // The car slides some 30 m along the barrier: it is held to the barrier line where it is, not where it started
+        // (past Rascasse the left barrier steps 9 m out, to the old pit entry, and a car sliding along it goes with it)
+        let worst = { lat: 0, wall: 0, s: s0, excess: -Infinity };
+        const track1 = (lat: number, s: number) => {
+          const wall = wallAt(s, side);
+          const excess = Math.abs(lat) - Math.max(wall + 2.5, 9.5);
+          if (excess > worst.excess) worst = { lat: Math.abs(lat), wall, s, excess };
+        };
 
         if (carKind === 'lc26') {
           const car = new F1Physics2026(track);
@@ -178,19 +185,19 @@ async function verifyMonacoBarrierHitboxes() {
           car.teleportToDistance(s0, 110 / 3.6, side * 1.5);
           for (let step = 0; step < 180; step++) {
             car.step(dt, { throttle: 0.3, brake: 0, analogSteer: side * 0.65 });
-            maxLat = Math.max(maxLat, Math.abs(car.lateralOffsetM));
+            track1(car.lateralOffsetM, car.sMeters);
           }
         } else {
           const car = carKind === 'f12026' ? new F12026CarSim(track, root) : createAmgGt3Sim(track, root);
           car.teleportToDistance(s0, 110 / 3.6, side * 1.5);
           for (let step = 0; step < 180; step++) {
             car.step(dt, { throttle: 0.3, brake: 0, analogSteer: side * 0.65 });
-            maxLat = Math.max(maxLat, Math.abs(car.lateralOffsetM));
+            track1(car.lateralOffsetM, car.sMeters);
           }
         }
         assert.ok(
-          maxLat < Math.max(wallDist + 2.5, 9.5),
-          `[monaco/${carKind}] Car ghosted through ${side < 0 ? 'left' : 'right'} wall at s=${s0}m (maxLat=${maxLat.toFixed(2)}m, wallDist=${wallDist.toFixed(2)}m)`
+          worst.excess < 0,
+          `[monaco/${carKind}] Car ghosted through ${side < 0 ? 'left' : 'right'} wall from s=${s0}m (lat=${worst.lat.toFixed(2)}m at s=${worst.s.toFixed(0)}m, wallDist there=${worst.wall.toFixed(2)}m)`
         );
       }
     }
