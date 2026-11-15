@@ -64,6 +64,8 @@ export class DualSenseDriver {
       }
     } else {
       this.wanted = true;
+      // Running: the start in flight through the cycle answered, so nothing is owed a fresh try any more
+      if (state !== "starting") this.cycledDuringStart = false;
     }
     if (!dualSenseHid.connected()) return;
     const hdHaptics = wantHaptics && dualSenseAudioHaptics.running();

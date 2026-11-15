@@ -4,7 +4,7 @@
  * The pad's audio and HID singletons are replaced with stand-ins, so the retry latch is checked without a browser:
  * a silent try that fails with a reason stops the tries, an error left by a start the player asked for keeps its
  * message, and haptics going unwanted and wanted again while a start is still in flight gets a fresh try once that
- * start fails, instead of latching on the old failure.
+ * start fails, instead of latching on the old failure (and once that start succeeds, nothing is owed a fresh try).
  */
 import assert from "node:assert/strict";
 import type { CarTelemetry } from "../src/types/f1";
@@ -101,6 +101,26 @@ async function main() {
     await tick();
     driver.update(telemetry, 1 / 60, options(true));
     assert.equal(pad.state, "on");
+  });
+
+  await check("a start that succeeds after a cycle leaves no fresh try behind for a later error", async () => {
+    const driver = new DualSenseDriver();
+    driver.update(telemetry, 1 / 60, options(true));
+    // Off and on again while that start is in flight, and then it succeeds
+    pad.usb = false;
+    driver.update(telemetry, 1 / 60, options(true));
+    pad.usb = true;
+    driver.update(telemetry, 1 / 60, options(true));
+    pad.starts[0].settle(true, "on");
+    await tick();
+    for (let i = 0; i < 3; i++) driver.update(telemetry, 1 / 60, options(true));
+    // Later, still wanted, the player starts haptics from Settings and that start fails with its message
+    void dualSenseAudioHaptics.start(true);
+    driver.update(telemetry, 1 / 60, options(true));
+    pad.starts[1].settle(false, "error");
+    await tick();
+    for (let i = 0; i < 5; i++) driver.update(telemetry, 1 / 60, options(true));
+    assert.equal(pad.starts.length, 2, "no silent try over the player's error");
   });
 
   await check("an error from a start the player asked for keeps its message", async () => {
