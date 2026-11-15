@@ -21,7 +21,7 @@ LibreCorsa is an open-source racing simulator that runs entirely in the browser,
 
 ## Positioning
 
-A real simulator (500 Hz physics, force feedback, car setup) that starts from a link. Free, MIT-licensed, made by one developer.
+A real simulator (500 Hz physics, force feedback, car setup) that starts from a link. Free, open source (AGPL-3.0), made by one developer.
 
 ## Operating Context
 

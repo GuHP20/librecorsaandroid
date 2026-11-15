@@ -287,7 +287,7 @@ const Credits: React.FC = () => (
     </div>
 
     <p className="lc-hint m-0 max-w-[620px] border-t border-lc-line pt-3.5">
-      Built with Next.js, React, Three.js and Tailwind CSS. Source code licensed under MIT; 3D and audio assets are for
+      Built with Next.js, React, Three.js and Tailwind CSS. Source code licensed under the GNU AGPL v3.0; 3D and audio assets are for
       non-commercial educational use only.
     </p>
   </div>

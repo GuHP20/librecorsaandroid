@@ -16,7 +16,7 @@
 
 <p>
   <a href="https://github.com/KhazP/librecorsa/actions/workflows/deploy-pages.yml"><img alt="Build and deploy" src="https://github.com/KhazP/librecorsa/actions/workflows/deploy-pages.yml/badge.svg" /></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/code-MIT-CCFF00?labelColor=08090D" /></a>
+  <a href="LICENSE"><img alt="AGPL-3.0 license" src="https://img.shields.io/badge/code-AGPL--3.0-CCFF00?labelColor=08090D" /></a>
   <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-F5F7FA?labelColor=08090D&logo=nextdotjs&logoColor=white" />
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-WebGL2-00E5FF?labelColor=08090D&logo=threedotjs&logoColor=white" />
   <img alt="Physics at 500 Hz" src="https://img.shields.io/badge/physics-500%20Hz-FF2A3C?labelColor=08090D" />
@@ -228,7 +228,7 @@ Every push to `main` runs typecheck and the verify suites, then builds `./out` a
 
 ## License & credits
 
-- **Code** is under the [MIT License](LICENSE).
+- **Code** is under the [GNU Affero General Public License v3.0](LICENSE) or any later version (AGPL-3.0-or-later). You can use it, change it and host it, and if you run a changed version for other people, you share its source under the same licence. Code released before 15 November 2026 stays under the MIT License it came with.
 - **3D models and audio** are for non-commercial, personal and educational use. Each one keeps its own license. This repository carries only RISE Motordrome and the 2026 prototype's model and sound; the rest are served on librecorsa.org for playing there.
 - **Cars**: the 2026 Prototype's body is by **[Qvist Designs](https://qvistdesigns.framer.website/)** (CC BY 4.0), with the steering wheel from **DeX**'s AM26 model ([CC BY 4.0](https://skfb.ly/pKNCK)) and 2025 Pirelli tyres by **Purple Sector**. The Mercedes-AMG GT3 Evo is by **Vecarz** ([CC BY-NC-SA 4.0](https://sketchfab.com/3d-models/mercedes-amg-gt3-wwwvecarzcom-6a3f7e3455064721b74b7f0b66427a07)), the BMW M4 GT3 Evo by **Ddiaz Design** ([CC BY-NC-SA 4.0](https://sketchfab.com/3d-models/2025-bmw-m4-gt3-evo-g82-113f83dd87064697a5ec2511d280b9d5)), and the LC-LMDH's body by **kilianhoffmann13** ([CC BY 4.0](https://sketchfab.com/models/d786aa263a804254aa92543dda11dba0)). The MTRacing 496R is by **munyuturbo**, the two Skyline GT-Rs by **[gregsediting](https://www.patreon.com/gregsediting)**, and the Suzuki Liana's physics by **alekabul**, all used with permission.
 - **Circuits**: Chang International Circuit, Okayama International Circuit, Spielberg (Red Bull Ring), Automotodrom Grobnik, Oschersleben and Circuit de Monaco are by **Mitja Bonca**, Barbagallo and VIR by **dazzyb2k3**, Sachsenring, Norisring, Le Mans 1982, Goodwood and Borgloh by **gunnar333**, and Istanbul Park by **Enver Bozkaya** (SRTR), all used with permission. Dunsfold Aerodrome is by **ACU**.

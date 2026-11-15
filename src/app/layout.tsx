@@ -116,7 +116,7 @@ const jsonLd = {
   playMode: ["SinglePlayer", "MultiPlayer"],
   isAccessibleForFree: true,
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  license: "https://opensource.org/licenses/MIT",
+  license: "https://www.gnu.org/licenses/agpl-3.0.html",
   codeRepository: REPO_URL,
   sameAs: [REPO_URL],
   author: { "@type": "Person", name: "KhazP", url: "https://github.com/KhazP" },
