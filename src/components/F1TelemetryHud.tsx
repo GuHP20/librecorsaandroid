@@ -454,9 +454,11 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           style={{ left: mirrorRect.x, top: mirrorRect.y, width: mirrorRect.w, height: mirrorRect.h }}
         />
       ) : null}
-      {/* Top-centre: start lights and race-control notifications (under the Phone HUD's speed pod) */}
+      {/* Top-centre: start lights and race-control notifications (under the Phone HUD's speed pod). As wide as its
+          widest notice up to the screen's width less a margin: placed at left 50 % it would otherwise get only half
+          the screen, and in portrait the notices wrapped to three lines and spilled out of their pills */}
       <div
-        className={`absolute left-1/2 -translate-x-1/2 ${phone ? "top-[96px] portrait:top-[208px]" : "top-4"}`}
+        className={`absolute left-1/2 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 ${phone ? "top-[96px] portrait:top-[208px]" : "top-4"}`}
         style={mirrorTop !== null ? { top: `calc(${mirrorTop}px - env(safe-area-inset-top, 0px))` } : undefined}
       >
       <div className="flex flex-col items-center gap-2" style={corner("top center")}>
@@ -469,7 +471,7 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
         ) : null}
         {!lightsPhase && race ? <RaceIncidentFeed messages={race.raceControl} yellow={race.yellow} /> : null}
         {aeroNoticeNow ? (
-          <div role="status" className={`inline-flex h-10 items-center gap-2.5 rounded-full pr-5 pl-2 text-lc-chalk ${HUD_GLASS}`}>
+          <div role="status" className={`inline-flex min-h-10 items-center gap-2.5 rounded-full py-1 pr-5 pl-2 text-lc-chalk ${HUD_GLASS}`}>
             <Badge tone={aeroNoticeNow.tone} variant={aeroNoticeNow.variant} size="lg" icon={aeroNoticeNow.icon}>
               {aeroNoticeNow.badge}
             </Badge>
