@@ -524,7 +524,13 @@ def build(args, cfg, scale, fit_pass, xz_fixed=None, recentre=True):
         lane = w_oval * cl.smooth_closed_keep_radius(lane, 7.0) + (1 - w_oval) * lane
         log(f'wall lane: centreline moved right by median {np.median(sh):.2f} m, range {sh.min():.2f}..{sh.max():.2f} m; '
             f'laid off the wall at {flush.mean():.0%} of the samples')
-        xz2, _ = cl.resample_closed(lane, DS)
+        xz2, L2 = cl.resample_closed(lane, DS)
+        # The lane is the lap the circuit gets, so the fit to the official length is made on it here: the build on
+        # this line takes it as fixed and is past the fit (as with the plain centreline, not for the debug map alone)
+        real = cfg.get('realLengthM')
+        if real and not args.no_fit and not args.centreline_only and abs(real / L2 - 1) > 0.012 and fit_pass == 0:
+            log(f'wall lane {L2:.1f} m: scaling model by {real / L2:.4f} to match the official {real} m lap')
+            return real / L2
         return roll_to_start(xz2, start, ahead)
     width = ndimage.median_filter(hwL + hwR, 9, mode='wrap')
     if lane_w:
