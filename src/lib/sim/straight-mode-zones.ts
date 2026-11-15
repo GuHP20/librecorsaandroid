@@ -4,7 +4,7 @@ import type { BuiltTrackData } from '@/lib/track-data';
  * 2026 Straight Mode: both flaps may open on every straight a circuit has. A circuit's data carries only the two or
  * three zones of its rear-flap years (they still place the Overtake detection point), so the rest are found here
  * from the circuit itself: a stretch of at least `STRAIGHT_MIN_M` where the line's curvature stays under
- * `STRAIGHT_MAX_CURVATURE`.
+ * `STRAIGHT_MAX_CURVATURE`, short gentle kinks included (`STRAIGHT_KINK_MAX_M`).
  */
 
 /** A stretch of the lap as lap fractions; `start` > `end` when it runs over the line */
@@ -17,6 +17,16 @@ export interface LapWindow {
 export const STRAIGHT_MAX_CURVATURE = 1 / 800;
 /** m: three seconds at 300 km/h [est] */
 export const STRAIGHT_MIN_M = 250;
+/**
+ * m: a bend this short between two straight pieces belongs to the straight when its radius stays at or over
+ * `STRAIGHT_KINK_MIN_RADIUS_M` (VIR's back straight: 26 m at 520 m). A longer or tighter one (Le Mans' Mulsanne kink,
+ * 300 m) still ends the straight, so the flaps stay shut through fast kinks (in 2026 the FIA dropped Albert Park's zone
+ * through its fast Turn 9-10 esses on safety grounds)
+ */
+export const STRAIGHT_KINK_MAX_M = 100;
+/** m: 1.4 g at 300 km/h [est] */
+export const STRAIGHT_KINK_MIN_RADIUS_M = 500;
+
 /**
  * m: how far before a stretch a 2026 car is told it is coming (`STRAIGHT_MODE_AHEAD`); nearer, as it leaves the
  * stretch before, when the corner between them is shorter (the Red Bull Ring's Turn 1: 140 m)
@@ -68,7 +78,37 @@ export function straightModeWindows(track: BuiltTrackData): readonly LapWindow[]
       if (length >= STRAIGHT_MIN_M) out.push({ start: a / lap, end: b / lap });
     }
   }
-  cache.set(track, out);
+  const joined = joinAcrossKinks(track, out);
+  cache.set(track, joined);
+  return joined;
+}
+
+/** Two straights with a short gentle kink between them (`STRAIGHT_KINK_MAX_M`) are one */
+function joinAcrossKinks(track: BuiltTrackData, windows: LapWindow[]): LapWindow[] {
+  if (windows.length < 2) return windows;
+  const lap = track.totalLengthM;
+  const samples = track.samples;
+  const gentle = (a: number, b: number): boolean => {
+    // The gap's samples, from the end of one straight to the start of the next
+    const gapM = wrap01(b - a) * lap;
+    if (gapM > STRAIGHT_KINK_MAX_M) return false;
+    const n = samples.length;
+    const i0 = Math.round(a * n);
+    const i1 = i0 + Math.round((gapM / lap) * n);
+    for (let i = i0; i <= i1; i++) if (Math.abs(samples[i % n].curvature) > 1 / STRAIGHT_KINK_MIN_RADIUS_M) return false;
+    return true;
+  };
+  const out = windows.map((w) => ({ ...w }));
+  for (let i = 0; i < out.length && out.length > 1; ) {
+    const next = (i + 1) % out.length;
+    if (gentle(out[i].end, out[next].start)) {
+      out[i] = { start: out[i].start, end: out[next].end };
+      out.splice(next, 1);
+      if (next < i) i--;
+    } else {
+      i++;
+    }
+  }
   return out;
 }
 

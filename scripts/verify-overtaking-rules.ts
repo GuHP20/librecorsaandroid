@@ -20,7 +20,7 @@ import { FlatGroundQuery } from '../src/lib/sim/f12026-car/TrackColliderQuery';
 import { VehiclePhysics, type VehicleInputs } from '../src/lib/sim/f12026-car/VehiclePhysics';
 import { CARS, carOvertakingRules } from '../src/lib/cars/car-registry';
 import { getActiveTrackData, RWANDA_DRS_ZONES } from '../src/lib/track-data';
-import { inLapWindow, STRAIGHT_MAX_CURVATURE, STRAIGHT_MIN_M, straightModeWindows } from '../src/lib/sim/straight-mode-zones';
+import { inLapWindow, STRAIGHT_KINK_MIN_RADIUS_M, STRAIGHT_MAX_CURVATURE, STRAIGHT_MIN_M, straightModeWindows } from '../src/lib/sim/straight-mode-zones';
 import { F12026CarSim } from '../src/lib/sim/f12026-car/F12026CarSim';
 import { F1Physics2026 } from '../src/lib/f1-physics-2026';
 
@@ -203,8 +203,10 @@ console.log('\n== The circuit\'s straights (2026 Straight Mode)');
   const text = windows.map((w) => `${Math.round(w.start * lap)}-${Math.round(w.end * lap)}`).join(', ');
   check(`Each is ${STRAIGHT_MIN_M} m or longer`, windows.length > 0 && windows.every((w) => lengthOf(w) >= STRAIGHT_MIN_M), text);
   check(
-    'None has a corner in it',
-    track.samples.every((s) => Math.abs(s.curvature) <= STRAIGHT_MAX_CURVATURE || !windows.some((w) => inLapWindow(s.s / lap, w.start, w.end)))
+    'None has a corner in it (a short gentle kink at most)',
+    track.samples.every(
+      (s) => Math.abs(s.curvature) <= 1 / STRAIGHT_KINK_MIN_RADIUS_M || !windows.some((w) => inLapWindow(s.s / lap, w.start, w.end))
+    ) && STRAIGHT_KINK_MIN_RADIUS_M < 1 / STRAIGHT_MAX_CURVATURE
   );
   check(
     'The straights the circuit\'s own zones are on are among them',
