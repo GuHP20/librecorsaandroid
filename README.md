@@ -226,6 +226,17 @@ Every push to `main` runs typecheck and the verify suites, then builds `./out` a
 
 ---
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+The desktop app's Windows installer is built by GitHub Actions from this repository's source (`.github/workflows/release-desktop.yml`) when I push a `desktop-v*` tag, and it's published on the [Releases](https://github.com/KhazP/librecorsa/releases) page. Signing through SignPath Foundation is being set up; until it's in place, the installer is unsigned.
+
+- **Committers and reviewers:** [KhazP](https://github.com/KhazP) (Alp Yalay). I review every pull request from anyone else before it's merged.
+- **Approvers:** [KhazP](https://github.com/KhazP). I approve every signing request by hand.
+
+**Privacy:** the desktop app opens [librecorsa.org](https://librecorsa.org/play), so the site's [privacy policy](https://librecorsa.org/privacy) applies. Apart from loading the site, the app only checks GitHub Releases for a newer version of itself.
+
 ## License & credits
 
 - **Code** is under the [GNU Affero General Public License v3.0](LICENSE) or any later version (AGPL-3.0-or-later). You can use it, change it and host it, and if you run a changed version for other people, you share its source under the same licence. Code released before 15 November 2026 stays under the MIT License it came with.
