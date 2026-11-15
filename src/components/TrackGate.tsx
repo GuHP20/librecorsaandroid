@@ -5,6 +5,7 @@ import { LibreCorsaSimulator } from "@/components/LibreCorsaSimulator";
 import { RenderProfiler } from "@/components/dev/RenderProfiler";
 import { activateTrack, getTrackInfo, loadStoredTrackId, DEFAULT_TRACK_ID } from "@/lib/track-registry";
 import { registerAssetCache } from "@/lib/service-worker";
+import { watchForUpdates } from "@/lib/build-update";
 import { useLiveHeartbeat } from "@/lib/net/live-heartbeat";
 import { Toast } from "@/components/ui";
 
@@ -62,6 +63,9 @@ export const TrackGate: React.FC = () => {
     registerAssetCache();
     void select(loadStoredTrackId());
   }, [select]);
+
+  // A newer build deployed while the game is open: the menus offer the reload (build-update.ts)
+  useEffect(() => watchForUpdates(), []);
 
   useEffect(() => {
     if (!error) return;
