@@ -2775,7 +2775,9 @@ def build_from_sources(tid, cfg, args, src):
     out_dir = os.path.join(ROOT, 'public', 'tracks', tid)
     os.makedirs(out_dir, exist_ok=True)
     json_out = os.path.join(out_dir, 'track_data.json')
-    keep_lines = args.no_line_opt
+    # The optimiser runs after a full build only: not with --no-line-opt, nor with --no-glb (it checks the GT3's line
+    # on the GLB, which this build doesn't write). Without it the previous build's lines stay
+    keep_lines = args.no_line_opt or args.no_glb
     carried = keep_lines and carry_previous_lines(json_out, data)
     with open(json_out, 'w', encoding='utf-8') as f:
         json.dump(data, f, separators=(',', ':'), ensure_ascii=False)
