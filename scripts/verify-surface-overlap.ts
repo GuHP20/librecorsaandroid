@@ -126,14 +126,25 @@ const REPORTED: [string, number, number][] = [
   ['norisring', 540, 885],
 ];
 for (const [id, from, to] of REPORTED) {
-  const path = `public/tracks/${id}/track_data.json`;
-  if (!hasFile(path) || !hasFile(`public/tracks/${id}/${id}.glb`)) {
-    noteSkip(`${id} ${from}-${to} m`, path);
+  const what = `${id} ${from}-${to} m`;
+  const data = `public/tracks/${id}/track_data.json`;
+  if (!hasFile(data)) {
+    noteSkip(what, data);
     continue;
   }
-  setActiveTrack(id, JSON.parse(readFileSync(path, 'utf8')) as RawTrackJson);
+  setActiveTrack(id, JSON.parse(readFileSync(data, 'utf8')) as RawTrackJson);
   const track = getActiveTrackData(1200);
-  const ground = TrackColliderQuery.fromTrackRoot(loadGlbGeometry(`public${track.meshUrl}`), getActiveSurfaceTable(), { conformSurfaces: true });
+  if (!track.meshUrl) {
+    check(`${what}: the track data names a model`, false);
+    continue;
+  }
+  // The model its track data names, which a layout can share with another
+  const model = `public${track.meshUrl}`;
+  if (!hasFile(model)) {
+    noteSkip(what, model);
+    continue;
+  }
+  const ground = TrackColliderQuery.fromTrackRoot(loadGlbGeometry(model), getActiveSurfaceTable(), { conformSurfaces: true });
   const hit = createGroundHit();
   let asked = 0;
   const off: string[] = [];
