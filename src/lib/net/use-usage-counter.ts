@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { AssistPreset, VehicleModelId } from "@/types/f1";
 import { lapConditionsNow, WET_LAP_WATER_MM } from "@/lib/sim/lap-types";
 import type { SimRealism } from "@/lib/sim/sim-realism";
+import { pageBuild } from "@/lib/build-id";
 import { getOnlineConfig } from "./online-config";
 import { sendUsage, UsageClock, type UsageExtras, type UsageMode } from "./usage";
 import { USAGE_BUILD_RE } from "./usage-modes";
@@ -45,10 +46,9 @@ function deviceNow(): UsageExtras["device"] {
   return usageDevice(window.matchMedia("(pointer: coarse)").matches, Math.min(window.screen.width, window.screen.height));
 }
 
-/** The deployed build: its commit from the page's lc-build meta tag (src/app/layout.tsx); a local build has none */
+/** The deployed build: its commit from the page (src/lib/build-id.ts); a local build has none */
 function buildNow(): string | undefined {
-  if (typeof document === "undefined") return undefined;
-  const id = document.querySelector('meta[name="lc-build"]')?.getAttribute("content") ?? "";
+  const id = pageBuild();
   return USAGE_BUILD_RE.test(id) ? id : undefined;
 }
 

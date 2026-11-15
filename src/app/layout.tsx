@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { withBasePath } from "@/lib/base-path";
+import { buildIdFromEnv } from "@/lib/build-id";
 import { FORWARD_TO_GAME } from "@/lib/home/forward-to-game";
 import { REPO_URL, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from "@/lib/site";
 
@@ -38,6 +39,8 @@ const chakraPetch = localFont({
   display: "swap",
 });
 
+const BUILD_ID = buildIdFromEnv();
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: SITE_TITLE, template: `%s | ${SITE_NAME}` },
@@ -73,9 +76,9 @@ export const metadata: Metadata = {
     locale: "en_US",
   },
   twitter: { card: "summary_large_image", title: SITE_TITLE, description: SITE_DESCRIPTION },
-  // The deployed build's commit (NEXT_PUBLIC_BUILD), read by the usage counter from the page rather than built into
-  // the game's script, so a deploy doesn't change the game's cached files
-  ...(process.env.NEXT_PUBLIC_BUILD ? { other: { "lc-build": process.env.NEXT_PUBLIC_BUILD.slice(0, 7) } } : {}),
+  // The deployed build's commit (src/lib/build-id.ts), read from the page by the usage counter and the update check
+  // rather than built into the game's script, so a deploy doesn't change the game's cached files
+  ...(BUILD_ID ? { other: { "lc-build": BUILD_ID } } : {}),
   // Metadata URLs don't get a base path on their own
   // The SVG emblem draws its small version under 32 px; the PNG and ICO frames are for browsers without SVG icons
   icons: {
