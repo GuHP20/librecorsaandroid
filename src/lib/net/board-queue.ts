@@ -32,8 +32,13 @@ import {
  * (cloudflare/api/board.ts), a flush never spends more than a sixth of the hour's uploads
  */
 export const FLUSH_MAX_LAPS = 5;
-/** Sends of one lap from the queue in a session before the game stops trying by itself (an answer resets nothing) */
-export const FLUSH_MAX_TRIES = 3;
+/**
+ * Sends of one lap from the queue in a session before the game stops trying by itself. Only a send counts: while the
+ * board itself is out of reach nothing is sent, and the lap waits for as long as the session lasts. When the board
+ * answers but the uploads don't, each upload with no answer makes the next try wait longer (online-config.ts
+ * `markUnreachable`): sends about 5, 15, 35, 75 and 135 s after the first failure, so about three minutes of trying
+ */
+export const FLUSH_MAX_TRIES = 5;
 
 /** How a lap went up: by itself (automatic posting), or because the player pressed Post */
 export type PostedBy = "auto" | "hand";

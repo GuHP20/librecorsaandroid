@@ -157,8 +157,14 @@ export interface ConfigSource {
    * read is retried on a timer. Returns the way to stop watching
    */
   watch(listener: (state: OnlineState) => void): () => void;
-  /** A request to the server got no answer: it is out of reach until a read of the switches says otherwise */
+  /**
+   * A request to the server got no answer: it is out of reach until a read of the switches says otherwise. The wait
+   * before that read grows with each such request in a row (a good read of the switches doesn't reset it, an answered
+   * request does), so uploads that never get through while the switches do are not sent every few seconds
+   */
   markUnreachable(): void;
+  /** A request to the server got an answer (any answer): the requests-in-a-row count starts again */
+  markAnswered(): void;
   /** The browser came back online (`now`), or the page into view: a retry goes out if one is due (or at once with `now`) */
   wake(opts?: { now?: boolean }): void;
 }
@@ -173,6 +179,8 @@ export function createConfigSource(env: ConfigSourceEnv): ConfigSource {
   let triedAt = Number.NEGATIVE_INFINITY;
   let retryAt = 0;
   let failures = 0;
+  /** Requests in a row that got no answer (`markUnreachable`), until one gets an answer (`markAnswered`) */
+  let strikes = 0;
   let pending: Promise<OnlineState> | null = null;
   let timer: unknown = null;
   const watchers = new Set<(state: OnlineState) => void>();
@@ -250,10 +258,14 @@ export function createConfigSource(env: ConfigSourceEnv): ConfigSource {
       };
     },
     markUnreachable() {
+      strikes++;
       if (!env.url || pending || state?.reach === "unreachable") return;
-      failures++;
+      failures = Math.max(failures + 1, strikes);
       triedAt = env.now();
       settle({ config: lastGood ?? OFF, reach: "unreachable" });
+    },
+    markAnswered() {
+      strikes = 0;
     },
     wake(opts = {}) {
       if (!env.url || pending || state?.reach !== "unreachable" || env.idle()) return;
@@ -310,4 +322,9 @@ export function watchOnlineConfig(listener: (state: OnlineState) => void): () =>
 /** A request to the API got no answer: the game treats the server as out of reach and starts retrying */
 export function markOnlineUnreachable(): void {
   source.markUnreachable();
+}
+
+/** A request to the API got an answer: requests that got none are counted afresh (see `ConfigSource.markUnreachable`) */
+export function markOnlineAnswered(): void {
+  source.markAnswered();
 }

@@ -13,7 +13,7 @@ import { isPointToPointTrack } from "@/lib/track-kinds";
 import { validateLapRecording } from "@/lib/sim/lap-recorder";
 import { lapBoardClass, lapPhysicsVersion, type LapConditions, type LapRecording, type LeaderboardEntry } from "@/lib/sim/lap-types";
 import { getOrCreateDriverKey } from "./driver-key";
-import { getOnlineConfig, markOnlineUnreachable, onlineUrl, readOnlineConfig } from "./online-config";
+import { getOnlineConfig, markOnlineAnswered, markOnlineUnreachable, onlineUrl, readOnlineConfig } from "./online-config";
 import { cappedString, clampLimit, fetchBoardPage, finiteNumber, parseBoardPage, requestJson, type BoardFilter } from "./board-client";
 
 export { boardLabel, driverNameKey, type BoardFilter } from "./board-client";
@@ -356,6 +356,7 @@ export async function submitLap(rec: LapRecording, opts: { event?: string } = {}
     markOnlineUnreachable();
     return { ok: false, unreachable: true, error: BOARD_UNREACHABLE };
   }
+  markOnlineAnswered();
   const answer: Record<string, unknown> = isRecord(res.body) ? res.body : {};
   if (res.status >= 200 && res.status < 300 && answer.ok === true) {
     const result: SubmitResult = { ok: true };
@@ -391,6 +392,7 @@ export async function renameOnBoard(from: string, to: string, code?: string): Pr
     markOnlineUnreachable();
     return { ok: false, error: "Couldn't reach the online board. Try again in a moment" };
   }
+  markOnlineAnswered();
   const answer: Record<string, unknown> = isRecord(res.body) ? res.body : {};
   if (res.status >= 200 && res.status < 300 && answer.ok === true) return { ok: true };
   return {
