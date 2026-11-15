@@ -8,7 +8,8 @@
  * (Track_Collider_* / Track_Surface_*, or nodes with a `collider` / `hidden` extra) keep their float positions
  * and node transforms, and the script re-reads its output and fails unless every physics vertex is unchanged.
  * Already compressed files are skipped. The browser decodes with three's MeshoptDecoder (src/lib/gltf-loader.ts),
- * the Node scripts with scripts/lib/glb-geometry.ts. Run it after scripts/tracks/build_track.py rebuilds a circuit.
+ * the Node scripts with scripts/lib/glb-geometry.ts. scripts/tracks/port_ac_track.py runs it on every GLB it writes;
+ * run it yourself on one built with --no-compress or by scripts/tracks/build_track.py.
  * RISE Motordrome's GLB is compressed by its own build (scripts/rwanda-official/post.mjs) and skipped here as
  * already compressed. Its scenery/foliage.glb is left raw: it is mostly EXT_mesh_gpu_instancing transforms and
  * textures, and comes out bigger.

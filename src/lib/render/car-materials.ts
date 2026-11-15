@@ -6,7 +6,7 @@ import { applyPaintFinish, SATIN_PAINT } from "./paint-finish";
 /**
  * PBR upgrades for the LC26 GLB materials (see lc26-car-model.ts; the GLB itself is not edited).
  *
- * - EXT_SKIN with a livery mask (restyled GLB, root extras `liveryMask`, see scripts/lc26/livery_lc26.py): the
+ * - EXT_SKIN with a livery mask (restyled GLB, root extras `liveryMask`): the
  *   texture holds primary / secondary / accent weights in R / G / B and the shader mixes the selected livery's
  *   colours (`setLc26LiveryColours`).
  * - EXT_SKIN with the mod's authored colour texture: two-tone livery in one material.
