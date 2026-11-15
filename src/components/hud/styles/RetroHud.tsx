@@ -418,7 +418,7 @@ const LAP_PROGRESS_STEPS = 16;
 
 /** The laps instrument: the running lap's timer, its number and progress round the lap, and the laps completed */
 const LapsPanel: React.FC<{ t: CarTelemetry; lapInvalid: boolean }> = ({ t, lapInvalid }) => {
-  const laps = useLapHistory(t, 6);
+  const laps = useLapHistory(6);
   const valid = laps.filter((l) => l.valid);
   const bestMs = valid.length ? Math.min(...valid.map((l) => l.ms)) : null;
   const done = Math.floor(Math.max(0, Math.min(1, t.trackProgress)) * LAP_PROGRESS_STEPS);

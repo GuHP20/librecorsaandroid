@@ -491,7 +491,7 @@ const EDGE = "clamp(14px,2.2vw,24px)";
  * the centre, the fuel figures bottom-left, and the spotter's bars come up only while a car is alongside.
  */
 export const HeadToHeadHud: React.FC<HudDesignProps> = ({ t, deltaS, revRange, scale, mfd, touch, topInset, lapInvalid, leftExtra, rightExtra }) => {
-  const fuelPerLap = useFuelPerLap(t);
+  const fuelPerLap = useFuelPerLap();
   const race = t.race;
   // With the touch controls up their pause and camera buttons take the top-left, the pads both bottom corners
   const top = touch ? "68px" : EDGE;

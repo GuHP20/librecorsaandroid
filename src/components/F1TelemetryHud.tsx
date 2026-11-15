@@ -66,6 +66,7 @@ import { RaceVisionHud } from "./hud/styles/RaceVisionHud";
 import { HeadToHeadHud } from "./hud/styles/HeadToHeadHud";
 import { RetroHud } from "./hud/styles/RetroHud";
 import { BlocksHud } from "./hud/styles/BlocksHud";
+import { HudRunProvider } from "./hud/styles/third-party-parts";
 import { useUiZoom } from "@/lib/ui-zoom";
 import { buildHudMap, revRangeOf, useLapInvalid, type HudDesignProps } from "./hud/styles/hud-style-parts";
 import type { BoardWidgetMode, HudPreset } from "@/lib/settings/player-settings";
@@ -449,7 +450,9 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           aria-hidden="true"
         />
       ) : null}
-      {/* Broadcast, Wheel Dash or Telemetry: one full-screen layer */}
+      {/* A full-screen style (Broadcast, Wheel Dash, Telemetry, a third-party layout): one layer. The run's laps, fuel
+          use and clock live above it, so hiding the HUD or switching layout keeps them */}
+      <HudRunProvider t={telemetry}>
       {hudHidden ? null : style ? (
         <style.component
           t={telemetry}
@@ -478,6 +481,7 @@ export const F1TelemetryHud: React.FC<F1TelemetryHudProps> = (props) => {
           {weatherNode}
         </div>
       )}
+      </HudRunProvider>
 
       {/* A frame round the virtual mirror, so its sky never reads as the real one (the renderer places it in window pixels) */}
       {mirrorRect && !hudHidden ? (

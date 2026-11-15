@@ -124,8 +124,8 @@ const StandingsRow: React.FC<{
 const Standings: React.FC<{ t: CarTelemetry; lengthM: number; gaps: "interval" | "leader" }> = ({ t, lengthM, gaps }) => {
   const race = t.race!;
   const short = useShortScreen();
-  const clock = useSessionClock(t);
-  const perLap = useFuelPerLap(t);
+  const clock = useSessionClock();
+  const perLap = useFuelPerLap();
   const lapsLeft = fuelLapsLeft(t.fuelKg, perLap);
   const sessionBest = sessionBestLapMs(t);
   const me = race.standings.find((e) => e.isPlayer);
@@ -181,7 +181,7 @@ const LapCell: React.FC<{ label: string; ms: number | null; color?: string }> = 
 );
 
 const LapTimer: React.FC<{ t: CarTelemetry; deltaS: number | null; lapInvalid: boolean }> = ({ t, deltaS, lapInvalid }) => {
-  const laps = useLapHistory(t, 8);
+  const laps = useLapHistory(8);
   const short = useShortScreen();
   const best = t.bestLapTimeMs;
   const predicted = predictedLapMs(best, deltaS);

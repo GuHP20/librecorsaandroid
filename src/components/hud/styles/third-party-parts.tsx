@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { CarTelemetry } from "@/types/f1";
 import { revLedBand, revLeds, type RevLedBand } from "@/lib/sim/rev-range";
 import { HUD_GREEN, HUD_RED, HUD_SHIFT, HUD_YELLOW } from "../hud-format";
@@ -10,6 +10,8 @@ import { useHudModeRef } from "../hud-mode";
 /**
  * Hooks and small pieces the third-party HUD layouts share: the laps driven this run, the fuel used per lap, the
  * session clock and the rev lights. Each layout draws them in its own look; the readings are the game's one set.
+ * The run's readings are kept by `HudRunProvider`, which the HUD mounts above every style: hiding the HUD or switching
+ * layout mid-race keeps the laps, the fuel use and the clock.
  */
 
 /** Rev light band colours: the HUD's and the car wheel's one set of bands, from the colour tokens */
@@ -34,11 +36,14 @@ export function revLights(rpm: number, revRange: readonly [number, number], coun
   };
 }
 
+/** The laps kept for the layouts to list (each shows as many as it has room for) */
+const LAPS_KEPT = 12;
+
 /**
- * The laps completed this run, newest first (at most `max`). A restart (new run id) clears them; a lap is recorded
- * when the lap counter steps up and the lap time arrives with it.
+ * The laps completed this run, newest first. A restart (new run id) clears them; a lap is recorded when the lap
+ * counter steps up and the lap time arrives with it.
  */
-export function useLapHistory(t: CarTelemetry, max = 12): LapRecord[] {
+function useLapRecords(t: CarTelemetry): LapRecord[] {
   const runId = t.runId ?? 0;
   const [laps, setLaps] = useState<LapRecord[]>([]);
   const prev = useRef({ runId, lapCount: t.lapCount, sectors: [...t.sectorTimesMs] as [number, number, number] });
@@ -50,12 +55,13 @@ export function useLapHistory(t: CarTelemetry, max = 12): LapRecord[] {
       return;
     }
     if (t.lapCount > p.lapCount && t.lastLapTimeMs && t.lastLapTimeMs > 0) {
-      // The counter names the lap being driven: the one just finished is the count before it stepped up
-      const rec = completedLap(p.lapCount, t.lastLapTimeMs, p.sectors, t.lastLapValid !== false);
-      setLaps((l) => [rec, ...l].slice(0, max));
+      // The counter names the lap being driven: the one just finished is the count before it stepped up (a count that
+      // starts at 0 behind the line still lists the first lap as 1)
+      const rec = completedLap(Math.max(1, p.lapCount), t.lastLapTimeMs, p.sectors, t.lastLapValid !== false);
+      setLaps((l) => [rec, ...l].slice(0, LAPS_KEPT));
     }
     prev.current = { runId, lapCount: t.lapCount, sectors: [...t.sectorTimesMs] as [number, number, number] };
-  }, [runId, t.lapCount, t.lastLapTimeMs, t.lastLapValid, t.sectorTimesMs, max]);
+  }, [runId, t.lapCount, t.lastLapTimeMs, t.lastLapValid, t.sectorTimesMs]);
   return laps;
 }
 
@@ -63,7 +69,7 @@ export function useLapHistory(t: CarTelemetry, max = 12): LapRecord[] {
  * Fuel used per lap (kg), averaged over the last three full laps; null until a lap has been run from line to line.
  * A restart or a refuel (the fuel going up) starts the count again.
  */
-export function useFuelPerLap(t: CarTelemetry): number | null {
+function useFuelUse(t: CarTelemetry): number | null {
   const runId = t.runId ?? 0;
   const [perLap, setPerLap] = useState<number | null>(null);
   const state = useRef<{ runId: number; lapCount: number; startKg: number | null; used: number[]; lastKg: number }>({
@@ -101,7 +107,7 @@ export function useFuelPerLap(t: CarTelemetry): number | null {
  * Seconds on track this run, ticking once a second: a restart starts again from zero, and the clock stops while the
  * game is paused or in a replay (the HUD hidden), as the session's own time does
  */
-export function useSessionClock(t: CarTelemetry): number {
+function useRunClock(t: CarTelemetry): number {
   const runId = t.runId ?? 0;
   const mode = useHudModeRef();
   const [seconds, setSeconds] = useState(0);
@@ -113,4 +119,40 @@ export function useSessionClock(t: CarTelemetry): number {
     return () => window.clearInterval(id);
   }, [runId, mode]);
   return seconds;
+}
+
+interface HudRun {
+  laps: readonly LapRecord[];
+  fuelPerLapKg: number | null;
+  sessionS: number;
+}
+
+const HudRunContext = createContext<HudRun>({ laps: [], fuelPerLapKg: null, sessionS: 0 });
+
+/**
+ * Keeps the run's laps, fuel use and clock for the layouts that show them. Mounted by the HUD above every style and
+ * kept while the HUD is hidden, so neither the HUD button nor a layout switch from the pause menu starts them again.
+ */
+export function HudRunProvider({ t, children }: { t: CarTelemetry; children: React.ReactNode }) {
+  const laps = useLapRecords(t);
+  const fuelPerLapKg = useFuelUse(t);
+  const sessionS = useRunClock(t);
+  const value = useMemo(() => ({ laps, fuelPerLapKg, sessionS }), [laps, fuelPerLapKg, sessionS]);
+  return <HudRunContext.Provider value={value}>{children}</HudRunContext.Provider>;
+}
+
+/** The laps completed this run, newest first, at most `max` */
+export function useLapHistory(max = LAPS_KEPT): LapRecord[] {
+  const { laps } = useContext(HudRunContext);
+  return useMemo(() => laps.slice(0, max), [laps, max]);
+}
+
+/** Fuel used per lap (kg) over the last full laps; null until one has been measured, or on a car without fuel */
+export function useFuelPerLap(): number | null {
+  return useContext(HudRunContext).fuelPerLapKg;
+}
+
+/** Seconds on track this run, paused with the game */
+export function useSessionClock(): number {
+  return useContext(HudRunContext).sessionS;
 }

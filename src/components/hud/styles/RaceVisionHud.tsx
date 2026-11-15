@@ -130,8 +130,8 @@ const Standings: React.FC<{
   narrow: boolean;
 }> = ({ t, deltaS, lapInvalid, gaps, short, narrow }) => {
   const race = t.race;
-  const laps = useLapHistory(t, 10);
-  const clock = useSessionClock(t);
+  const laps = useLapHistory(10);
+  const clock = useSessionClock();
   const sessionBest = sessionBestLapMs(t);
   const cls = classLabel(t.f12026?.carId);
   const field = race ? race.standings.length : 1 + (t.peers?.length ?? 0);
@@ -200,7 +200,7 @@ const Standings: React.FC<{
 /** The relative: the cars around the player on the road, gaps in seconds, the fuel underneath */
 const Relative: React.FC<{ t: CarTelemetry; lengthM: number }> = ({ t, lengthM }) => {
   const race = t.race;
-  const perLap = useFuelPerLap(t);
+  const perLap = useFuelPerLap();
   if (!race) return null;
   const cars = relativeCars(t, lengthM, 3);
   const fuelLaps = fuelLapsLeft(t.fuelKg, perLap);

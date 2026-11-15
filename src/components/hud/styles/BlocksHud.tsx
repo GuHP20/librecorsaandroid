@@ -229,7 +229,7 @@ const SessionBlock: React.FC<{ label: string; className?: string; children: Reac
 
 const SessionBlocks: React.FC<{ t: CarTelemetry }> = ({ t }) => {
   const race = t.race;
-  const clock = useSessionClock(t);
+  const clock = useSessionClock();
   return (
     <div className="flex items-start gap-3.5">
       {race ? (
@@ -444,7 +444,7 @@ function useStartFuel(t: CarTelemetry): number {
 }
 
 const Fuel: React.FC<{ t: CarTelemetry }> = ({ t }) => {
-  const perLap = useFuelPerLap(t);
+  const perLap = useFuelPerLap();
   const startKg = useStartFuel(t);
   const fraction = startKg > 0 ? t.fuelKg / startKg : 0;
   const laps = fuelLapsLeft(t.fuelKg, perLap);
@@ -533,7 +533,7 @@ const Tyres: React.FC<{ t: CarTelemetry }> = ({ t }) => {
  */
 export const BlocksHud: React.FC<HudDesignProps> = ({ t, deltaS, revRange, scale, ffb, mfd, touch, topInset, lapInvalid, towerGaps = "interval", leftExtra, rightExtra }) => {
   const race = t.race;
-  const laps = useLapHistory(t, 6);
+  const laps = useLapHistory(6);
   const hasFuel = t.fuelKg > 0;
 
   return (
