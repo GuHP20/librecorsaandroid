@@ -753,18 +753,20 @@ export class TrackColliderQuery implements GroundQuery {
 
   /**
    * Build from the loaded track root: `Track_Collider_Road` plus every node tagged `userData.surface`.
+   * `prepare` runs on the root once its surfaces are fitted, before the layers are read (drawn-surfaces.ts).
    * Throws when the road collider is missing.
    */
   static fromTrackRoot(
     root: THREE.Object3D,
     table: SurfaceTable = DEFAULT_SURFACE_TABLE,
-    options: { conformSurfaces?: boolean } = {}
+    options: { conformSurfaces?: boolean; prepare?: (root: THREE.Object3D) => void } = {}
   ): TrackColliderQuery {
     if (options.conformSurfaces) {
       conformTrackSurfaceColliders(root);
       // After the fitting: the pieces kept of a face split here lie in its fitted plane, where the fitting left it
       clearOffroadOverRoad(root);
     }
+    options.prepare?.(root);
     root.updateMatrixWorld(true);
     const sources: ColliderLayerSource[] = [];
     const found: { road?: THREE.Object3D } = {};
@@ -848,7 +850,8 @@ export class TrackColliderQuery implements GroundQuery {
       const isRoadCollider = src.isRoadCollider ?? ud.collider === 'road';
       const tagged = asSurface(ud.surface);
       const surface = src.surface ?? tagged ?? 'road';
-      const props = table[surface];
+      // A node may cap its own rise (`userData.maxRiseM`): faces renamed from a kerb keep the kerb's (drawn-surfaces.ts)
+      const props = typeof ud.maxRiseM === 'number' ? { ...table[surface], maxRiseM: ud.maxRiseM } : table[surface];
       const grip = src.grip ?? (typeof ud.grip === 'number' ? ud.grip : props.friction);
       const ripple = !isRoadCollider && props.bumpHeightM > 0 && props.bumpLengthM > 0;
       const uvScaleM = ripple ? (typeof ud.uvScaleM === 'number' ? ud.uvScaleM : DEFAULT_UV_SCALE_M) : 0;
