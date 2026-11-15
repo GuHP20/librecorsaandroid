@@ -59,4 +59,4 @@ license.
 - **Big files**: compress models (meshopt, WebP textures) before committing. The whole site is downloaded by
   players.
 
-By contributing you agree your code is released under the [MIT License](LICENSE).
+By contributing you agree your code is released under the [GNU Affero General Public License v3.0 or later](LICENSE) (AGPL-3.0-or-later).

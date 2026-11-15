@@ -2,6 +2,7 @@
   "name": "librecorsa",
   "version": "0.2.0",
   "description": "Open-source, browser-based motorsport simulator with 500 Hz vehicle dynamics.",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "scripts": {
     "dev": "next dev",
