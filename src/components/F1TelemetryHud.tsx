@@ -62,6 +62,7 @@ import { WheelDashHud } from "./hud/styles/WheelDashHud";
 import { TelemetryHud } from "./hud/styles/TelemetryHud";
 import { PhoneHud, usePhoneLayout } from "./hud/styles/PhoneHud";
 import { IrDashiesHud } from "./hud/styles/IrDashiesHud";
+import { RaceVisionHud } from "./hud/styles/RaceVisionHud";
 import { useUiZoom } from "@/lib/ui-zoom";
 import { buildHudMap, revRangeOf, useLapInvalid, type HudDesignProps } from "./hud/styles/hud-style-parts";
 import type { BoardWidgetMode, HudPreset } from "@/lib/settings/player-settings";
@@ -96,6 +97,7 @@ const HUD_STYLES: Partial<Record<HudPreset, HudStyleDef>> = {
   telemetry: { component: TelemetryHud, bottomClearance: 252, ownTrace: true, ownsBottomLeft: true, mfdFolded: true },
   // Third-party layouts (hud-layouts.ts), recreated from other open-source HUD projects
   irdashies: { component: IrDashiesHud, bottomClearance: 200, ownTrace: true, mfdFolded: true },
+  racevision: { component: RaceVisionHud, bottomClearance: 200, ownTrace: true, ownsBottomLeft: true, mfdFolded: true, topClearance: 80, ownDeltaBar: true },
 };
 /** Every preset gives way to the Phone HUD on a phone-sized screen, and the game's own wherever the touch controls are up (`showsPhoneHud`) */
 const PHONE_STYLE: HudStyleDef = { component: PhoneHud, bottomClearance: 16 };

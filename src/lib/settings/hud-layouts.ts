@@ -49,6 +49,12 @@ export const THIRD_PARTY_HUD_LAYOUTS = [
     detail: "Standings, lap timer, inputs and shift lights",
     credit: { author: "tariknz", repoUrl: "https://github.com/tariknz/irdashies", license: "MIT" },
   },
+  {
+    id: "racevision",
+    label: "RaceVision",
+    detail: "Standings, relative, input pill and graph",
+    credit: { author: "mpavich2", repoUrl: "https://github.com/mpavich2/RaceVision", license: "MIT" },
+  },
 ] as const satisfies readonly HudLayoutInfo[];
 
 export type HudPreset = (typeof BUILT_IN_HUD_LAYOUTS)[number]["id"] | (typeof THIRD_PARTY_HUD_LAYOUTS)[number]["id"];
