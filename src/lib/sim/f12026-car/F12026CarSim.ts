@@ -561,6 +561,8 @@ function assistPresetDials(profile: CarSimProfile, preset: DriverAssistPreset): 
  * and a 144 Hz display drove different cars.
  */
 const CONTROL_DT_S = VehiclePhysics.FIXED_DT;
+/** Barrier contact counts toward race control's wall rules only while the car moves faster than this (m/s) */
+const WALL_CONTACT_MIN_SPEED_MS = 2;
 /** A stall longer than this is not caught up (s): the car does not fast-forward after a hidden tab */
 const MAX_CATCH_UP_S = 0.25;
 /**
@@ -872,6 +874,7 @@ export class F12026CarSim implements SimulatorCar {
     tcActive: false,
     absActive: false,
     wallContact: false,
+    wallContactS: 0,
     wallImpact: null,
   };
   private aero: AeroSetupPreset = 'balanced';
@@ -937,6 +940,8 @@ export class F12026CarSim implements SimulatorCar {
   /** Autopilot steer trim (rad) integrated from the yaw-rate shortfall, i.e. the car's understeer */
   private apYawI = 0;
   private lastAxMs2 = 0;
+  /** Seconds the body has touched a barrier while moving, since the car was made (channel `wallContactS`) */
+  private wallContactS = 0;
   private lastAyMs2 = 0;
   /** Measured vertical acceleration of the chassis (g), low-passed tick by tick (`chassis-g.ts`) */
   private chassisG = 1;
@@ -1700,6 +1705,8 @@ export class F12026CarSim implements SimulatorCar {
       this.steerCmd = Number.isFinite(cmd.steer) ? cmd.steer : 0;
       _v.copy(v.velocity);
       v.step(CONTROL_DT_S, vin);
+      // Barrier contact this tick, while moving: every fixed step is counted, not only a frame's last
+      if (v.telemetry.wallContact && v.velocity.length() > WALL_CONTACT_MIN_SPEED_MS) this.wallContactS += v.lastStepTimeS;
       this.updateBrakes(CONTROL_DT_S);
       // Divided by the time the fixed steps actually covered
       const stepS = v.lastStepTimeS;
@@ -2668,6 +2675,7 @@ export class F12026CarSim implements SimulatorCar {
     c.tcActive = this.tcCut < 0.98;
     c.absActive = this.absCut < 0.98;
     c.wallContact = vt.wallContact;
+    c.wallContactS = this.wallContactS;
     t.liveTuner = this.getLiveTunerState();
   }
 
