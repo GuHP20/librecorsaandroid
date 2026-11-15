@@ -322,6 +322,18 @@ console.log("Track limits · barrier contact");
   check("a race: a wall-ride is under review like an excursion", r.judging);
   const verdict = [...walls(r, 0.4, 0, "ride", { deltaS: -0.5, lateralM: 4 }), ...walls(r, 8, 0, "ride", { deltaS: -0.5 })];
   check("a race: gaining time by it is a warning", verdict.length === 1 && verdict[0].kind === "warning", JSON.stringify(verdict));
+  // As a car really rides a wall: bouncing along it, touching it one frame in three
+  const b = new TrackLimitsMonitor();
+  b.reset("race");
+  walls(b, 0.5, 0, "ride", { deltaS: 0 });
+  let reviewed = false;
+  const bounced: TrackLimitsEvent[] = [];
+  for (let k = 0; k < 150; k++) {
+    bounced.push(...walls(b, DT, k % 3 === 0 ? 1 : 0, "ride", { deltaS: 0, lateralM: 4 }));
+    reviewed ||= b.judging;
+  }
+  bounced.push(...walls(b, 0.4, 0, "ride", { deltaS: -0.5 }), ...walls(b, 8, 0, "ride", { deltaS: -0.5 }));
+  check("a race: bouncing along the wall is one excursion under review, then one verdict", reviewed && bounced.length === 1 && bounced[0].kind === "warning", JSON.stringify(bounced));
 }
 
 console.log("Track limits · every engine honours strict and judged");
