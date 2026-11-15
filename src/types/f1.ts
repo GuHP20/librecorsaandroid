@@ -665,8 +665,9 @@ export interface F12026Channels {
   /** Touching a barrier this frame / last impact speed into the wall (m/s) and its sim time (ms) */
   wallContact: boolean;
   /**
-   * Seconds the body has touched a barrier while moving, every fixed step counted, since the car was made (it only
-   * grows): race control judges barrier contact from its rise between frames, however few of them it sees
+   * Seconds the body has touched a barrier while moving, every fixed step counted, since the car was last placed (a
+   * placement zeroes it, otherwise it only grows): race control judges barrier contact from its rise between frames,
+   * however few of them it sees
    */
   wallContactS: number;
   /** Last barrier impact: into-wall speed, when, and where on the car (m, + left / + forward) */

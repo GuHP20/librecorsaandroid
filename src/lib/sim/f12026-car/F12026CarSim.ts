@@ -940,7 +940,7 @@ export class F12026CarSim implements SimulatorCar {
   /** Autopilot steer trim (rad) integrated from the yaw-rate shortfall, i.e. the car's understeer */
   private apYawI = 0;
   private lastAxMs2 = 0;
-  /** Seconds the body has touched a barrier while moving, since the car was made (channel `wallContactS`) */
+  /** Seconds the body has touched a barrier while moving, since the car was last placed (channel `wallContactS`) */
   private wallContactS = 0;
   private lastAyMs2 = 0;
   /** Measured vertical acceleration of the chassis (g), low-passed tick by tick (`chassis-g.ts`) */
@@ -2308,7 +2308,10 @@ export class F12026CarSim implements SimulatorCar {
     this.stuckS = 0;
     // The off-track verdict belongs to where the car was: the new spot is judged afresh
     this.wasOffTrack = false;
+    // So does the barrier contact: zeroed, on the page's car and the sim worker's alike (race control reads a drop as none)
+    this.wallContactS = 0;
     const c = this.channels;
+    c.wallContactS = 0;
     c.CHANGED_DRS_OPEN = false;
     c.drsOpenEvents = 0;
     c.drsDetection = null;
