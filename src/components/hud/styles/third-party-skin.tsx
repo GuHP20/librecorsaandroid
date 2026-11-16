@@ -5,7 +5,7 @@ import { THIRD_PARTY_HUD_LAYOUTS, type HudPreset } from "@/lib/settings/hud-layo
 import skinCss from "./third-party-skin.module.css";
 
 export type ThirdPartySkin = (typeof THIRD_PARTY_HUD_LAYOUTS)[number]["id"];
-export type SkinTone = "default" | "accent" | "gain" | "caution" | "loss" | "info";
+export type SkinTone = "default" | "accent" | "gain" | "caution" | "loss" | "info" | "best";
 export type SkinCut = "sm" | "md" | "lg";
 
 const SKIN_IDS = new Set<string>(THIRD_PARTY_HUD_LAYOUTS.map((l) => l.id));
@@ -25,6 +25,7 @@ const TONE_CLASS: Record<SkinTone, string> = {
   caution: skinCss.tone_caution,
   loss: skinCss.tone_loss,
   info: skinCss.tone_info,
+  best: skinCss.tone_best,
 };
 
 const CUT_CLASS: Record<SkinCut, string> = {
@@ -62,7 +63,7 @@ export interface SkinPanelProps extends React.HTMLAttributes<HTMLDivElement> {
   innerClassName?: string;
 }
 
-/** Surface panel skinned for the active third-party HUD (including Retro octagon bevels) */
+/** A panel in the active layout's construction: irDashies' slate, RaceVision's black window, Head to Head's ruled card, Retro's cut-corner frame, a Blocks block */
 export const SkinPanel = forwardRef<HTMLDivElement, SkinPanelProps>(function SkinPanel(
   { tone = "default", cut = "md", className, innerClassName, children, ...rest },
   ref,
@@ -86,7 +87,7 @@ export interface SkinBannerProps extends React.HTMLAttributes<HTMLDivElement> {
   cut?: SkinCut;
 }
 
-/** Alert or notification banner skinned for the active third-party HUD */
+/** A notice or race-control call in the active layout's construction (its frame drawn on a layer behind the content) */
 export const SkinBanner = forwardRef<HTMLDivElement, SkinBannerProps>(function SkinBanner(
   { tone = "default", cut = "sm", className, children, ...rest },
   ref,
@@ -100,6 +101,7 @@ export const SkinBanner = forwardRef<HTMLDivElement, SkinBannerProps>(function S
         .join(" ")}
       {...rest}
     >
+      <span aria-hidden className={skinCss.chrome} />
       {children}
     </div>
   );
@@ -110,7 +112,7 @@ export interface SkinTagProps extends React.HTMLAttributes<HTMLSpanElement> {
   filled?: boolean;
 }
 
-/** Tabular chip/tag skinned for the active third-party HUD */
+/** A chip or call in the active layout's look; filled, the tone is the fill under the layout's dark ink */
 export const SkinTag: React.FC<SkinTagProps> = ({
   tone = "default",
   filled = false,
@@ -142,7 +144,10 @@ export interface SkinButtonProps extends React.ButtonHTMLAttributes<HTMLButtonEl
   soft?: boolean;
 }
 
-/** Interactive button styled in the active third-party HUD language */
+/**
+ * A control in the active layout's look (tabs, steps, folds). The frame is a layer behind the label, so a cut-corner
+ * frame never clips the focus ring or the touch area. `active` is the layout's own chosen state, `soft` its quieter one.
+ */
 export const SkinButton = forwardRef<HTMLButtonElement, SkinButtonProps>(function SkinButton(
   { active = false, soft = false, className, type = "button", children, ...rest },
   ref,
@@ -156,6 +161,7 @@ export const SkinButton = forwardRef<HTMLButtonElement, SkinButtonProps>(functio
       className={[skin ? SKIN_CLASS[skin] : "", skinCss.btn, activeCls, className].filter(Boolean).join(" ")}
       {...rest}
     >
+      <span aria-hidden className={skinCss.chrome} />
       {children}
     </button>
   );

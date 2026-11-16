@@ -312,7 +312,7 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
             {lines.length === 0 ? (
               <p className={`lc-data m-0 px-3 py-3 text-[12px] ${skinCss.inkDim}`}>No times here yet. Yours can be the first.</p>
             ) : (
-              <ol className="m-0 list-none pt-1.5 pb-1">
+              <ol className="m-0 flex list-none flex-col gap-0.5 px-1.5 pt-1.5 pb-1.5">
                 {lines.map((l) =>
                   "gap" in l ? (
                     <li key={l.key} aria-label="Places between" className={`flex h-5 items-center justify-center ${skinCss.inkDim}`}>
@@ -323,13 +323,11 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
                       key={`${l.pos}-${l.entry.code}`}
                       title={l.entry.name}
                       aria-current={l.mine ? "true" : undefined}
-                      className={`lc-data grid h-7 grid-cols-[26px_34px_minmax(0,1fr)_auto] items-center gap-1.5 text-[13px] ${
-                        l.mine
-                          ? `mx-1.5 my-0.5 pr-2.5 pl-1 font-bold ${skinCss.playerRow} ${skinCss.radiusSm}`
-                          : `pr-2.5 pl-2 ${skinCss.ink}`
+                      className={`lc-data grid h-7 grid-cols-[26px_34px_minmax(0,1fr)_auto] items-center gap-1.5 pr-2.5 pl-2 text-[13px] ${skinCss.row} ${
+                        l.mine ? `font-bold ${skinCss.playerRow}` : skinCss.ink
                       }`}
                     >
-                      <span className={`text-center ${l.mine ? "" : skinCss.inkDim}`}>{l.pos}</span>
+                      <span className={`text-center ${skinCss.pos} ${l.mine ? "" : skinCss.inkDim}`}>{l.pos}</span>
                       <span className="tracking-[0.1em]">{l.entry.code.slice(0, 3)}</span>
                       <span className={`truncate font-sans text-[12px] ${l.mine ? "" : skinCss.inkSoft}`}>{l.entry.name}</span>
                       <span className="text-right text-[12px]">{formatLapTime(l.entry.lapTimeMs)}</span>
@@ -339,7 +337,7 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
               </ol>
             )}
             <div className={`flex h-8 items-center gap-2 border-t pr-1 pl-3 ${skinCss.divider}`}>
-              <span className={`flex-1 text-[10px] font-semibold uppercase ${skinCss.inkDim}`}>Laps driven</span>
+              <span className={`flex-1 ${skinCss.label}`}>Laps driven</span>
               <span className={`lc-data text-[11px] ${skinCss.inkSoft}`}>{laps !== null ? formatCount(laps) : "--"}</span>
               {gearButton}
             </div>

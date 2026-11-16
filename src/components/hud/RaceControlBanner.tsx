@@ -39,7 +39,7 @@ const Pips: React.FC<{ n: number; of: number; skinned?: boolean }> = ({ n, of, s
         key={i}
         className={
           skinned
-            ? `size-2 rounded-full ${i < n ? skinCss.fillCaution : skinCss.deepBox}`
+            ? `size-2 ${skinCss.pip} ${i < n ? skinCss.fillCaution : skinCss.pipOff}`
             : `size-2 rounded-full ${i < n ? "bg-lc-caution" : "inset-ring-[1.5px] inset-ring-lc-keyline"}`
         }
       />

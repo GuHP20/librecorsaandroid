@@ -59,6 +59,7 @@ export const StartLights: React.FC<{ race: RaceStatus | undefined }> = ({ race }
           ) : null}
           <SkinPanel
             cut="md"
+            className={skinCss.pill}
             innerClassName="flex gap-2 px-3 py-3 sm:gap-3.5 sm:px-5 sm:py-4 short:gap-2 short:py-2"
             role="img"
             aria-label={`Start lights: ${race.lightsOn} of 5 lit`}

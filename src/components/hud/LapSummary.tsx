@@ -209,7 +209,7 @@ function statusBadge(s: LapSummaryData, skinned = false): React.ReactNode {
     }
     if (s.isPersonalBest) {
       return (
-        <SkinTag tone="gain" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+        <SkinTag tone={PB_TONE === "best" ? "best" : "gain"} filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
           <Icon name="success" size="xs" />
           PB
         </SkinTag>
@@ -273,7 +273,7 @@ const LapToast: React.FC<{ summary: LapSummaryData; onOpen: () => void; onClose:
           <span className={`lc-mono shrink-0 text-[12px] font-bold uppercase ${skinCss.inkDim}`}>
             {activeLapWord()} {s.lapNumber}
           </span>
-          <span className="lc-mono text-[22px] leading-none font-bold sm:text-[24px]">{formatLapTime(s.lapTimeMs)}</span>
+          <span className={`lc-mono text-[22px] leading-none font-bold sm:text-[24px] ${skinCss.readout}`}>{formatLapTime(s.lapTimeMs)}</span>
           {statusBadge(s, true)}
           <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
             {s.sectorTimesMs.map((t, idx) => {
@@ -372,7 +372,7 @@ const Stat: React.FC<{ value: React.ReactNode; label: string; className?: string
   if (skin !== null) {
     return (
       <div className={`flex min-w-0 flex-col gap-0.5 px-3 py-2.5 short:py-2 ${skinCss.deepBox} ${className}`}>
-        <span className={`lc-mono truncate text-[18px] leading-tight font-bold ${skinCss.ink}`}>{value}</span>
+        <span className={`lc-mono truncate text-[18px] leading-tight font-bold ${skinCss.readout} ${skinCss.ink}`}>{value}</span>
         <span className={`text-[12px] leading-tight text-balance ${skinCss.inkDim}`}>{label}</span>
       </div>
     );
@@ -440,7 +440,7 @@ const LapCard: React.FC<
       </Badge>
     );
     skinnedBadge = (
-      <SkinTag tone="gain" filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
+      <SkinTag tone={PB_TONE === "best" ? "best" : "gain"} filled className="px-2 py-0.5 text-[11px] font-bold uppercase">
         <Icon name="success" size="xs" />
         Personal best
       </SkinTag>
@@ -489,7 +489,7 @@ const LapCard: React.FC<
               </SkinButton>
             </div>
           </div>
-          <span className="lc-mono text-[40px] leading-none font-bold tracking-[-0.02em] sm:text-[46px] short:text-[34px]">
+          <span className={`lc-mono text-[40px] leading-none font-bold tracking-[-0.02em] sm:text-[46px] short:text-[34px] ${skinCss.readout}`}>
             {formatLapTime(s.lapTimeMs)}
           </span>
         </div>
@@ -499,7 +499,7 @@ const LapCard: React.FC<
             const mark = sectorMark(t, s.bestSectorTimesMs[idx]);
             return (
               <div key={idx} className={`flex min-w-0 flex-col gap-0.5 px-3 py-2.5 short:py-2 ${skinCss.deepBox}`}>
-                <span className="lc-mono text-[18px] leading-tight font-bold" style={{ color: mark.color }}>
+                <span className={`lc-mono text-[18px] leading-tight font-bold ${skinCss.readout}`} style={{ color: mark.color }}>
                   {formatSectorTime(t)}
                 </span>
                 <span className={`truncate text-[11px] ${skinCss.inkDim}`}>
