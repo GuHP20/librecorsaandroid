@@ -36,13 +36,21 @@ jobs:
         run: |
           rm -rf www
           cp -r out www
+          # Rotas do Next exportadas como "rota.html" também ficam disponíveis como "rota/index.html"
+          find www -name '*.html' ! -name 'index.html' ! -name '404.html' | while read -r f; do
+            d="${f%.html}"
+            mkdir -p "$d"
+            cp "$f" "$d/index.html"
+          done
           # Se o site foi gerado para rodar em /librecorsa (GitHub Pages),
           # os arquivos seriam procurados nesse caminho dentro do app.
           # Copiamos o site também para www/librecorsa para esses caminhos funcionarem.
           if grep -q "/librecorsa/_next" out/index.html; then
             echo "basePath /librecorsa detectado: duplicando em www/librecorsa"
+            mkdir -p /tmp/site
+            cp -r www/. /tmp/site/
             mkdir -p www/librecorsa
-            cp -r out/. www/librecorsa/
+            cp -r /tmp/site/. www/librecorsa/
           fi
 
       - name: Adicionar o Capacitor e criar o projeto Android
