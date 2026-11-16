@@ -57,6 +57,8 @@ jobs:
             "webDir": "www"
           }
           EOF
+          # Recria o projeto Android do zero (só nesta cópia temporária do CI)
+          rm -rf android
           npx cap add android
           npx cap sync android
 
