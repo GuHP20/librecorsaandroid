@@ -45,7 +45,9 @@ jobs:
           if [ "${{ inputs.debug }}" = "true" ]; then
             npm install --no-save eruda
             cp node_modules/eruda/eruda.js www/eruda.js
-            find www -name '*.html' -exec sed -i 's#</body>#<script src="/eruda.js"></script><script>try{eruda.init()}catch(e){}</script></body>#' {} +
+            find www -name '*.html' | while read -r f; do
+              sed -i 's#</body>#<script src="/eruda.js"></script><script>try{eruda.init()}catch(e){}</script></body>#' "$f"
+            done
           fi
           # Rotas do Next exportadas como "rota.html" também ficam disponíveis como "rota/index.html"
           find www -name '*.html' ! -name 'index.html' ! -name '404.html' | while read -r f; do
