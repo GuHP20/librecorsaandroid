@@ -1271,7 +1271,8 @@ def classify_physics_node(name):
 
 
 def is_ac_editor_marker(name):
-    return bool(re.match(r'^AC_(AB|AUDIO|CHECKPOINT|HOTLAP|OB|PIT|START|TIME)', name, re.I))
+    # AC_REVERB_*: the boxes that mark AC's sound reverb zones (under a bridge), which a mod may leave visible
+    return bool(re.match(r'^AC_(AB|AUDIO|CHECKPOINT|HOTLAP|OB|PIT|REVERB|START|TIME)', name, re.I))
 
 
 def is_semaphore_node(name):
@@ -2386,19 +2387,44 @@ def build_ac_kerb_mesh(phys_kerb_tris, xz, tan2, rgt2, yc, width, ds, off, extra
     F[fn_sub[:, 1] < 0] = F[fn_sub[:, 1] < 0][:, ::-1]
     F = F.reshape(-1)
 
-    # Seat every unique kerb vertex above the maximum of all underlying road/runoff collider triangles
+    # Seat every unique kerb vertex above the drivable surfaces under it (road, run-off), the ground the game takes
+    # the wheel's height from, and above the road collider only where there is none. Seated on the collider, which past
+    # the edge carries the road's camber on, a kerb behind Watkins Glen's steeply cambered first corner stood 6 cm over
+    # the paved run-off it lies on: a ledge that threw the car up
     base_tris = []
+    collider_tris = []
     for m_name, m_pos, m_idx, _ in extra:
-        if m_name in ('Track_Collider_Road', 'Track_Surface_Road', 'Track_Surface_Runoff') and len(m_idx) and len(m_pos):
-            base_tris.append(np.asarray(m_pos, np.float64)[np.asarray(m_idx, np.int32).reshape(-1, 3)])
+        if not (len(m_idx) and len(m_pos)):
+            continue
+        tris = np.asarray(m_pos, np.float64)[np.asarray(m_idx, np.int32).reshape(-1, 3)]
+        if m_name in ('Track_Surface_Road', 'Track_Surface_Runoff'):
+            base_tris.append(tris)
+        elif m_name == 'Track_Collider_Road':
+            collider_tris.append(tris)
+    collider_soup = None
+    if not base_tris:
+        base_tris, collider_tris = collider_tris, []
+    if collider_tris:
+        T_col = np.concatenate(collider_tris, 0)
+        collider_soup = srf.TriSoup(T_col, np.zeros(len(T_col), np.int32), np.zeros((len(T_col), 3), np.uint8))
 
     q_xz = np.round(V[:, [0, 2]] * 1000.0).astype(np.int64)
     _, uniq_idx, inv_idx = np.unique(q_xz, axis=0, return_index=True, return_inverse=True)
     U_v = V[uniq_idx].copy()
     u_xz = U_v[:, [0, 2]] + off[[0, 2]]
     _, iu = tree_xz.query(u_xz)
-    lat_u = np.abs(np.einsum('ij,ij->i', u_xz - xz[iu], rgt2[iu]))
-    across_u = np.clip((lat_u - (width[iu] / 2 - 0.35)) / 1.45, 0.0, 1.0)
+    lat_signed = np.einsum('ij,ij->i', u_xz - xz[iu], rgt2[iu])
+    lat_u = np.abs(lat_signed)
+    # The hump rises from the kerb's own inner edge (the nearest of its vertices to the centreline, over ±1 sample), or
+    # from 0.35 m inside the road's edge where the kerb starts further in. A kerb laid just outside the edge (Watkins
+    # Glen's first corner) otherwise began 3 cm up, a step the wheels came back over
+    n_c = len(xz)
+    inner = np.full((n_c, 2), np.inf)
+    np.minimum.at(inner, (iu, (lat_signed > 0).astype(int)), lat_u)
+    reach = 1
+    inner = np.stack([ndimage.minimum_filter1d(inner[:, k], 2 * reach + 1, mode='wrap') for k in range(2)], 1)
+    start_u = np.maximum(width[iu] / 2 - 0.35, inner[iu, (lat_signed > 0).astype(int)])
+    across_u = np.clip((lat_u - start_u) / 1.45, 0.0, 1.0)
     hump_u = 0.016 + 0.014 * np.sin(np.pi * across_u)
 
     if base_tris:
@@ -2406,6 +2432,8 @@ def build_ac_kerb_mesh(phys_kerb_tris, xz, tan2, rgt2, yc, width, ds, off, extra
         base_soup = srf.TriSoup(T_base, np.zeros(len(T_base), np.int32), np.zeros((len(T_base), 3), np.uint8))
         for k, v in enumerate(U_v):
             hs = [h for h, _, _ in base_soup.hits(v[0], v[2]) if abs(h - v[1]) <= 0.8]
+            if not hs and collider_soup is not None:
+                hs = [h for h, _, _ in collider_soup.hits(v[0], v[2]) if abs(h - v[1]) <= 0.8]
             if hs:
                 U_v[k, 1] = max(hs) + hump_u[k]
             else:
