@@ -9,7 +9,7 @@ import { getActiveTrackData } from '../src/lib/track-data';
 import { F1Physics2026 } from '../src/lib/f1-physics-2026';
 import { LapRecorder, validateLapRecording, type CompletedLap } from '../src/lib/sim/lap-recorder';
 import { lapPlausibilityProblem } from '../src/lib/sim/lap-plausibility';
-import { LAP_SAMPLE_STRIDE, PHYSICS_VERSION, lapBoardClass, lapPhysicsVersion, parseLapConditions, type LapRecording } from '../src/lib/sim/lap-types';
+import { LAP_SAMPLE_STRIDE, PHYSICS_VERSION, drivingInputOf, lapBoardClass, lapPhysicsVersion, parseLapConditions, type LapRecording } from '../src/lib/sim/lap-types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { handleApi } from '../cloudflare/api/index';
@@ -65,6 +65,8 @@ for (let f = 0; f < 60 * 600 && !autopilotLap; f++) {
       physicsVersion: CURRENT,
       autopilot: laps === 2 && moment,
     },
+    // Lap 2 is driven on a wheel with a moment of touch and stretches of nothing pressed: it keeps the wheel
+    input: laps === 1 ? (moment ? 'touch' : t.currentLapTimeMs % 2000 < 500 ? null : 'wheel') : 'keyboard',
   });
   if (!done) continue;
   laps++;
@@ -145,6 +147,32 @@ check(
   autopilotLap !== null && autopilotLap.summary.autopilot && !autopilotLap.summary.isPersonalBest && autopilotLap.recording.conditions?.realism === 'full',
   autopilotLap ? `valid ${autopilotLap.summary.valid}, PB ${autopilotLap.summary.isPersonalBest}` : 'no third lap'
 );
+check('a lap keeps the input that drove most of it', real.conditions?.input === 'wheel', real.conditions?.input);
+{
+  const idle = { throttle: 0, brake: 0, steer: 0 };
+  const frame = (f: Partial<Parameters<typeof drivingInputOf>[0]>) =>
+    drivingInputOf({ touch: null, source: null, mouseSteer: false, keys: false, pad: idle, setting: 'keyboard', ...f });
+  const cases: [string, ReturnType<typeof drivingInputOf>, ReturnType<typeof drivingInputOf>][] = [
+    ['phone, throttle on the screen', frame({ touch: { throttle: 1, brake: 0, steer: 0 } }), 'touch'],
+    ['phone, coasting with nothing touched', frame({ touch: idle }), null],
+    ['keys held with the on-screen controls showing', frame({ touch: idle, keys: true }), 'keyboard'],
+    ['keys held with an idle pad plugged in', frame({ source: 'controller', keys: true }), 'keyboard'],
+    ['an idle pad and nothing held', frame({ source: 'controller' }), null],
+    ['a pad being used', frame({ source: 'controller', pad: { throttle: 0.8, brake: 0, steer: 0.2 } }), 'controller'],
+    ['a bound wheel, pedals up', frame({ source: 'wheel', setting: 'wheel' }), 'wheel'],
+    ['an unbound non-standard pad with the wheel setting', frame({ source: 'legacy', setting: 'wheel', pad: { throttle: 1, brake: 0, steer: 0 } }), 'wheel'],
+    ['a non-standard pad with the controller setting', frame({ source: 'legacy', setting: 'controller', pad: { throttle: 1, brake: 0, steer: 0 } }), 'controller'],
+    ['mouse steering', frame({ mouseSteer: true }), 'keyboard'],
+  ];
+  const wrong = cases.filter(([, got, want]) => got !== want).map(([name, got]) => `${name}: ${got}`);
+  check('input: each frame is put down to what is being used', wrong.length === 0, wrong.join('; '));
+}
+check('validation keeps the input', validateLapRecording(JSON.parse(JSON.stringify(real)))?.conditions?.input === 'wheel');
+check(
+  'an unknown or missing input drops the icon, not the lap',
+  validateLapRecording({ ...real, conditions: { ...real.conditions, input: 'joystick' } })?.conditions?.input === undefined &&
+    validateLapRecording({ ...real, conditions: { ...real.conditions, input: undefined } }) !== null,
+);
 check('validation keeps the conditions', validateLapRecording(JSON.parse(JSON.stringify(real)))?.conditions?.assists === 'assisted');
 check('malformed conditions are refused', validateLapRecording({ ...real, conditions: { ...real.conditions, surface: 'snow' } }) === null);
 const { conditions: _dropped, ...older } = real;
@@ -172,7 +200,7 @@ const open = { ...real, data: real.data.slice(0, Math.floor(n * 0.9) * S) };
 check('a lap that stops short of the line is refused', lapPlausibilityProblem(open.data) !== null, String(lapPlausibilityProblem(open.data)));
 
 // 3. The board API -----------------------------------------------------------------------------------------------------
-const schema = readFileSync(join(__dirname, '../cloudflare/migrations/0001_lap_boards.sql'), 'utf8');
+const schema = ['0001_lap_boards.sql', '0007_lap_input.sql'].map((f) => readFileSync(join(__dirname, '../cloudflare/migrations', f), 'utf8')).join('\n');
 const ghosts = fakeR2();
 // A Wednesday noon in a week whose challenge is the test lap's circuit and car (RISE Motordrome's short lap, the 2026 prototype)
 let nowMs = Date.UTC(2026, 10, 11, 12);
@@ -195,7 +223,7 @@ const post = async (rec: unknown, driverKey: string | null = KEY_A, extra: Recor
   );
   return { status: res.status, body: res.body as PostAnswer };
 };
-type Row = { id: string; name: string; lapTimeMs: number; conditions: { assists: string; realism: string; surface: string; physicsVersion: number } };
+type Row = { id: string; name: string; lapTimeMs: number; conditions: { assists: string; realism: string; surface: string; physicsVersion: number; input?: string } };
 type ListAnswer = { laps: Row[]; total: number; physics: number[]; me: { rank: number; lap: Row; aboveMs: number | null } | null };
 const list = async (query = '', physics = CURRENT) => {
   const res = await listLaps(deps, new URL(`https://librecorsa.test/api/laps?track=rwanda_official_short&vehicle=lc26&physics=${physics}${query}`));
@@ -533,6 +561,27 @@ async function main(): Promise<void> {
     const rudeNames = ['F.u.u.c.k', 'a$$', 'Big Dicks', 'Orospu Çocuğu', 'AMK', 'amına koyayım', 'LibreCorsa', 'Libre Corsa', 'Admin'];
     const missed = rudeNames.filter((n) => nameProblem(n) === null);
     check('names: spelled with symbols, spaces, repeats or Turkish letters, refused names are still caught', missed.length === 0, missed.join(', '));
+  }
+
+  {
+    // What drove the lap, on a board of its own: kept with the row, never part of its class
+    const own: BoardDeps = { db: fakeD1(schema), ghosts: fakeR2(), eventRule: challengeProblem, now: () => nowMs };
+    const send = async (rec: LapRecording, key: string) =>
+      (await submitLap(own, new Request('https://librecorsa.test/api/laps', { method: 'POST', body: JSON.stringify({ rec, driverKey: key }), headers: { 'CF-Connecting-IP': `10.9.0.${ipCounter++ % 250}` } }))).body as PostAnswer;
+    const rows = async () =>
+      ((await listLaps(own, new URL(`https://librecorsa.test/api/laps?track=rwanda_official_short&vehicle=lc26&physics=${CURRENT}`))).body as ListAnswer).laps;
+    const wheel = await send(variant(1.02, 'Wheel Driver', { input: 'wheel' }), KEY_A);
+    const bare = await send(variant(1.03, 'Old Build', { input: undefined }), KEY_B);
+    let laps = await rows();
+    check('input: stored and listed with the lap', wheel.ok && laps.find((l) => l.name === 'Wheel Driver')?.conditions.input === 'wheel');
+    check('input: a lap without one is taken, listed without one', bare.ok && laps.some((l) => l.name === 'Old Build' && !('input' in l.conditions)));
+    const pad = await send(variant(1.01, 'Wheel Driver', { input: 'controller' }), KEY_A);
+    laps = await rows();
+    const mine = laps.filter((l) => l.name === 'Wheel Driver');
+    check('input: another device in the same class replaces the row, not a second one', pad.ok && mine.length === 1 && mine[0].conditions.input === 'controller', `${mine.length} rows`);
+    const slower = await send(variant(1.03, 'Wheel Driver', { input: 'touch' }), KEY_A);
+    laps = await rows();
+    check('input: a slower lap on another device is refused as not faster', slower.notFaster === true && laps.find((l) => l.name === 'Wheel Driver')?.conditions.input === 'controller');
   }
 
   if (failures.length > 0) {

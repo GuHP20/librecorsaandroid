@@ -55,7 +55,7 @@ import { PodiumDirector } from "@/lib/render/podium-shot";
 import { GhostPlayer, LapRecorder } from "@/lib/sim/lap-recorder";
 import { ReplayBuffer } from "@/lib/sim/replay-buffer";
 import { GHOST_CAR_COLOR, steerAngleOf, steerNormOf, wheelRpmAtSpeed, wheelRpmOf } from "@/lib/sim/car-pose";
-import { lapConditionsNow, type LapRecording, type LapSummaryData, type ReplayCarState } from "@/lib/sim/lap-types";
+import { drivingInputOf, lapConditionsNow, type LapRecording, type LapSummaryData, type ReplayCarState } from "@/lib/sim/lap-types";
 import { buildTelemetryPacket } from "@/lib/input/telemetry-out";
 import { touchInput } from "@/lib/input/touch-input";
 import { createRainFx, RAIN_VISOR_LAYER } from "@/lib/render/rain-fx";
@@ -2104,6 +2104,15 @@ export class DriveSession {
         const touchSteer = touchSteering && !settingsNow.touch.tiltSteer ? Math.abs(touch.steer) : 0;
         if (pedal > 0.15 || stick > 0.3 || touchSteer > 0.2) physics.aiAutopilot = false;
       }
+      // What drives the car this frame, for the icon beside the driver's name on the boards (the lap keeps the one used most)
+      const inputNow = drivingInputOf({
+        touch,
+        source: device.source,
+        mouseSteer: settings.mouseSteer,
+        keys: kbSteerDir !== 0 || kbThrottleTarget > 0 || keys.down,
+        pad: { throttle: gamepadThrottle, brake: gamepadBrake, steer: gamepadStick ?? gamepadSteer ?? 0 },
+        setting: settingsNow.device,
+      });
 
       // The AI field holds the player on the grid until the lights go out, then runs its cars
       const aiField = aiFieldOf(raceNow());
@@ -2273,6 +2282,7 @@ export class DriveSession {
             }),
             autopilot: physics.aiAutopilot,
           },
+          input: inputNow,
         });
         if (done) {
           if (!done.summary.valid && wallDeletedLaps.has(done.summary.lapNumber)) done.summary.wallContact = true;

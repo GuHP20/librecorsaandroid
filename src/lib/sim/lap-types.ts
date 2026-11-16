@@ -5,6 +5,40 @@
 import type { AssistPreset, TireCompound, VehicleModelId } from "@/types/f1";
 import { lc26OnRigidBody } from "@/lib/cars/lc26-engine";
 import { SIM_REALISM_LEVELS, type SimRealism } from "./sim-realism";
+import { USAGE_EXTRAS } from "@/lib/net/usage-modes";
+
+/** What a lap can be driven with: the same four kinds the usage report counts */
+export const LAP_INPUTS = USAGE_EXTRAS.input;
+export type LapInput = (typeof LAP_INPUTS)[number];
+export const isLapInput = (value: unknown): value is LapInput => (LAP_INPUTS as readonly unknown[]).includes(value);
+
+/**
+ * What drives the car this frame, for the icon beside the driver's name on the boards (a lap keeps the one used most).
+ * Only what is being used counts: on-screen controls touched, the bound wheel (its rim always steers), keys held or the
+ * mouse steering, a pad's pedals or stick moved. Null while nothing is, so on-screen controls left showing, or a pad
+ * left plugged in, don't count against the keys
+ */
+export function drivingInputOf(f: {
+  /** The on-screen controls' pedals and steering, when they are shown */
+  touch: { throttle: number; brake: number; steer: number } | null;
+  /** The device the pad reader took this frame (`DeviceFrame.source`) */
+  source: "wheel" | "controller" | "legacy" | null;
+  mouseSteer: boolean;
+  /** A steering, throttle or brake key held */
+  keys: boolean;
+  /** The pad's pedals and steering (stick or axis), after shaping */
+  pad: { throttle: number; brake: number; steer: number };
+  /** The input chosen in the settings: a pad without the standard layout is a wheel there */
+  setting: "keyboard" | "controller" | "wheel";
+}): LapInput | null {
+  if (f.touch && (f.touch.throttle > 0.02 || f.touch.brake > 0.02 || Math.abs(f.touch.steer) > 0.01)) return "touch";
+  if (f.source === "wheel" && !f.mouseSteer) return "wheel";
+  if (f.keys || f.mouseSteer) return "keyboard";
+  const padUsed = f.pad.throttle > 0.02 || f.pad.brake > 0.02 || Math.abs(f.pad.steer) > 0.05;
+  if (!padUsed || f.source === null) return null;
+  // A pad without the standard layout is often a wheel nobody has bound yet
+  return f.source === "legacy" && f.setting === "wheel" ? "wheel" : "controller";
+}
 
 /**
  * Revision of the vehicle physics. Bump it whenever a physics change makes earlier lap times incomparable: laps
@@ -36,6 +70,11 @@ export interface LapConditions {
   realism: SimRealism;
   /** PHYSICS_VERSION the lap was driven under */
   physicsVersion: number;
+  /**
+   * What drove most of the lap (keyboard, controller, wheel or touch), shown beside the driver's name. Not part of the
+   * board class: every device ranks on the same board. Absent on laps recorded before it was kept
+   */
+  input?: LapInput;
 }
 
 /** Mean water on the racing line (mm) from which a lap counts as wet */
@@ -81,7 +120,10 @@ export function parseLapConditions(raw: unknown): LapConditions | null {
   if (!SIM_REALISM_LEVELS.includes(r.realism as SimRealism)) return null;
   const v = r.physicsVersion;
   if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 1000) return null;
-  return { assists: r.assists as AssistPreset, compound: r.compound as TireCompound, surface: r.surface, realism: r.realism as SimRealism, physicsVersion: v };
+  const out: LapConditions = { assists: r.assists as AssistPreset, compound: r.compound as TireCompound, surface: r.surface, realism: r.realism as SimRealism, physicsVersion: v };
+  // Optional: a lap without it (or with a kind this build doesn't know) is still a lap, only without the icon
+  if (isLapInput(r.input)) out.input = r.input;
+  return out;
 }
 
 /** Fields of one recorded sample, in order; a recording stores samples flattened with this stride */

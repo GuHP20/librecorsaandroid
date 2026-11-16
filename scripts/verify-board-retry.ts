@@ -229,7 +229,7 @@ async function main(): Promise<void> {
 
   // The Worker on an in-memory SQLite and bucket; its config route can be made to fail, and so can uploads
   const migrations = join(__dirname, '..', 'cloudflare', 'migrations');
-  const schema = ['0001_lap_boards.sql', '0002_race_results.sql', '0003_usage.sql', '0004_admin_numbers.sql', '0005_lc26.sql', '0006_lap_counts.sql']
+  const schema = ['0001_lap_boards.sql', '0002_race_results.sql', '0003_usage.sql', '0004_admin_numbers.sql', '0005_lc26.sql', '0006_lap_counts.sql', '0007_lap_input.sql']
     .map((f) => readFileSync(join(migrations, f), 'utf8'))
     .join('\n');
   const workerEnv = { ONLINE_BOARD: 'on', BOARD_DB: fakeD1(schema), GHOSTS: fakeR2() } as unknown as Env;

@@ -32,7 +32,7 @@ const check = (name: string, ok: boolean, detail = '') => {
 
 const migrations = join(__dirname, '..', 'cloudflare', 'migrations');
 const sql = (...files: string[]) => files.map((f) => readFileSync(join(migrations, f), 'utf8')).join('\n');
-const FULL = sql('0001_lap_boards.sql', '0002_race_results.sql', '0003_usage.sql', '0004_admin_numbers.sql', '0005_lc26.sql', '0006_lap_counts.sql');
+const FULL = sql('0001_lap_boards.sql', '0002_race_results.sql', '0003_usage.sql', '0004_admin_numbers.sql', '0005_lc26.sql', '0006_lap_counts.sql', '0007_lap_input.sql');
 
 const TRACK = 'sachsenring';
 const NOW = Date.UTC(2026, 10, 14, 12);

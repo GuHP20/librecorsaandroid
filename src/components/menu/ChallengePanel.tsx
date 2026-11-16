@@ -137,6 +137,7 @@ export const ChallengePanel: React.FC<ChallengePanelProps> = ({
               rank: i + 1,
               code: e.code,
               title: e.name,
+              input: e.conditions?.input,
               lapMs: e.lapTimeMs,
               fastest: i === 0,
               mine: myKey !== "" && driverNameKey(e.name) === myKey,

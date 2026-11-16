@@ -18,6 +18,7 @@ import { fetchBoardPage, fetchCircuitTotals, formatCount, driverNameKey, type Bo
 import { lapPhysicsVersion } from "@/lib/sim/lap-types";
 import { Icon } from "@/components/ui/icons/Icon";
 import { PositionBadge } from "@/components/ui/badges/PositionBadge";
+import { InputIcon } from "@/components/board/InputIcon";
 import { HUD_GLASS, HUD_LBL, formatLapTime } from "./hud-format";
 import { CHROME_PX, NEAR, ROW_PX, TOP, towerLines } from "./board-data";
 import { SkinButton, skinCss, SkinPanel, skinRootClass, SkinTag, useHudSkin } from "./styles/third-party-skin";
@@ -457,7 +458,10 @@ const BoardWidgetImpl: React.FC<BoardWidgetProps> = ({ trackId, trackName, vehic
                   >
                     <span className={`text-center ${l.mine ? "" : "text-lc-slate"}`}>{l.pos}</span>
                     <span className="tracking-[0.1em]">{l.entry.code.slice(0, 3)}</span>
-                    <span className={`truncate font-sans text-[12px] ${l.mine ? "" : "text-lc-fog"}`}>{l.entry.name}</span>
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span className={`truncate font-sans text-[12px] ${l.mine ? "" : "text-lc-fog"}`}>{l.entry.name}</span>
+                      <InputIcon input={l.entry.conditions?.input} className={l.mine ? "" : "text-lc-slate"} />
+                    </span>
                     <span className="text-right text-[12px]">{formatLapTime(l.entry.lapTimeMs)}</span>
                   </li>
                 ),

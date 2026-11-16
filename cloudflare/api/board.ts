@@ -67,6 +67,8 @@ interface LapRow {
   realism: string;
   surface: string;
   compound: string;
+  /** What drove the lap; null on laps stored before it was kept */
+  input: string | null;
   name_key: string;
   driver_name: string;
   driver_code: string;
@@ -87,7 +89,14 @@ const entryOf = (r: LapRow) => ({
   vehicle: r.vehicle,
   trackId: r.track_id,
   recordedAt: r.recorded_at,
-  conditions: { assists: r.assists, realism: r.realism, surface: r.surface, compound: r.compound, physicsVersion: r.physics },
+  conditions: {
+    assists: r.assists,
+    realism: r.realism,
+    surface: r.surface,
+    compound: r.compound,
+    physicsVersion: r.physics,
+    ...(r.input ? { input: r.input } : {}),
+  },
 });
 
 /**
@@ -151,9 +160,9 @@ async function storeLap(deps: BoardDeps, rec: CheckedLap, event: string, nameKey
   writes.push(
     deps.db
       .prepare(
-        "INSERT INTO laps (id, track_id, vehicle, physics, event, assists, realism, surface, compound, name_key, driver_name, driver_code, lap_time_ms, s1_ms, s2_ms, s3_ms, recorded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO laps (id, track_id, vehicle, physics, event, assists, realism, surface, compound, input, name_key, driver_name, driver_code, lap_time_ms, s1_ms, s2_ms, s3_ms, recorded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .bind(id, rec.trackId, rec.vehicle, c.physicsVersion, event, c.assists, c.realism, c.surface, c.compound, nameKey, rec.driverName, rec.driverCode, rec.lapTimeMs, rec.sectorTimesMs[0], rec.sectorTimesMs[1], rec.sectorTimesMs[2], rec.recordedAt, deps.now()),
+      .bind(id, rec.trackId, rec.vehicle, c.physicsVersion, event, c.assists, c.realism, c.surface, c.compound, c.input ?? null, nameKey, rec.driverName, rec.driverCode, rec.lapTimeMs, rec.sectorTimesMs[0], rec.sectorTimesMs[1], rec.sectorTimesMs[2], rec.recordedAt, deps.now()),
   );
   await deps.db.batch(writes);
   if (prev) await deps.ghosts.delete(ghostKey(prev.id));

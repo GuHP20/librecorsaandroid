@@ -43,7 +43,8 @@ export default function PrivacyPage() {
         <ul className={LIST}>
           <li>
             <span className={B}>Lap boards.</span> When a lap is posted, the board stores your driver name and
-            three-letter code, the lap (times, circuit, car, assists, realism, tyre) and a recording of it that others
+            three-letter code, the lap (times, circuit, car, assists, realism, tyre, and whether it was driven on a keyboard, controller, wheel
+            or touch screen) and a recording of it that others
             can race as a ghost. It also stores a scrambled form of your driver key, which can’t be turned back
             into the key. Names and laps on a board are public. Laps are posted only once you have chosen a name of
             your own, and you can switch off “Post my best laps online” in the settings.

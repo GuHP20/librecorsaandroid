@@ -270,6 +270,7 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
       rank: pos,
       code: e.code,
       title: e.name,
+      input: e.conditions?.input,
       tag: tag ? (
         <Badge tone={{ color: tag.color }} size="sm" className="max-w-[9rem] truncate">
           {tag.label}
