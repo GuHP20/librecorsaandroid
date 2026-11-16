@@ -43,6 +43,7 @@ import { TIME_OF_DAY_LABELS, WEATHER_LABELS } from "@/lib/sim/weather";
 import { LibreCorsaLogo } from "@/components/ui/LibreCorsaLogo";
 import { AI_SKILL_DEFAULT, aiSkillLabel } from "@/lib/sim/ai-tuning";
 import { REPO_URL, SUPPORT_URL, TAKEDOWN_URL } from "@/lib/site";
+import { useStoreBuild } from "@/lib/use-store-build";
 import { withBasePath } from "@/lib/base-path";
 import { EmbeddedBadge } from "./EmbeddedBadge";
 import { InstallAppButton } from "./InstallAppButton";
@@ -93,6 +94,15 @@ const CreditRow: React.FC<{ title: string; children: React.ReactNode }> = ({ tit
     <p className="lc-body m-0">{children}</p>
   </div>
 );
+
+/** The 2026 Prototype's Red Bull livery: the Android app leaves the livery out (store-mode.ts), and this note with it */
+const RedBullLiveryNote: React.FC = () =>
+  useStoreBuild() ? null : (
+    <>
+      . Its Oracle Red Bull Racing livery uses pictures from an Assetto Corsa skin made for VRC&apos;s Formula Alpha 2026;
+      the logos are their owners&apos; trademarks
+    </>
+  );
 
 const Credits: React.FC = () => (
   <div className="flex flex-col gap-4.5">
@@ -148,8 +158,7 @@ const Credits: React.FC = () => (
           <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className={linkClass}>
             CC BY 4.0
           </a>
-          . Its Oracle Red Bull Racing livery uses pictures from an Assetto Corsa skin made for VRC&apos;s Formula Alpha
-          2026; the logos are their owners&apos; trademarks
+          <RedBullLiveryNote />
           <br />
           Mercedes-AMG GT3 Evo: &ldquo;Mercedes-AMG GT3&rdquo; (
           <a
@@ -401,6 +410,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = (props) => {
   const panelRef = useRef<HTMLElement | null>(null);
   const { mode } = useInputMode();
   const units = useUnits();
+  const storeBuild = useStoreBuild();
   // The circuit panel opened from the race setup's Event card: loading a circuit then returns to the race setup
   const fromRaceRef = useRef(false);
 
@@ -548,7 +558,10 @@ export const TitleMenu: React.FC<TitleMenuProps> = (props) => {
     },
     { id: "press", label: "Press & media", detail: "Coverage and press kit", icon: "press" as const, href: withBasePath("/press") },
     { id: "privacy", label: "Privacy", detail: "What the game keeps and sends", icon: "privacy" as const, href: withBasePath("/privacy") },
-    { id: "support", label: "Buy me a coffee", detail: "Support development", icon: "support" as const, href: SUPPORT_URL },
+    // Not in the Android app (store-mode.ts)
+    ...(storeBuild
+      ? []
+      : [{ id: "support", label: "Buy me a coffee", detail: "Support development", icon: "support" as const, href: SUPPORT_URL }]),
     { id: "github", label: "GitHub", detail: "Source code", icon: "source" as const, href: REPO_URL },
   ];
   const panelItems = items.filter((i) => i.panel);
