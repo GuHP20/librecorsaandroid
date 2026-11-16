@@ -12,6 +12,7 @@ import { resolveSurfaceTable, type SurfaceTable, type SurfaceTableOverrides } fr
 import type { SceneryCutBox } from "./scenery-cuts";
 import type { LapStretches } from "./sim/course-limits";
 import { correctedDrsZones } from "./drs-zone-fixes";
+import { isStoreBuild } from "./store-mode";
 
 /** Raw `track_data.json` layout shared by every circuit (the bundled circuit's file is the reference schema) */
 export type RawTrackJson = typeof rawTrackJson;
@@ -173,7 +174,7 @@ const ORACLE_RED_BULL_DECALS: LiveryDecalSet = {
  * The F1 liveries: the first in LibreCorsa's own colours, two more of the game's own, and the Oracle Red Bull Racing
  * one with its pictures (the 2026 Prototype's body paints them; other bodies take the colours only)
  */
-export const LIVERIES: LiveryConfig[] = [
+const ALL_LIVERIES: LiveryConfig[] = [
   {
     id: "librecorsa",
     name: "LibreCorsa #26",
@@ -210,8 +211,15 @@ export const LIVERIES: LiveryConfig[] = [
     accent: "#f2b705",
     number: "3",
     decals: ORACLE_RED_BULL_DECALS,
+    notInStoreBuild: true,
   },
 ];
+
+/**
+ * The liveries this copy of the game offers and paints: in the Android app, all but the Red Bull one. A saved choice
+ * of a missing livery falls back to the first, and so does an AI car that wore it; the saved choice stays as it was.
+ */
+export const LIVERIES: LiveryConfig[] = isStoreBuild() ? ALL_LIVERIES.filter((l) => !l.notInStoreBuild) : ALL_LIVERIES;
 
 function turnsOf(raw: RawTrackJson): TurnMetadata[] {
   return (raw.turns as TurnMetadata[]).map((t) => ({ ...t, sector: t.sector as 1 | 2 | 3 }));

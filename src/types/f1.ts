@@ -64,6 +64,8 @@ export interface LiveryConfig {
   number: string;
   /** Pictures on the paint (render/livery-decals.ts); a livery without is its three colours only */
   decals?: LiveryDecalSet;
+  /** Left out of the Android app (lib/store-mode.ts): its logos aren't licensed */
+  notInStoreBuild?: true;
 }
 
 /** A livery's decals: their atlas and where each goes on the car */

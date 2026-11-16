@@ -14,6 +14,7 @@ import { withBasePath } from "@/lib/base-path";
 import { useSavedInterfaceSettings, useUnits } from "@/lib/settings/ui-prefs";
 import { DISTANCE_LABEL, distanceIn, SPEED_LABEL, speedIn } from "@/lib/settings/units";
 import { SITE_DESCRIPTION } from "@/lib/site";
+import { useStoreBuild } from "@/lib/use-store-build";
 import { day, GAME_FACTS, GRADE_NOTES, type HomeData, type HomeLayout, type HomeVenue, type WhatsNewDay } from "./home-data";
 import { CarThumb, GradeBadge, GradeLegend, OutlineThumb } from "./home-ui";
 import { LapMap } from "./LapMap";
@@ -103,6 +104,7 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
   const pad = mode === "pad";
   useSavedInterfaceSettings();
   const units = useUnits();
+  const storeBuild = useStoreBuild();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const driveRef = useRef<HTMLAnchorElement | null>(null);
   /** Set when a section is opened from the controller or keys: the cursor moves into it once it has rendered */
@@ -643,7 +645,8 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
                       ["All coverage and the press kit", withBasePath("/press")],
                       ["Privacy", withBasePath("/privacy")],
                       ["GitHub", data.repoUrl],
-                      ["Buy me a coffee", data.supportUrl],
+                      // Not in the Android app (store-mode.ts)
+                      ...(storeBuild ? [] : [["Buy me a coffee", data.supportUrl]]),
                     ].map(([label, href]) => (
                       <a key={label} href={href} onPointerEnter={focusOnHover} className={TEXT_LINK}>
                         {label}
