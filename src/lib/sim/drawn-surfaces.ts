@@ -24,6 +24,10 @@
  * - Goodwood (the hill climb): its road collider reaches 1-2.5 m past the asphalt over the verges, the ground under
  *   the hay bales, the flint wall and the side-road mouths, and at Turn 2 and Molecomb it is shifted off the road.
  *   The areas marked on its reviewed corner images (marked-areas.ts) make the track the asphalt, out to its edge.
+ * - Red Bull Ring, inner skill course: the course through the driving centre is laid out in cones, a lane 3.6-9.4 m
+ *   wide, but its physics road is a 10.5 m band round the lap, past the cones on every corner and over grass islands
+ *   on some. The track is the lane between the cones, out to their outer edges (cone-lanes.ts); the old band past
+ *   them, the open pads, the other lanes and the grass islands are off it.
  *
  * Each rule takes the circuit's physics faces lying under the drawn meshes of its materials, where it applies, and
  * moves them to a `Track_Surface_<Kind>` node at their own heights: the ground the car drives on is unchanged, only
@@ -32,6 +36,7 @@
  */
 import * as THREE from "three";
 import type { BuiltTrackData } from "@/lib/track-data";
+import { SPIELBERG_INNER_CONE_LANE } from "./cone-lanes";
 import { GOODWOOD_MARKED_AREAS, NORISRING_MARKED_AREAS, type MarkedArea } from "./marked-areas";
 import { isTrackSurfaceKind, type SurfaceTable, type TrackSurfaceKind } from "./track-surfaces";
 
@@ -106,6 +111,31 @@ function markedAreaRules(areas: readonly MarkedArea[], track: string, off: strin
       pieceM: 0.5,
       note: off,
     },
+  ];
+}
+/** How far past its lane a circuit laid out in cones (`coneLaneRules`) is off the track (m) */
+const CONE_LANE_MARGIN_M = 15;
+/**
+ * A circuit laid out in cones (cone-lanes.ts) as two rules, cut to 0.5 m: the lane between the cones is road where the
+ * physics left it off it, and every other piece of track ground within `CONE_LANE_MARGIN_M` of it is run-off (the road
+ * collider too), the lap's track-data width included
+ */
+function coneLaneRules(legal: readonly (readonly number[])[], track: string, off: string): DrawnSurfaceRule[] {
+  if (!legal.length) return [];
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (const o of legal) {
+    for (let i = 0; i < o.length; i += 2) {
+      x0 = Math.min(x0, o[i]);
+      x1 = Math.max(x1, o[i]);
+      z0 = Math.min(z0, o[i + 1]);
+      z1 = Math.max(z1, o[i + 1]);
+    }
+  }
+  const m = CONE_LANE_MARGIN_M;
+  const around = [x0 - m, z0 - m, x1 + m, z0 - m, x1 + m, z1 + m, x0 - m, z1 + m];
+  return [
+    { materials: null, surface: "road", from: OFF_ROAD, within: { areas: legal }, pieceM: 0.5, note: track },
+    { materials: null, surface: "runoff", from: ON_TRACK, overRoadCollider: true, within: { areas: [around], except: legal }, pieceM: 0.5, note: off },
   ];
 }
 /**
@@ -192,6 +222,11 @@ export const DRAWN_SURFACE_RULES: Readonly<Record<string, readonly DrawnSurfaceR
     { materials: RED_BULL_RING_ROAD, surface: "road", from: OFF_ROAD, within: { bands: CASTROL_EDGE_ROAD }, note: "the racing asphalt out to the white line at Castrol Edge" },
     pitExit(CASTROL_EDGE_PIT_EXIT),
   ],
+  spielberg_inner: coneLaneRules(
+    SPIELBERG_INNER_CONE_LANE,
+    "the lane between the cones",
+    "past the cones: the old band round the lap, the open pads, the other lanes and the grass islands",
+  ),
 };
 
 /** The physics nodes a rule may rename, by the surface each holds */

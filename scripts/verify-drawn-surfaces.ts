@@ -16,7 +16,9 @@
  *    Molecomb's outside on it. Red Bull Ring (and its
  *    South course): a car past the red and white kerb inside Castrol Edge and Remus is off the track, one on the kerb
  *    is not; past the white line on the pit exit and the gore island, on the anti-cut rumble and on Remus's exit
- *    astroturf it is off; the asphalt out to the white line is on; the pit exit merge is as it was.
+ *    astroturf it is off; the asphalt out to the white line is on; the pit exit merge is as it was. Its inner skill
+ *    course: the lap's centreline is on the track all the way round, the old band past the cones is off it and the
+ *    lane out to the cones past the old band on it.
  *
  *   npx tsx scripts/verify-drawn-surfaces.ts
  */
@@ -260,6 +262,18 @@ if (south) {
   check('and on the kerb it is on the track', !carOff(south.after, 330, 7.5));
   check('Red Bull Ring South: on the pit exit past the white line and the anti-cut rumble off the track (on before)',
     !carOff(south.before, 270, 9) && !carOff(south.before, 380, -12.5) && carOff(south.after, 270, 9) && carOff(south.after, 380, -12.5));
+}
+const inner = load('spielberg_inner');
+if (inner) {
+  // The inner skill course, laid out in cones: the lane between them is the track, the old 10.5 m band past them is not
+  const lapOff: number[] = [];
+  for (let s = 0; s < 931; s += 1) if (!pointOn(inner.after, s, 0)) lapOff.push(s);
+  check('Red Bull Ring inner: the lap centreline is on the track all the way round', lapOff.length === 0, lapOff.slice(0, 12).join(' '));
+  const band: [number, number][] = [[100, 4], [330, 4.2], [615, -4]];
+  check('Red Bull Ring inner: in the old band past the cones a car was on the track, and is off it now',
+    band.every(([s, l]) => !carOff(inner.before, s, l) && carOff(inner.after, s, l)), band.filter(([s, l]) => !carOff(inner.after, s, l)).map(([s, l]) => `${s}/${l}`).join(' '));
+  // (on the long diagonal the cones on the left stand 5 m out, past the old band)
+  check('Red Bull Ring inner: the lane out to the cones past the old band is the track now (off before)', !pointOn(inner.before, 215, -5.5) && pointOn(inner.after, 215, -5.5));
 }
 const goodwood = load('goodwood');
 if (goodwood) {

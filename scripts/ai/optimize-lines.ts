@@ -5,6 +5,7 @@
  *   npx tsx scripts/ai/optimize-lines.ts --track spielberg [--car f1|gt3] [--iters 4 (sweeps per step size)] [--write] [--grip 0.95]
  *       [--margin 0.4 (m kept between the car and a barrier)] [--robust-grip 1] [--ghosts] [--ac-line] [--straighten 2 [--slack 0.1]]
  *       [--prefer-ac 2 (% the AC author's line may lose)] [--verbose]
+ *       [--replace (write the quickest clean line even if it is not quicker: the current one breaks a new limit)]
  *
  * Starts: the current line and a minimum-curvature line from the centre; with `--ghosts`, also the players' lines from
  * the online boards' fastest laps of this line's cars (scripts/ai/fetch-ghosts.ts): each car's fastest lap, and a line
@@ -55,6 +56,7 @@ const acLineOn = argv.includes('--ac-line') || preferAcPct > 0;
 const straightW = Number(opt('straighten', '0'));
 const slackS = Number(opt('slack', straightW > 0 ? '0.1' : '0'));
 const verbose = argv.includes('--verbose');
+const replace = argv.includes('--replace');
 const robustGrip = Number(opt('robust-grip', '1'));
 const path = `public/tracks/${trackId}/track_data.json`;
 
@@ -199,7 +201,7 @@ const pool = preferAcPct > 0 ? quick.filter(acWithin) : quick;
 if (preferAcPct > 0) console.log(`AC author's lines within ${preferAcPct} % of the current line (${timed(oldLaps).toFixed(3)} s): ${pool.length}`);
 for (const cand of pool.sort((a, b) => timed(a.laps) - timed(b.laps))) {
   // Only a quicker line (or any clean one, when the current line is not) is worth the check
-  if (!(preferAcPct > 0) && currentClean && timed(cand.laps) >= timed(oldLaps) - 0.05 + slackS) {
+  if (!(preferAcPct > 0) && !replace && currentClean && timed(cand.laps) >= timed(oldLaps) - 0.05 + slackS) {
     notQuicker = true;
     break;
   }
@@ -211,7 +213,7 @@ for (const cand of pool.sort((a, b) => timed(a.laps) - timed(b.laps))) {
     break;
   }
 }
-const better = !!best && (preferAcPct > 0 || timed(best.laps) < timed(oldLaps) - 0.05 + slackS || !currentClean);
+const better = !!best && (preferAcPct > 0 || replace || timed(best.laps) < timed(oldLaps) - 0.05 + slackS || !currentClean);
 if (opt('dump', '') && best) writeFileSync(opt('dump', ''), JSON.stringify({ n: Array.from(best.n), ds: t.ds, name: best.name }));
 console.log(
   best && better
