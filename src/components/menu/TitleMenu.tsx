@@ -661,7 +661,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = (props) => {
   return (
     <div
       ref={rootRef}
-      className={`lc-ui-zoom pointer-events-auto fixed inset-0 z-40 flex flex-col overflow-y-auto pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] sm:pr-[max(2.5rem,env(safe-area-inset-right))] sm:pl-[max(2.5rem,env(safe-area-inset-left))] ${
+      className={`lc-ui-zoom pointer-events-auto fixed inset-0 z-40 flex flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges] pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] sm:pr-[max(2.5rem,env(safe-area-inset-right))] sm:pl-[max(2.5rem,env(safe-area-inset-left))] ${
         panel
           ? "bg-linear-to-r from-lc-void/97 via-lc-void/90 via-60% to-lc-void/40 pt-[max(1.75rem,env(safe-area-inset-top))] short:pt-[max(1rem,env(safe-area-inset-top))]"
           : "bg-linear-to-r from-lc-void/97 via-lc-void/80 via-35% to-transparent to-70% pt-[max(clamp(1.5rem,3.6vh,2.5rem),env(safe-area-inset-top))] max-lg:bg-lc-void/80 max-lg:bg-none short:pt-[max(1rem,env(safe-area-inset-top))]"

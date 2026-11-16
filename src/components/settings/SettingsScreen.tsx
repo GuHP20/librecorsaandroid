@@ -352,7 +352,7 @@ export function SettingsScreen({ env, initialCategory = "driving", initialTab, o
       role="dialog"
       aria-modal="true"
       aria-label="Settings"
-      className="lc-menu-screen lc-ui-zoom pointer-events-auto fixed inset-0 z-(--z-lc-menu) flex flex-col overflow-y-auto bg-lc-void/90 pt-[max(1.5rem,env(safe-area-inset-top))] pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] backdrop-blur-md sm:pr-[max(2.5rem,env(safe-area-inset-right))] sm:pl-[max(2.5rem,env(safe-area-inset-left))] short:pt-[max(0.75rem,env(safe-area-inset-top))]"
+      className="lc-menu-screen lc-ui-zoom pointer-events-auto fixed inset-0 z-(--z-lc-menu) flex flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges] bg-lc-void/90 pt-[max(1.5rem,env(safe-area-inset-top))] pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] backdrop-blur-md sm:pr-[max(2.5rem,env(safe-area-inset-right))] sm:pl-[max(2.5rem,env(safe-area-inset-left))] short:pt-[max(0.75rem,env(safe-area-inset-top))]"
     >
       <SettingsEnvProvider value={env}>
         <SettingsDetailProvider value={detail}>
