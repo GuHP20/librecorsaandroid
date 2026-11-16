@@ -4,6 +4,7 @@
  *
  *   npx tsx scripts/ai/optimize-lines.ts --track spielberg [--car f1|gt3] [--iters 4 (sweeps per step size)] [--write] [--grip 0.95]
  *       [--margin 0.4 (m kept between the car and a barrier)] [--robust-grip 1] [--ghosts] [--verbose]
+ *       [--replace (write the quickest clean line even if it is not quicker: the current one breaks a new limit)]
  *
  * Starts: the current line and a minimum-curvature line from the centre; with `--ghosts`, also the players' lines from
  * the online boards' fastest laps of this line's cars (scripts/ai/fetch-ghosts.ts): each car's fastest lap, and a line
@@ -42,6 +43,7 @@ const grip = Number(opt('grip', '0.95'));
 const write = argv.includes('--write');
 const ghostsOn = argv.includes('--ghosts');
 const verbose = argv.includes('--verbose');
+const replace = argv.includes('--replace');
 const robustGrip = Number(opt('robust-grip', '1'));
 const path = `public/tracks/${trackId}/track_data.json`;
 
@@ -163,7 +165,7 @@ let best: { name: string; n: Float64Array; laps: PhysicsLap[] } | null = null;
 let notQuicker = false;
 for (const cand of quick.sort((a, b) => timed(a.laps) - timed(b.laps))) {
   // Only a quicker line (or any clean one, when the current line is not) is worth the check
-  if (currentClean && timed(cand.laps) >= timed(oldLaps) - 0.05) {
+  if (!replace && currentClean && timed(cand.laps) >= timed(oldLaps) - 0.05) {
     notQuicker = true;
     break;
   }
@@ -175,7 +177,7 @@ for (const cand of quick.sort((a, b) => timed(a.laps) - timed(b.laps))) {
     break;
   }
 }
-const better = !!best && (timed(best.laps) < timed(oldLaps) - 0.05 || !currentClean);
+const better = !!best && (replace || timed(best.laps) < timed(oldLaps) - 0.05 || !currentClean);
 if (opt('dump', '') && best) writeFileSync(opt('dump', ''), JSON.stringify({ n: Array.from(best.n), ds: t.ds, name: best.name }));
 console.log(
   best && better
