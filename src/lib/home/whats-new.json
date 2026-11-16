@@ -1,5 +1,21 @@
 [
   {
+    "date": "2026-11-16",
+    "title": "New American circuits, third-party HUDs, and cone limits at the Red Bull Ring's inner course",
+    "items": [
+      "Added Watkins Glen (Grand Prix and short course), Bridgehampton and Riverside (long, short and NASCAR layouts) by LilSki, and SpeedVegas by Gogol, with Watkins Glen in two Weekly challenge weeks next year.",
+      "Added five third-party HUD layouts in Display > HUD, with the game's own panels drawn in each layout's style.",
+      "The Red Bull Ring's inner skill course now uses its cones as the track limits, so cutting inside them no longer counts, and the AI lines and the starting grid were redone to stay inside them.",
+      "Lap boards now show what each lap was driven with: keyboard, controller, wheel or touch.",
+      "Lap times on the home page can be filtered by car, and the Weekly challenge view shows this week's times and every past week's.",
+      "The 2026 car's rev lights now fill up to its shift beep instead of its limiter.",
+      "Fixed the force feedback bridge holding on to the wheel while WebHID force feedback was on, which stopped FFB on some wheels.",
+      "Lap times now says when the online board can't be reached instead of loading forever, and keeps showing the board through a failed refresh, and a rename now waits for every lap still uploading."
+    ],
+    "commits": 37,
+    "lastSha": "7ab77b0e3ef5fbc386a0082e0e86de280931369b"
+  },
+  {
     "date": "2026-11-15",
     "title": "Fairer track limits, Straight Mode fixes, smoother phones, and LibreCorsa apps",
     "items": [
