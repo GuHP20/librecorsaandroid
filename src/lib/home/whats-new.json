@@ -12,8 +12,8 @@
       "Fixed the force feedback bridge holding on to the wheel while WebHID force feedback was on, which stopped FFB on some wheels.",
       "Lap times now says when the online board can't be reached instead of loading forever, and keeps showing the board through a failed refresh, and a rename now waits for every lap still uploading."
     ],
-    "commits": 37,
-    "lastSha": "7ab77b0e3ef5fbc386a0082e0e86de280931369b"
+    "commits": 42,
+    "lastSha": "0fb71b98b46c32c9c9a329ec9d19489873a3aeb7"
   },
   {
     "date": "2026-11-15",
