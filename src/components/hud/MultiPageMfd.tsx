@@ -87,8 +87,9 @@ function skinToneOf(tone: BadgeTone): SkinTone {
     case "bad":
       return "loss";
     case "info":
-    case "best":
       return "info";
+    case "best":
+      return "best";
     default:
       return "default";
   }
@@ -109,11 +110,11 @@ const RelativePage: React.FC<{ rows: RelativeRow[]; racing: boolean }> = ({ rows
           return (
             <li
               key={r.key}
-              className={`lc-data flex h-6 items-center gap-2 px-2 text-[11px] ${skinCss.radiusSm} ${
-                r.isPlayer ? `${skinCss.playerRow} font-bold` : skinCss.subBar
+              className={`lc-data flex h-6 items-center gap-2 px-2 text-[11px] ${skinCss.row} ${
+                r.isPlayer ? `${skinCss.playerRow} font-bold` : ""
               }`}
             >
-              <span className={`w-4.5 text-right text-[10px] ${r.isPlayer ? "" : skinCss.inkDim}`}>
+              <span className={`w-4.5 text-right text-[10px] ${skinCss.pos} ${r.isPlayer ? "" : skinCss.inkDim}`}>
                 {racing && r.position ? r.position : ""}
               </span>
               <span
@@ -191,9 +192,9 @@ const Stat: React.FC<{ label: string; value: string; sub?: string; tone?: string
   const skin = useHudSkin();
   if (skin !== null) {
     return (
-      <div className={`flex min-w-0 flex-col justify-center gap-1 px-2.5 py-2 ${skinCss.deepBox}`}>
-        <span className={`text-[9px] font-semibold tracking-[0.08em] whitespace-nowrap uppercase ${skinCss.inkDim}`}>{label}</span>
-        <span className={`lc-data leading-none ${big ? "text-[24px]" : "text-[16px]"} ${toneClass ?? skinCss.ink}`}>{value}</span>
+      <div className={`flex min-w-0 flex-col justify-center gap-1.5 px-2.5 py-2 ${skinCss.deepBox}`}>
+        <span className={skinCss.label}>{label}</span>
+        <span className={`lc-data leading-none ${skinCss.readout} ${big ? "text-[24px]" : "text-[16px]"} ${toneClass ?? skinCss.ink}`}>{value}</span>
         {sub ? <span className={`lc-data text-[10px] ${skinCss.inkDim}`}>{sub}</span> : null}
       </div>
     );
@@ -296,7 +297,7 @@ const TyreCorner: React.FC<{ t: CarTelemetry; i: number }> = ({ t, i }) => {
       <TyreGlyph c={c} window={w} className="h-14 w-7.5" />
       <BrakeBar c={c} className="h-14 w-1.5" />
       <span className={`flex min-w-0 flex-1 flex-col gap-0.75 ${right ? "items-end" : "items-start"}`}>
-        <span className="lc-data text-[20px] leading-none" style={{ color: tyreHeatColor(c.temp, w) }}>
+        <span className={`lc-data text-[20px] leading-none ${skin !== null ? skinCss.readout : ""}`} style={{ color: tyreHeatColor(c.temp, w) }}>
           {formatTemp(c.temp, units)}
         </span>
         {/* Pressure, and against its optimum with the sign (never the colour alone) */}
@@ -359,8 +360,9 @@ const StandingsPage: React.FC<{ t: CarTelemetry; laps: LapRecord[] }> = ({ t, la
             const purple = fastest !== null && s.bestLapMs === fastest;
             if (skin !== null) {
               return (
-                <tr key={`${s.driverCode}-${pos}`} className={`h-5.75 ${s.isPlayer ? `${skinCss.playerRow} font-bold` : skinCss.ink}`}>
-                  <td className={`w-6 pr-2 text-right ${s.isPlayer ? "" : skinCss.inkDim}`}>{pos}</td>
+                <tr key={`${s.driverCode}-${pos}`} className={`h-5.75 ${skinCss.row} ${s.isPlayer ? `${skinCss.playerRow} font-bold` : skinCss.ink}`}>
+                  <td className={`w-6 pr-2 text-right ${skinCss.pos} ${s.isPlayer ? "" : skinCss.inkDim}`}>{pos}</td>
+                  <td className="w-1.5" />
                   <td>
                     <span className="inline-flex items-center gap-1.5">
                       <span
@@ -377,7 +379,7 @@ const StandingsPage: React.FC<{ t: CarTelemetry; laps: LapRecord[] }> = ({ t, la
                   >
                     <span className="inline-flex items-center gap-1">
                       {purple ? (
-                        <SkinTag tone="info" filled className="px-1 py-0 text-[9px] font-bold" aria-label="Fastest lap">
+                        <SkinTag tone="best" filled className="px-1 py-0 text-[9px] font-bold" aria-label="Fastest lap">
                           FL
                         </SkinTag>
                       ) : null}
@@ -429,8 +431,9 @@ const StandingsPage: React.FC<{ t: CarTelemetry; laps: LapRecord[] }> = ({ t, la
           .map((l) => {
             if (skin !== null) {
               return (
-                <tr key={l.lap} className={`h-5.75 ${l.valid ? skinCss.ink : `${skinCss.inkLoss} opacity-80 line-through`}`}>
-                  <td className={`w-6 pr-2 text-right ${skinCss.inkDim}`}>{l.lap}</td>
+                <tr key={l.lap} className={`h-5.75 ${skinCss.row} ${l.valid ? skinCss.ink : `${skinCss.inkLoss} opacity-80 line-through`}`}>
+                  <td className={`w-6 pr-2 text-right ${skinCss.pos} ${skinCss.inkDim}`}>{l.lap}</td>
+                  <td className="w-1.5" />
                   <td style={l.valid && l.timeMs === best ? { color: HUD_BEST } : undefined}>
                     <span className="inline-flex items-center gap-1">
                       {formatLapTime(l.timeMs)}
@@ -708,7 +711,7 @@ export const MultiPageMfd: React.FC<MultiPageMfdProps> = ({
     return (
       <SkinPanel
         cut={folded ? "sm" : "md"}
-        className={`pointer-events-auto select-none ${folded ? "w-max min-w-[300px]" : "w-[300px]"}`}
+        className={`pointer-events-auto select-none ${folded ? `w-max min-w-[300px] ${skinCss.pill}` : "w-[300px]"}`}
         innerClassName={folded ? "flex items-center gap-2 px-2 py-1.5" : "flex flex-col gap-2 p-2.5"}
         aria-label={`MFD · ${meta.title}`}
       >
@@ -733,7 +736,7 @@ export const MultiPageMfd: React.FC<MultiPageMfdProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-1">
-            <div className="flex min-w-0 flex-1 gap-1" role="tablist" aria-label="MFD pages" title="D-pad left or right, or Ins: next page">
+            <div className={`flex min-w-0 flex-1 gap-1 ${skinCss.tablist}`} role="tablist" aria-label="MFD pages" title="D-pad left or right, or Ins: next page">
               {PAGES.map((p) => (
                 <SkinButton
                   key={p.id}

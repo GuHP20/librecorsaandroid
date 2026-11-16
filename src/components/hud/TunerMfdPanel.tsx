@@ -477,7 +477,7 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
       case "tc":
         return (
           <>
-            <span className={skinned ? `text-[10px] font-semibold uppercase ${skinCss.inkDim}` : MFD_LBL}>Cut</span>
+            <span className={skinned ? skinCss.label : MFD_LBL}>Cut</span>
             {skinned ? <LiveBar frac={tuner.tcCutFraction} skinned fillClass={skinCss.fillCaution} /> : <LiveBar frac={tuner.tcCutFraction} color={HUD_CAUTION} />}
             <span
               className={`lc-data w-9.5 text-right text-[12px] ${skinned ? (tcActive ? skinCss.inkCaution : skinCss.ink) : ""}`}
@@ -490,7 +490,7 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
       case "abs":
         return (["FL", "FR", "RL", "RR"] as const).map((c, i) => (
           <span key={c} className="flex min-w-0 flex-1 items-center gap-1">
-            <span className={skinned ? `text-[10px] font-semibold uppercase ${skinCss.inkDim}` : `${HUD_LBL} tracking-normal`}>{c}</span>
+            <span className={skinned ? skinCss.label : `${HUD_LBL} tracking-normal`}>{c}</span>
             {skinned ? (
               <LiveBar frac={tuner.absCutPerWheel[i] ?? 0} skinned fillClass={skinCss.fillCaution} />
             ) : (
@@ -566,7 +566,7 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
           >
             <Icon name="previous" size="sm" />
           </SkinButton>
-          <div className="flex min-w-0 flex-1 gap-0.5">
+          <div className={`flex min-w-0 flex-1 gap-0.5 ${skinCss.tablist}`}>
             {CATEGORIES.map((cat) => (
               <SkinButton
                 key={cat.id}
@@ -592,7 +592,7 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
           </SkinButton>
         </div>
 
-        <div className="flex h-5.5 gap-1">
+        <div className={`flex h-5.5 gap-1 ${skinCss.tablist}`}>
           {categoryDials.map((d) => {
             const selected = d.id === activeDial.id;
             return (
@@ -611,8 +611,8 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
 
         <div className={`flex min-h-0 flex-1 flex-col justify-between px-2.5 py-2 ${skinCss.deepBox}`}>
           <div className="flex items-baseline justify-between">
-            <span className={`text-[11px] font-bold tracking-[0.06em] uppercase ${skinCss.ink}`}>{activeDial.title}</span>
-            <span className={`text-[10px] font-semibold uppercase ${skinCss.inkDim}`}>{hero.tag}</span>
+            <span className={`${skinCss.label} ${skinCss.ink}`}>{activeDial.title}</span>
+            <span className={skinCss.label}>{hero.tag}</span>
           </div>
           <div className="flex items-center justify-between">
             <SkinButton
@@ -624,7 +624,7 @@ export const TunerMfdPanel: React.FC<TunerMfdPanelProps> = ({
             >
               <Icon name="remove" size="sm" />
             </SkinButton>
-            <span className={`lc-data text-[36px] leading-none ${hero.off ? skinCss.inkDim : skinCss.ink}`}>{hero.text}</span>
+            <span className={`lc-data text-[36px] leading-none ${skinCss.readout} ${hero.off ? skinCss.inkDim : skinCss.ink}`}>{hero.text}</span>
             <SkinButton
               active={flashDir === "up"}
               onClick={() => adjustActiveDial(1)}
