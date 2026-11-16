@@ -548,5 +548,152 @@
       "licenseUrl": "https://www.overtake.gg/downloads/virginia-international-raceway.11892/"
     },
     "quality": "sim"
+  },
+  {
+    "id": "bridgehampton",
+    "name": "Bridgehampton Race Circuit",
+    "layout": "Full circuit",
+    "country": "United States",
+    "city": "Bridgehampton, New York",
+    "lengthM": 4540.22,
+    "turns": 11,
+    "direction": "clockwise",
+    "dataUrl": "/tracks/bridgehampton/track_data.json",
+    "credit": {
+      "title": "Bridgehampton Race Circuit",
+      "author": "LilSki",
+      "authorUrl": "https://www.overtake.gg/members/lilski.218202/",
+      "url": "https://www.overtake.gg/downloads/bridgehampton-race-circuit.6604/",
+      "short": null,
+      "license": "Used with permission",
+      "licenseUrl": "https://www.overtake.gg/downloads/bridgehampton-race-circuit.6604/"
+    },
+    "quality": "sim"
+  },
+  {
+    "id": "speedvegas",
+    "name": "SpeedVegas",
+    "layout": "Full circuit",
+    "country": "United States",
+    "city": "Las Vegas, Nevada",
+    "lengthM": 1844.41,
+    "turns": 10,
+    "direction": "anticlockwise",
+    "dataUrl": "/tracks/speedvegas/track_data.json",
+    "credit": {
+      "title": "SpeedVegas",
+      "author": "Gogol",
+      "authorUrl": "https://www.overtake.gg/members/gogol-the-chaos.153450/",
+      "url": "https://www.overtake.gg/downloads/speedvegas-2025.86996/",
+      "short": null,
+      "license": "Used with permission",
+      "licenseUrl": "https://www.overtake.gg/downloads/speedvegas-2025.86996/"
+    },
+    "quality": "sim"
+  },
+  {
+    "id": "riverside",
+    "name": "Riverside International Raceway",
+    "layout": "Long course",
+    "country": "United States",
+    "city": "Riverside, California",
+    "lengthM": 5233.68,
+    "turns": 10,
+    "direction": "clockwise",
+    "dataUrl": "/tracks/riverside/track_data.json",
+    "credit": {
+      "title": "Riverside International Raceway",
+      "author": "LilSki",
+      "authorUrl": "https://www.overtake.gg/members/lilski.218202/",
+      "url": "https://www.overtake.gg/downloads/riverside-international-raceway.9492/",
+      "short": null,
+      "license": "Used with permission",
+      "licenseUrl": "https://www.overtake.gg/downloads/riverside-international-raceway.9492/"
+    },
+    "quality": "sim"
+  },
+  {
+    "id": "riverside_short",
+    "name": "Riverside International Raceway",
+    "layout": "Short course",
+    "country": "United States",
+    "city": "Riverside, California",
+    "lengthM": 4034.92,
+    "turns": 10,
+    "direction": "clockwise",
+    "dataUrl": "/tracks/riverside_short/track_data.json",
+    "credit": {
+      "title": "Riverside International Raceway",
+      "author": "LilSki",
+      "authorUrl": "https://www.overtake.gg/members/lilski.218202/",
+      "url": "https://www.overtake.gg/downloads/riverside-international-raceway.9492/",
+      "short": null,
+      "license": "Used with permission",
+      "licenseUrl": "https://www.overtake.gg/downloads/riverside-international-raceway.9492/"
+    },
+    "quality": "sim"
+  },
+  {
+    "id": "riverside_nascar",
+    "name": "Riverside International Raceway",
+    "layout": "NASCAR course",
+    "country": "United States",
+    "city": "Riverside, California",
+    "lengthM": 4153.22,
+    "turns": 9,
+    "direction": "clockwise",
+    "dataUrl": "/tracks/riverside_nascar/track_data.json",
+    "credit": {
+      "title": "Riverside International Raceway",
+      "author": "LilSki",
+      "authorUrl": "https://www.overtake.gg/members/lilski.218202/",
+      "url": "https://www.overtake.gg/downloads/riverside-international-raceway.9492/",
+      "short": null,
+      "license": "Used with permission",
+      "licenseUrl": "https://www.overtake.gg/downloads/riverside-international-raceway.9492/"
+    },
+    "quality": "sim"
+  },
+  {
+    "id": "watkins_glen",
+    "name": "Watkins Glen International",
+    "layout": "Grand Prix course",
+    "country": "United States",
+    "city": "Watkins Glen, New York",
+    "lengthM": 5464.23,
+    "turns": 14,
+    "direction": "clockwise",
+    "dataUrl": "/tracks/watkins_glen/track_data.json",
+    "credit": {
+      "title": "Watkins Glen International",
+      "author": "LilSki",
+      "authorUrl": "https://www.overtake.gg/members/lilski.218202/",
+      "url": "https://www.overtake.gg/downloads/watkins-glen-international.20204/",
+      "short": null,
+      "license": "Used with permission",
+      "licenseUrl": "https://www.overtake.gg/downloads/watkins-glen-international.20204/"
+    },
+    "quality": "sim"
+  },
+  {
+    "id": "watkins_glen_short",
+    "name": "Watkins Glen International",
+    "layout": "Short course",
+    "country": "United States",
+    "city": "Watkins Glen, New York",
+    "lengthM": 3931.54,
+    "turns": 9,
+    "direction": "clockwise",
+    "dataUrl": "/tracks/watkins_glen_short/track_data.json",
+    "credit": {
+      "title": "Watkins Glen International",
+      "author": "LilSki",
+      "authorUrl": "https://www.overtake.gg/members/lilski.218202/",
+      "url": "https://www.overtake.gg/downloads/watkins-glen-international.20204/",
+      "short": null,
+      "license": "Used with permission",
+      "licenseUrl": "https://www.overtake.gg/downloads/watkins-glen-international.20204/"
+    },
+    "quality": "sim"
   }
 ]
