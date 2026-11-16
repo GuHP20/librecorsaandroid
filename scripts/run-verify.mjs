@@ -1,4 +1,4 @@
-// Runs the scripts/verify-*.ts suites and stops at the first failure.
+// Runs the scripts/verify-*.ts suites and reports every failure, not just the first.
 // Usage: node scripts/run-verify.mjs            (every suite except the slow verify-driver-laps, several at once)
 //        node scripts/run-verify.mjs --record   (the same, then writes each suite's time to verify-timings.json)
 //        node scripts/run-verify.mjs driver-laps [args...]   (one named suite on its own, extra args passed through)
@@ -6,8 +6,9 @@
 // A full run starts several suites at once: as many as it takes for the longest one to set the run's length, and no
 // more than the machine has cores (VERIFY_JOBS sets the number; VERIFY_JOBS=1 runs them one after another). They
 // start longest first, by the times in verify-timings.json, so the slowest suite never starts last; a suite with no
-// recorded time starts first. Each suite's output is held back and printed whole when it ends, and a failure stops
-// the suites still running.
+// recorded time starts first. Each suite's output is held back and printed whole when it ends. A failing suite doesn't
+// stop the others: the run ends with a list of every suite that failed and the command that reruns each one.
+// In GitHub Actions a passing suite's output folds into a group and a failure is also an error annotation.
 import { spawn, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
@@ -30,8 +31,10 @@ const nodeOptions = [process.env.NODE_OPTIONS, "--disable-warning=THREE_CJS_DEPR
 // The suites check the whole car and circuit registry; ones that load a hosted-only file skip it when a clone
 // doesn't have it (scripts/lib/hosted-files.ts, src/lib/hosted-content.ts)
 const env = { NEXT_PUBLIC_HOSTED_CONTENT: "1", ...process.env, NODE_OPTIONS: nodeOptions };
+const inActions = process.env.GITHUB_ACTIONS === "true";
 const suiteArgs = (suite) => ["--import", "tsx", join(scriptsDir, suite)];
 const secondsSince = (started) => ((Date.now() - started) / 1000).toFixed(1);
+const shortName = (suite) => suite.replace(/^verify-|\.ts$/g, "");
 
 if (only) {
   const suite = `verify-${only}.ts`;
@@ -46,10 +49,10 @@ if (only) {
   console.log(`--- ${suite} passed in ${seconds}s`);
   console.log(`\nAll 1 verify suite(s) passed.`);
 } else {
-  runAll();
+  await runAll();
 }
 
-function runAll() {
+async function runAll() {
   let timings = {};
   try {
     timings = JSON.parse(readFileSync(TIMINGS, "utf8"));
@@ -77,61 +80,74 @@ function runAll() {
   console.log(`Running ${suites.length} verify suites, ${jobs} at a time, longest first.`);
 
   const startedAll = Date.now();
-  const running = new Set();
-  const times = {};
-  let next = 0;
-  let failed = false;
+  let started = 0;
   let finished = false;
-
-  const start = () => {
-    const suite = suites[next++];
-    const started = Date.now();
-    const output = [];
-    // A suite's output only shows when it ends, so this line is what shows one that never does
-    console.log(`started ${suite}`);
-    const child = spawn(process.execPath, suiteArgs(suite), { stdio: ["ignore", "pipe", "pipe"], env });
-    running.add(child);
-    child.stdout.on("data", (chunk) => output.push(chunk));
-    child.stderr.on("data", (chunk) => output.push(chunk));
-    child.on("error", (error) => output.push(Buffer.from(`${error.stack ?? error}\n`)));
-    child.on("close", (code, signal) => {
-      running.delete(child);
-      if (failed) return;
-      const seconds = secondsSince(started);
-      process.stdout.write(`\n=== ${suite} ===\n`);
-      process.stdout.write(Buffer.concat(output));
-      if (code !== 0) {
-        failed = true;
-        for (const other of running) other.kill();
-        console.error(`\n${suite} failed (exit ${code ?? signal}) after ${seconds}s`);
-        process.exitCode = code || 1;
-        return;
-      }
-      times[suite] = Number(seconds);
-      console.log(`--- ${suite} passed in ${seconds}s`);
-      if (next < suites.length) start();
-      else if (running.size === 0) finish();
-    });
-  };
-
-  const finish = () => {
-    finished = true;
-    console.log(`\nAll ${suites.length} verify suite(s) passed in ${secondsSince(startedAll)}s, ${jobs} at a time.`);
-    if (record) {
-      const sorted = Object.fromEntries(Object.entries(times).sort(([a, x], [b, y]) => y - x || a.localeCompare(b)));
-      writeFileSync(TIMINGS, `${JSON.stringify(sorted, null, 2)}\n`);
-      console.log(`Wrote the times to ${TIMINGS}`);
-    }
-  };
-
-  // A run that ends without every suite passing or one failing (a child that never reported back) is a failure
+  // A run that ends before every suite has reported back (a child that never closed) is a failure
   process.on("exit", () => {
-    if (!finished && !failed) {
-      console.error(`\nThe verify run stopped after ${next} of ${suites.length} suites were started.`);
+    if (!finished) {
+      console.error(`\nThe verify run stopped with ${started} of ${suites.length} suites started.`);
       process.exitCode = 1;
     }
   });
 
-  if (suites.length === 0) finish();
-  for (let i = 0; i < jobs; i++) start();
+  /** Runs one suite with its output held back, prints that output in one block when it ends */
+  const runSuite = (suite) =>
+    new Promise((resolve) => {
+      started++;
+      const startedAt = Date.now();
+      const output = [];
+      // A suite's output only shows when it ends, so this line is what shows one that never does
+      console.log(`started ${suite}`);
+      const child = spawn(process.execPath, suiteArgs(suite), { stdio: ["ignore", "pipe", "pipe"], env });
+      child.stdout.on("data", (chunk) => output.push(chunk));
+      child.stderr.on("data", (chunk) => output.push(chunk));
+      child.on("error", (error) => output.push(Buffer.from(`${error.stack ?? error}\n`)));
+      child.on("close", (code, signal) => {
+        const seconds = secondsSince(startedAt);
+        const why = code === 0 ? null : `exit ${code ?? signal}`;
+        let text = Buffer.concat(output).toString();
+        if (text && !text.endsWith("\n")) text += "\n";
+        if (!why && inActions) {
+          console.log(`::group::${suite} passed in ${seconds}s`);
+          process.stdout.write(text);
+          console.log("::endgroup::");
+        } else {
+          process.stdout.write(`\n=== ${suite} ===\n${text}`);
+          if (!why) console.log(`--- ${suite} passed in ${seconds}s`);
+          else {
+            if (inActions) console.log(`::error title=${suite} failed::${why} after ${seconds}s`);
+            console.error(`--- ${suite} FAILED (${why}) after ${seconds}s`);
+          }
+        }
+        resolve({ suite, why, seconds: Number(seconds) });
+      });
+    });
+
+  /** Runs the suites at most `limit` at a time, in the order given */
+  const runPool = async (list, limit) => {
+    const results = [];
+    let next = 0;
+    const lane = async () => {
+      while (next < list.length) results.push(await runSuite(list[next++]));
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, list.length) }, lane));
+    return results;
+  };
+
+  const results = await runPool(suites, jobs);
+  finished = true;
+  const failed = results.filter((r) => r.why);
+  if (failed.length) {
+    console.error(`\n${failed.length} of ${results.length} verify suite(s) failed after ${secondsSince(startedAll)}s:`);
+    for (const r of failed) console.error(`  ${r.suite} (${r.why}): node scripts/run-verify.mjs ${shortName(r.suite)}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`\nAll ${results.length} verify suite(s) passed in ${secondsSince(startedAll)}s, ${jobs} at a time.`);
+  if (record) {
+    const times = Object.fromEntries(results.map((r) => [r.suite, r.seconds]));
+    const sorted = Object.fromEntries(Object.entries(times).sort(([a, x], [b, y]) => y - x || a.localeCompare(b)));
+    writeFileSync(TIMINGS, `${JSON.stringify(sorted, null, 2)}\n`);
+    console.log(`Wrote the times to ${TIMINGS}`);
+  }
 }
