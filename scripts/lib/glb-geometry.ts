@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { venueModelFiles } from '../../src/lib/venue-models';
@@ -39,8 +39,12 @@ function readGlb(path: string): Buffer {
   const { mtimeMs, size } = statSync(path);
   const decoded = join(tmpdir(), `glb-geometry-${basename(path, '.glb')}-${Math.round(mtimeMs)}-${size}.glb`);
   if (!existsSync(decoded)) {
-    // The meshopt decoder's WASM only starts asynchronously, so decode in a child process to keep this sync
-    execFileSync(process.execPath, [join(__dirname, 'decode-meshopt-glb.mjs'), path, decoded], { stdio: 'inherit' });
+    // The meshopt decoder's WASM only starts asynchronously, so decode in a child process to keep this sync.
+    // The verify suites run side by side (scripts/run-verify.mjs), so the copy is written under this process's own
+    // name and renamed into place: another suite never reads a half-written file.
+    const partial = `${decoded}.${process.pid}.partial`;
+    execFileSync(process.execPath, [join(__dirname, 'decode-meshopt-glb.mjs'), path, partial], { stdio: 'inherit' });
+    renameSync(partial, decoded);
   }
   return readFileSync(decoded);
 }
