@@ -52,6 +52,13 @@ const FAST_LANE: Record<string, string> = {
   sachsenring_short: 'librecorsa-src/sachsenring/content/tracks/g333_sachsenring_2022/trackday_short',
   norisring: 'librecorsa-src/norisring/Norisring2009_v3.23/content/tracks/norisring',
   le_mans_82: 'librecorsa-src/le_mans_82/content/tracks/le_mans_82/regular',
+  bridgehampton: 'librecorsa-src/bridgehampton/bridgehampton',
+  watkins_glen: 'librecorsa-src/watkins_glen/lilski_watkins_glen/boot',
+  watkins_glen_short: 'librecorsa-src/watkins_glen/lilski_watkins_glen/short',
+  riverside: 'librecorsa-src/riverside/riverside/long',
+  riverside_short: 'librecorsa-src/riverside/riverside/short',
+  riverside_nascar: 'librecorsa-src/riverside/riverside/nascar',
+  speedvegas: 'assettocorsa/content/tracks/speedvegas',
 };
 
 export function fastLanePath(trackId: string): string | null {
