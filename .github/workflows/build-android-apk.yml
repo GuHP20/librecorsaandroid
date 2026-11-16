@@ -48,7 +48,15 @@ jobs:
       - name: Adicionar o Capacitor e criar o projeto Android
         run: |
           npm install --no-save @capacitor/core@^7 @capacitor/cli@^7 @capacitor/android@^7
-          npx cap init LibreCorsa com.librecorsa.app --web-dir=www
+          # Config em JSON (evita o capacitor.config.ts, que depende do TypeScript do projeto)
+          rm -f capacitor.config.ts capacitor.config.js
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.librecorsa.app",
+            "appName": "LibreCorsa",
+            "webDir": "www"
+          }
+          EOF
           npx cap add android
           npx cap sync android
 
