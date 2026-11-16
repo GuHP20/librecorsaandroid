@@ -3,7 +3,7 @@
  * API (cloudflare/api/board.ts) when it has one switched on (src/lib/net/online-config.ts).
  *
  * Online there is one board per circuit and car: every driver appears once, with their fastest lap and what it was
- * driven with (assists, realism, dry or wet). The board can be narrowed to laps of one kind ("no assists").
+ * driven with (assists, realism, dry or wet, and the input: keyboard, controller, wheel or touch). The board can be narrowed to laps of one kind ("no assists").
  * Only the LapRecording and the driver key are ever sent; answers are validated before use.
  */
 import { isVehicleModelId, type VehicleModelId } from "@/types/f1";
