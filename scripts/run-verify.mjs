@@ -6,7 +6,8 @@
 // A full run starts several suites at once: as many as it takes for the longest one to set the run's length, and no
 // more than the machine has cores (VERIFY_JOBS sets the number; VERIFY_JOBS=1 runs them one after another). They
 // start longest first, by the times in verify-timings.json, so the slowest suite never starts last; a suite with no
-// recorded time starts first. Each suite's output is held back and printed whole when it ends. A failing suite doesn't
+// recorded time starts first. The two that check real timers (ALONE) run one at a time after the rest, on an idle
+// machine. Each suite's output is held back and printed whole when it ends. A failing suite doesn't
 // stop the others: the run ends with a list of every suite that failed and the command that reruns each one.
 // In GitHub Actions a passing suite's output folds into a group and a failure is also an error annotation.
 import { spawn, spawnSync } from "node:child_process";
@@ -17,6 +18,12 @@ import { fileURLToPath } from "node:url";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const SLOW = new Set(["verify-driver-laps.ts"]);
+// Suites whose checks have tight windows on real timers: gpu-health gives up on a fence at a 60 ms timeout and wants
+// the wait under a second, and input measures the WebHID kerb buzz's frequency from 16 ms timers. A busy machine can
+// fail either, so they run one at a time after the rest (about 2 s together). The other timed checks keep a wide
+// margin under load and stay in the pool: f12026-car's query cost (1.2 µs against 5 µs) and tv-occlusion's index
+// against the Raycaster (about 390× faster against the 20× it needs), both measured with the machine fully loaded.
+const ALONE = new Set(["verify-gpu-health.ts", "verify-input.ts"]);
 const TIMINGS = join(scriptsDir, "verify-timings.json");
 
 const args = process.argv.slice(2);
@@ -63,10 +70,12 @@ async function runAll() {
   const suites = readdirSync(scriptsDir)
     .filter((f) => /^verify-.*\.ts$/.test(f) && !SLOW.has(f))
     .sort((a, b) => recorded(b) - recorded(a) || a.localeCompare(b));
+  const together = suites.filter((s) => !ALONE.has(s));
+  const alone = suites.filter((s) => ALONE.has(s));
 
   // Once the longest suite is what sets the run's length, more at once only slows every suite down (on a 14-core
   // Mac, 14 at once took 411 s and 4 at once 323 s), so by default stop at the first count where that happens
-  const known = suites.map(recorded).filter(Number.isFinite);
+  const known = together.map(recorded).filter(Number.isFinite);
   const runLength = (count) => {
     const lanes = new Array(count).fill(0);
     for (const t of known) lanes[lanes.indexOf(Math.min(...lanes))] += t;
@@ -76,8 +85,9 @@ async function runAll() {
   let enough = known.length ? 1 : cores;
   while (enough < cores && runLength(enough) > Math.max(...known)) enough++;
   const wanted = Number.parseInt(process.env.VERIFY_JOBS ?? "", 10);
-  const jobs = Math.max(1, Math.min(suites.length, wanted > 0 ? wanted : enough));
-  console.log(`Running ${suites.length} verify suites, ${jobs} at a time, longest first.`);
+  const jobs = Math.max(1, Math.min(together.length, wanted > 0 ? wanted : enough));
+  const then = alone.length ? `, then ${alone.map(shortName).join(" and ")} on their own` : "";
+  console.log(`Running ${suites.length} verify suites, ${jobs} at a time, longest first${then}.`);
 
   const startedAll = Date.now();
   let started = 0;
@@ -134,7 +144,7 @@ async function runAll() {
     return results;
   };
 
-  const results = await runPool(suites, jobs);
+  const results = [...(await runPool(together, jobs)), ...(await runPool(alone, 1))];
   finished = true;
   const failed = results.filter((r) => r.why);
   if (failed.length) {
