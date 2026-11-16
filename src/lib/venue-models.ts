@@ -38,7 +38,7 @@ export const VENUE_MODELS: readonly VenueModel[] = [
   { venue: "sachsenring", build: "c4e8700f", ktx2Build: "6903794c", layouts: ["sachsenring", "sachsenring_short"] },
   { venue: "okayama", build: "710efbb4", ktx2Build: "095ff98a", layouts: ["okayama", "okayama_drift", "okayama_piper"] },
   { venue: "riverside", build: "e3849086", ktx2Build: "3bd90ac1", layouts: ["riverside", "riverside_short", "riverside_nascar"] },
-  { venue: "watkins_glen", build: "f39a08df", ktx2Build: "16375772", layouts: ["watkins_glen", "watkins_glen_short"] },
+  { venue: "watkins_glen", build: "5d56b71c", ktx2Build: "c81a64ab", layouts: ["watkins_glen", "watkins_glen_short"] },
 ];
 
 /** A layout's two files (relative to the base path) */
