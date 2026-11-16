@@ -53,6 +53,8 @@ const LAP_S = {
   grobnik: 64,
   norisring: 42,
   barbagallo: 43,
+  watkins_glen: 85,
+  watkins_glen_short: 55,
 } as const;
 type Circuit = keyof typeof LAP_S;
 /** Dunsfold is for time trials only: that week's races are here, in the 2026 prototype */
@@ -118,7 +120,7 @@ const WEEKS: readonly (readonly [circuit: Circuit | "dunsfold", vehicle: Car, ca
   ["monaco", "lc26"], // 31 May: the grand prix, 4-6 Jun
   ["le_mans_82", "lc-lmdh"], // 7 Jun: the 24 hours, 12-13 Jun
   ["sachsenring", "nissan-r32-jtcc"], // 14 Jun
-  ["rwanda_official_short", "lc-lmdh"], // 21 Jun
+  ["watkins_glen", "lc-lmdh"], // 21 Jun: the Six Hours of the Glen, 24-27 Jun
   ["norisring", "amg-gt3"], // 28 Jun: GT3 race weekend, 2-4 Jul
   ["spielberg", "lc26"], // 5 Jul: the grand prix, 9-11 Jul
   ["okayama_piper", "nissan-r32-jtcc"], // 12 Jul
@@ -130,7 +132,7 @@ const WEEKS: readonly (readonly [circuit: Circuit | "dunsfold", vehicle: Car, ca
   ["spielberg_south", "nissan-r32-jtcc"], // 23 Aug
   ["oschersleben", "mtr-496r"], // 30 Aug
   ["rwanda_official_short", "amg-gt3"], // 6 Sep
-  ["barbagallo", "nissan-r33-jgtc"], // 13 Sep
+  ["watkins_glen_short", "nissan-r33-jgtc"], // 13 Sep: NASCAR's Cup race on the short course, 17-19 Sep
   ["sachsenring", "amg-gt3"], // 20 Sep: GT3 race weekend, 24-26 Sep
   ["istanbul_park", "lc26"], // 27 Sep: the grand prix, 1-3 Oct
   ["le_mans_82", "mtr-496r"], // 4 Oct

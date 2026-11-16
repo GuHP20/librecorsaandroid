@@ -33,7 +33,7 @@ The fields every entry needs:
 - `credit`: `title`, `author`, `url`, `short`, `license`, `licenseUrl`, shown in the game's credits
 - `type` (`'street'` or `'hillclimb'`) and `pointToPoint: True` where they apply
 
-The other keys fix things a particular mod needs: `physicsNodeOverrides` when the mod's surface names don't say what a surface is, `hideTextures`, `hideNodes` and `hideMaterials` to leave meshes out, `sectionSkip` and `sectionNames` for corner names, `closeBranches` and `openWalls` where several layouts share the asphalt. The comments next to each one in the existing entries say what it was for.
+The other keys fix things a particular mod needs: `physicsNodeOverrides` when the mod's surface names don't say what a surface is, `hideTextures`, `hideNodes` and `hideMaterials` to leave meshes out, `sectionSkip` and `sectionNames` for corner names, `closeBranches` and `openWalls` where several layouts share the asphalt, `bakeMultilayerMasks` for terrain drawn from a blend mask over a blank base texture (LilSki's circuits), and `texturePatches` to paint over one panel of a sign atlas. The comments next to each one in the existing entries say what it was for.
 
 ### 2. Point it at the folder
 

@@ -843,6 +843,246 @@ AC_TRACKS = {
             'licenseUrl': 'https://www.overtake.gg/downloads/goodwood-festival-of-speed-2017.26839/',
         },
     },
+    'bridgehampton': {
+        'folder': 'bridgehampton',
+        'layout_dir': '',
+        'models_ini': None,
+        # models.ini also lists 3D grass (grass.kn5) and the crowd (people.kn5, 314k triangles). phy.kn5 is the
+        # physical road, kerbs and barriers
+        'kn5_files': ['bridgehampton.kn5', 'phy.kn5', 'land.kn5', 'pb.kn5', 'trees.kn5', 'cones.kn5', 'groove.kn5'],
+        'hideNodes': r'CREW',
+        'texturePatches': {'signs.dds': [(0.30, 0.715, 0.545, 0.91)]},
+        'name': 'Bridgehampton Race Circuit',
+        'layout': 'Full circuit',
+        'country': 'United States',
+        'city': 'Bridgehampton, New York',
+        # Copernicus DEM at the circuit (Open-Meteo): 70 m
+        'baseAltitudeM': 70,
+        'pitboxes': 24,
+        # The mod's own surface keys (surfaces.ini): EXTEND is paved ground beside the lap that counts as track
+        # (FRICTION 0.97, IS_VALID_TRACK=1), PADDOCK the paddock (FRICTION 0.85)
+        'physicsNodeOverrides': [
+            (r'^\d+_?EXTEND', 'road'),
+            (r'^\d+_?PADDOCK', 'runoff'),
+        ],
+        # The terrain's materials are named ROAD_002__land-main*: the asphalt is told apart by its diffuse texture
+        'roadMaterialsByTexture': True,
+        # LilSki's terrain is a mask blending detail textures over a blank carrier
+        'bakeMultilayerMasks': True,
+        # sections.ini numbers its corners: "Turn 1, Hansgen Turn"
+        'sectionStrip': r'^Turn \d+(/\d+)?,\s*',
+        'description': 'Bridgehampton Race Circuit on Long Island, New York, as it was in the late 1980s: a 4.5 km clockwise lap through the sand hills of the Hamptons, from Hansgen Turn at the end of the straight to the Valley of the Lefts. It closed in 1997 and is a golf course now.',
+        'credit': {
+            'title': 'Bridgehampton Race Circuit',
+            'author': 'LilSki',
+            'authorUrl': 'https://www.overtake.gg/members/lilski.218202/',
+            'url': 'https://www.overtake.gg/downloads/bridgehampton-race-circuit.6604/',
+            'short': None,
+            'license': 'Used with permission',
+            'licenseUrl': 'https://www.overtake.gg/downloads/bridgehampton-race-circuit.6604/',
+        },
+    },
+    'watkins_glen': {
+        'folder': 'lilski_watkins_glen',
+        'layout_dir': 'boot',
+        'models_ini': None,
+        # models_boot.ini also lists 3D grass, the parked tents and RVs (veh.kn5, 531k triangles) and the blimp and
+        # scout plane (animated by CSP). lt.kn5 is the layout's timing gates, groove_b.kn5 its rubber, cones and two
+        # blocking walls
+        'kn5_files': ['lilski_watkins_glen.kn5', 'pb.kn5', 'phy.kn5', 'land.kn5', 'trees.kn5', 'lt.kn5', 'groove_b.kn5',
+                      'cf.kn5', 'people.kn5', 'pitobjects.kn5', 'lights.kn5', 'endurance.kn5'],
+        'hideNodes': r'^AC_CREW_',
+        'texturePatches': {'signs1.dds': [(0.71, 0.755, 0.99, 0.87)], 'signs3.dds': [(0.0, 0.50, 1.0, 0.60)]},
+        'name': 'Watkins Glen International',
+        'layout': 'Grand Prix course',
+        'country': 'United States',
+        'city': 'Watkins Glen, New York',
+        # Copernicus DEM at the circuit (Open-Meteo): 484 m
+        'baseAltitudeM': 484,
+        'pitboxes': 43,
+        # The mod's own surface keys (surfaces.ini): CLASSIC is the old line through the Inner Loop (IS_VALID_TRACK=0
+        # on the modern layouts), OUT paved ground off the lap and PADDOCK the paddock
+        'physicsNodeOverrides': [
+            (r'^\d+_?(CLASSIC|OUT|PADDOCK)', 'runoff'),
+        ],
+        'roadMaterialsByTexture': True,
+        # LilSki's terrain is a mask blending detail textures over a blank carrier
+        'bakeMultilayerMasks': True,
+        # sections.ini numbers its corners: "Turn 1, The 90"
+        'sectionStrip': r'^Turn \d+,\s*',
+        'description': 'Watkins Glen International in the Finger Lakes of New York: the 5.4 km Grand Prix course, with the Inner Loop on the back straight and the Boot, the Toe and the Heel, out in the woods. The Six Hours of the Glen is raced here.',
+        'credit': {
+            'title': 'Watkins Glen International',
+            'author': 'LilSki',
+            'authorUrl': 'https://www.overtake.gg/members/lilski.218202/',
+            'url': 'https://www.overtake.gg/downloads/watkins-glen-international.20204/',
+            'short': None,
+            'license': 'Used with permission',
+            'licenseUrl': 'https://www.overtake.gg/downloads/watkins-glen-international.20204/',
+        },
+    },
+    'watkins_glen_short': {
+        'folder': 'lilski_watkins_glen',
+        'layout_dir': 'short',
+        'models_ini': None,
+        'kn5_files': ['lilski_watkins_glen.kn5', 'pb.kn5', 'phy.kn5', 'land.kn5', 'trees.kn5', 'st.kn5', 'groove_s.kn5',
+                      'cf.kn5', 'people.kn5', 'pitobjects.kn5', 'lights.kn5', 'endurance.kn5'],
+        'hideNodes': r'^AC_CREW_',
+        'texturePatches': {'signs1.dds': [(0.71, 0.755, 0.99, 0.87)], 'signs3.dds': [(0.0, 0.50, 1.0, 0.60)]},
+        'name': 'Watkins Glen International',
+        'layout': 'Short course',
+        'country': 'United States',
+        'city': 'Watkins Glen, New York',
+        'baseAltitudeM': 484,
+        'pitboxes': 43,
+        'physicsNodeOverrides': [
+            (r'^\d+_?(CLASSIC|OUT|PADDOCK)', 'runoff'),
+        ],
+        'roadMaterialsByTexture': True,
+        # LilSki's terrain is a mask blending detail textures over a blank carrier
+        'bakeMultilayerMasks': True,
+        'sectionStrip': r'^Turn \d+,\s*',
+        'description': 'Watkins Glen International: the 3.9 km short course, which leaves out the Boot and turns back from the Outer Loop to the start. NASCAR races on it.',
+        'credit': {
+            'title': 'Watkins Glen International',
+            'author': 'LilSki',
+            'authorUrl': 'https://www.overtake.gg/members/lilski.218202/',
+            'url': 'https://www.overtake.gg/downloads/watkins-glen-international.20204/',
+            'short': None,
+            'license': 'Used with permission',
+            'licenseUrl': 'https://www.overtake.gg/downloads/watkins-glen-international.20204/',
+        },
+    },
+    'riverside': {
+        'folder': 'riverside',
+        'layout_dir': 'long',
+        'models_ini': None,
+        # models_long.ini also lists 3D grass, the parked cars and RVs (veh.kn5, 749k triangles) and the blimp.
+        # long.kn5 is the layout's timing gates, rubber, cones and two blocking walls
+        'kn5_files': ['riverside.kn5', 'phy.kn5', 'land.kn5', 'long.kn5', 'trees.kn5', 'crowd.kn5', 'misc.kn5'],
+        'hideNodes': r'^AC_CREW_',
+        'texturePatches': {'signs.dds': [(0.54, 0.43, 0.665, 0.545)]},
+        'name': 'Riverside International Raceway',
+        'layout': 'Long course',
+        'country': 'United States',
+        'city': 'Riverside, California',
+        # Copernicus DEM at the circuit (Open-Meteo): 494 m
+        'baseAltitudeM': 494,
+        'pitboxes': 24,
+        # The mod's own surface keys (surfaces.ini): one physical road for every layout, its branches valid or not
+        # per layout. On the long course LONG (the run down the back straight to Turn 9) and CONFINE count as track;
+        # SHORT, DRAG, EXTEND and CUT are paved ground off the lap, PADDOCK the paddock
+        'physicsNodeOverrides': [
+            (r'^\d+_?(LONG|CONFINE)', 'road'),
+            (r'^\d+_?(SHORT|DRAG|EXTEND|CUT|PADDOCK)', 'runoff'),
+        ],
+        'roadMaterialsByTexture': True,
+        # LilSki's terrain is a mask blending detail textures over a blank carrier
+        'bakeMultilayerMasks': True,
+        'description': 'Riverside International Raceway in California, as it was in 1988 before it closed: the 5.3 km long course, its back straight running over a kilometre to the banked Turn 9. Formula 1, Can-Am, IndyCar and NASCAR all raced here.',
+        'credit': {
+            'title': 'Riverside International Raceway',
+            'author': 'LilSki',
+            'authorUrl': 'https://www.overtake.gg/members/lilski.218202/',
+            'url': 'https://www.overtake.gg/downloads/riverside-international-raceway.9492/',
+            'short': None,
+            'license': 'Used with permission',
+            'licenseUrl': 'https://www.overtake.gg/downloads/riverside-international-raceway.9492/',
+        },
+    },
+    'riverside_short': {
+        'folder': 'riverside',
+        'layout_dir': 'short',
+        'models_ini': None,
+        'kn5_files': ['riverside.kn5', 'phy.kn5', 'land.kn5', 'short.kn5', 'trees.kn5', 'crowd.kn5', 'misc.kn5'],
+        'hideNodes': r'^AC_CREW_',
+        'texturePatches': {'signs.dds': [(0.54, 0.43, 0.665, 0.545)]},
+        'name': 'Riverside International Raceway',
+        'layout': 'Short course',
+        'country': 'United States',
+        'city': 'Riverside, California',
+        'baseAltitudeM': 494,
+        'pitboxes': 24,
+        'physicsNodeOverrides': [
+            (r'^\d+_?(LONG|SHORT|CONFINE)', 'road'),
+            (r'^\d+_?(DRAG|EXTEND|CUT|PADDOCK)', 'runoff'),
+        ],
+        'roadMaterialsByTexture': True,
+        # LilSki's terrain is a mask blending detail textures over a blank carrier
+        'bakeMultilayerMasks': True,
+        'description': 'Riverside International Raceway: the 4.0 km short course, one of the three layouts raced there until it closed in 1989.',
+        'credit': {
+            'title': 'Riverside International Raceway',
+            'author': 'LilSki',
+            'authorUrl': 'https://www.overtake.gg/members/lilski.218202/',
+            'url': 'https://www.overtake.gg/downloads/riverside-international-raceway.9492/',
+            'short': None,
+            'license': 'Used with permission',
+            'licenseUrl': 'https://www.overtake.gg/downloads/riverside-international-raceway.9492/',
+        },
+    },
+    'riverside_nascar': {
+        'folder': 'riverside',
+        'layout_dir': 'nascar',
+        'models_ini': None,
+        'kn5_files': ['riverside.kn5', 'phy.kn5', 'land.kn5', 'nascar.kn5', 'trees.kn5', 'crowd.kn5', 'misc.kn5'],
+        'hideNodes': r'^AC_CREW_',
+        'texturePatches': {'signs.dds': [(0.54, 0.43, 0.665, 0.545)]},
+        'name': 'Riverside International Raceway',
+        'layout': 'NASCAR course',
+        'country': 'United States',
+        'city': 'Riverside, California',
+        'baseAltitudeM': 494,
+        'pitboxes': 24,
+        'physicsNodeOverrides': [
+            (r'^\d+_?CONFINE', 'road'),
+            (r'^\d+_?(LONG|SHORT|DRAG|EXTEND|CUT|PADDOCK)', 'runoff'),
+        ],
+        'roadMaterialsByTexture': True,
+        # LilSki's terrain is a mask blending detail textures over a blank carrier
+        'bakeMultilayerMasks': True,
+        'description': 'Riverside International Raceway: the 4.1 km course NASCAR raced on until 1988, through the Esses and round Turn 9.',
+        'credit': {
+            'title': 'Riverside International Raceway',
+            'author': 'LilSki',
+            'authorUrl': 'https://www.overtake.gg/members/lilski.218202/',
+            'url': 'https://www.overtake.gg/downloads/riverside-international-raceway.9492/',
+            'short': None,
+            'license': 'Used with permission',
+            'licenseUrl': 'https://www.overtake.gg/downloads/riverside-international-raceway.9492/',
+        },
+    },
+    'speedvegas': {
+        'folder': 'speedvegas',
+        'layout_dir': '',
+        'models_ini': None,
+        'kn5_files': ['speedvegas.kn5', 'walls.kn5', 'models.kn5', 'models2.kn5', 'models3.kn5', 'models4.kn5',
+                      'models5.kn5', 'objects.kn5'],
+        # walls.kn5 draws the tyre walls and fences as well as holding the barriers' physics meshes
+        'physicsFiles': (),
+        'name': 'SpeedVegas',
+        'layout': 'Full circuit',
+        'country': 'United States',
+        'city': 'Las Vegas, Nevada',
+        # Copernicus DEM at the circuit (Open-Meteo): 822 m
+        'baseAltitudeM': 822,
+        'pitboxes': 10,
+        # The mod's own surface names: SURFACE_SAND is a sand patch and SURFACE the paved areas beside the lap
+        'physicsNodeOverrides': [
+            (r'^\d+_?SURFACE_SAND', 'gravel'),
+            (r'^\d+_?SURFACE', 'runoff'),
+        ],
+        'description': 'SpeedVegas, the driving centre in the desert south of Las Vegas: a 1.8 km clockwise lap between tyre walls, two long straights joined by tight turns and kinks.',
+        'credit': {
+            'title': 'SpeedVegas',
+            'author': 'Gogol',
+            'authorUrl': 'https://www.overtake.gg/members/gogol-the-chaos.153450/',
+            'url': 'https://www.overtake.gg/downloads/speedvegas-2025.86996/',
+            'short': None,
+            'license': 'Used with permission',
+            'licenseUrl': 'https://www.overtake.gg/downloads/speedvegas-2025.86996/',
+        },
+    },
 }
 
 
@@ -974,7 +1214,9 @@ def parse_ac_ini(path):
     if os.path.exists(path):
         # utf-8-sig: some mods' INI files start with a byte-order mark, which hides the first section header
         txt = open(path, 'r', encoding='utf-8-sig', errors='replace').read()
-        cp.read_string(txt)
+        # Some start with a line before the first section (Bridgehampton's surfaces.ini: a version number, "2.0")
+        head = re.search(r'^\s*\[', txt, re.M)
+        cp.read_string(txt[head.start():] if head else '')
     return cp
 
 
@@ -1029,7 +1271,8 @@ def classify_physics_node(name):
 
 
 def is_ac_editor_marker(name):
-    return bool(re.match(r'^AC_(AB|AUDIO|CHECKPOINT|HOTLAP|OB|PIT|START|TIME)', name, re.I))
+    # AC_REVERB_*: the boxes that mark AC's sound reverb zones (under a bridge), which a mod may leave visible
+    return bool(re.match(r'^AC_(AB|AUDIO|CHECKPOINT|HOTLAP|OB|PIT|REVERB|START|TIME)', name, re.I))
 
 
 def is_semaphore_node(name):
@@ -1502,6 +1745,63 @@ def multilayer_tint(mat, tex_pool, img_cache):
     return [round(float(col[0]), 4), round(float(col[1]), 4), round(float(col[2]), 4), 1.0]
 
 
+def bake_multilayer(mat, tex_pool, img_cache):
+    """For a ksMultilayer* material whose look comes from a large txMask (LilSki's terrain: a blank `null.dds` carrier,
+    a 4096 px mask blending sand, sand and grass details), the colour AC draws, baked into one texture: the carrier
+    times the mask-weighted mean colour of each detail texture. The details' fine grain is lost, the mask's patches of
+    sand, dirt and grass are kept. Returns PNG bytes, or None when the material has no such mask"""
+    if 'multilayer' not in mat['shader'].lower():
+        return None
+    maps = mat['maps']
+    td, tm = maps.get('txDiffuse'), maps.get('txMask')
+    if not td or not tm or td not in tex_pool or tm not in tex_pool:
+        return None
+    try:
+        mask_im = decode_rgba(tex_pool[tm])
+    except Exception:
+        return None
+    if max(mask_im.size) < 512:
+        return None
+    # Colour and alpha are resized apart: Pillow premultiplies an RGBA image's colour by its alpha when resizing it, and
+    # a mask's alpha is a fourth weight, mostly 0 (Riverside's), not a coverage
+    k = max(mask_im.size) / MAX_TEX
+    size = (max(1, round(mask_im.size[0] / k)), max(1, round(mask_im.size[1] / k))) if k > 1 else mask_im.size
+    mask = np.concatenate([
+        np.asarray(mask_im.convert('RGB').resize(size, Image.BILINEAR), np.float32),
+        np.asarray(mask_im.getchannel('A').resize(size, Image.BILINEAR), np.float32)[..., None],
+    ], -1) / 255.0
+    det = []
+    for slot in ('txDetailR', 'txDetailG', 'txDetailB', 'txDetailA'):
+        t = maps.get(slot)
+        if t and t in tex_pool:
+            if t not in img_cache:
+                try:
+                    img_cache[t] = np.asarray(decode_rgba(tex_pool[t]).convert('RGB').resize((64, 64), Image.BILINEAR), np.float32) / 255.0
+                except Exception:
+                    img_cache[t] = None
+            rgb = img_cache[t]
+            det.append(rgb.mean((0, 1)) if rgb is not None else np.zeros(3))
+        else:
+            det.append(np.zeros(3))
+    combined = sum(mask[..., c:c + 1] * det[c] for c in range(4))
+    try:
+        base_im = decode_rgba(tex_pool[td]).convert('RGB').resize((mask.shape[1], mask.shape[0]), Image.BILINEAR)
+    except Exception:
+        return None
+    base = np.asarray(base_im, np.float32) / 255.0
+    # Only a neutral base: there the colour is the details' (Watkins Glen's grass strips are a grey texture under green
+    # details). A coloured base (its hills' 4k photo texture under grey grain details) is drawn as it is
+    mean = base.reshape(-1, 3).mean(0)
+    if (mean.max() - mean.min()) / max(mean.max(), 1e-3) > 0.15:
+        return None
+    # A 2x detail blend: carrier times details times two is what AC draws, as the mods' own preview shots show
+    # (Riverside's dirt at about (190, 170, 130) from a 0.39 grey carrier and (228, 199, 168) sand)
+    out = np.clip(2.0 * base * combined * float(mat['props'].get('magicMult', 1.0)), 0.0, 1.0)
+    buf = io.BytesIO()
+    Image.fromarray((out * 255.0 + 0.5).astype(np.uint8), 'RGB').save(buf, 'PNG')
+    return buf.getvalue()
+
+
 def encode_webp_tex(raw_bytes, keep_alpha):
     im = Image.open(io.BytesIO(raw_bytes))
     im.load()
@@ -1512,14 +1812,23 @@ def encode_webp_tex(raw_bytes, keep_alpha):
     w, h = im.size
     k = max(w, h) / MAX_TEX
     if k > 1:
-        im = im.resize((max(1, round(w / k)), max(1, round(h / k))), Image.LANCZOS)
+        size = (max(1, round(w / k)), max(1, round(h / k)))
+        if keep_alpha:
+            # Colour and alpha apart: Pillow premultiplies colour by alpha when resizing RGBA, which blacks out the colour
+            # under transparent texels (Watkins Glen's tso9.dds, mostly alpha 0, is also drawn opaque) and darkens the
+            # edges of alpha-tested leaves
+            rgb = im.convert('RGB').resize(size, Image.LANCZOS)
+            im = Image.merge('RGBA', (*rgb.split(), im.getchannel('A').resize(size, Image.LANCZOS)))
+        else:
+            im = im.resize(size, Image.LANCZOS)
     out = io.BytesIO()
-    im.save(out, 'WEBP', quality=82, method=4, alpha_quality=86)
+    # exact: keep the colour under transparent texels, which libwebp otherwise discards (same reason)
+    im.save(out, 'WEBP', quality=82, method=4, alpha_quality=86, exact=keep_alpha)
     return out.getvalue()
 
 
 def write_ac_glb(visual_items, tex_pool, materials, grooves, scale, off, extra_meshes, out_path, clip=4000.0,
-                 double_sided_re=None):
+                 double_sided_re=None, bake_masks=False, skip_bake=None):
     """Build a glTF 2.0 binary (GLB) directly from the AC visual meshes and generated physics colliders."""
     # 1. Group static visual meshes by (mat_idx, is_decal) while keeping semaphores and dynamic grooves separate
     special_nodes = []
@@ -1587,6 +1896,25 @@ def write_ac_glb(visual_items, tex_pool, materials, grooves, scale, off, extra_m
     all_visual = special_nodes + merged_nodes
     used_mats = sorted({m_idx for _, _, m_idx, _, _ in all_visual})
     mat_remap = {old: new for new, old in enumerate(used_mats)}
+
+    # `bakeMultilayerMasks`: terrain drawn from a mask over a blank carrier gets the colour AC draws baked into its
+    # diffuse (the road's materials are left alone: the game draws them with its own asphalt shader)
+    if bake_masks:
+        bake_cache = {}
+        n_baked = 0
+        for old_mi in used_mats:
+            m = materials[old_mi]
+            if m['name'] in (skip_bake or ()):
+                continue
+            png = bake_multilayer(m, tex_pool, bake_cache)
+            if png is None:
+                continue
+            key = f"{m['name']}__baked.png"
+            tex_pool[key] = png
+            m['maps'] = {**m['maps'], 'txDiffuse': key}
+            m['baked'] = True
+            n_baked += 1
+        log(f'  multilayer masks baked into {n_baked} materials')
 
     # Determine which textures are used and whether any user material requires alpha
     tex_alpha_need = {}
@@ -1660,7 +1988,7 @@ def write_ac_glb(visual_items, tex_pool, materials, grooves, scale, off, extra_m
         pbr = {'metallicFactor': 0.0, 'roughnessFactor': 0.78}
         if tname and tname in tex_to_gltf_idx:
             pbr['baseColorTexture'] = {'index': tex_to_gltf_idx[tname]}
-        tint = multilayer_tint(m, tex_pool, img_cache)
+        tint = None if m.get('baked') else multilayer_tint(m, tex_pool, img_cache)
         if tint is not None:
             pbr['baseColorFactor'] = tint
         is_mask = m['alpha_tested'] or 'perpixelat' in sh or 'tree' in sh or 'grass' in sh
@@ -2059,19 +2387,44 @@ def build_ac_kerb_mesh(phys_kerb_tris, xz, tan2, rgt2, yc, width, ds, off, extra
     F[fn_sub[:, 1] < 0] = F[fn_sub[:, 1] < 0][:, ::-1]
     F = F.reshape(-1)
 
-    # Seat every unique kerb vertex above the maximum of all underlying road/runoff collider triangles
+    # Seat every unique kerb vertex above the drivable surfaces under it (road, run-off), the ground the game takes
+    # the wheel's height from, and above the road collider only where there is none. Seated on the collider, which past
+    # the edge carries the road's camber on, a kerb behind Watkins Glen's steeply cambered first corner stood 6 cm over
+    # the paved run-off it lies on: a ledge that threw the car up
     base_tris = []
+    collider_tris = []
     for m_name, m_pos, m_idx, _ in extra:
-        if m_name in ('Track_Collider_Road', 'Track_Surface_Road', 'Track_Surface_Runoff') and len(m_idx) and len(m_pos):
-            base_tris.append(np.asarray(m_pos, np.float64)[np.asarray(m_idx, np.int32).reshape(-1, 3)])
+        if not (len(m_idx) and len(m_pos)):
+            continue
+        tris = np.asarray(m_pos, np.float64)[np.asarray(m_idx, np.int32).reshape(-1, 3)]
+        if m_name in ('Track_Surface_Road', 'Track_Surface_Runoff'):
+            base_tris.append(tris)
+        elif m_name == 'Track_Collider_Road':
+            collider_tris.append(tris)
+    collider_soup = None
+    if not base_tris:
+        base_tris, collider_tris = collider_tris, []
+    if collider_tris:
+        T_col = np.concatenate(collider_tris, 0)
+        collider_soup = srf.TriSoup(T_col, np.zeros(len(T_col), np.int32), np.zeros((len(T_col), 3), np.uint8))
 
     q_xz = np.round(V[:, [0, 2]] * 1000.0).astype(np.int64)
     _, uniq_idx, inv_idx = np.unique(q_xz, axis=0, return_index=True, return_inverse=True)
     U_v = V[uniq_idx].copy()
     u_xz = U_v[:, [0, 2]] + off[[0, 2]]
     _, iu = tree_xz.query(u_xz)
-    lat_u = np.abs(np.einsum('ij,ij->i', u_xz - xz[iu], rgt2[iu]))
-    across_u = np.clip((lat_u - (width[iu] / 2 - 0.35)) / 1.45, 0.0, 1.0)
+    lat_signed = np.einsum('ij,ij->i', u_xz - xz[iu], rgt2[iu])
+    lat_u = np.abs(lat_signed)
+    # The hump rises from the kerb's own inner edge (the nearest of its vertices to the centreline, over ±1 sample), or
+    # from 0.35 m inside the road's edge where the kerb starts further in. A kerb laid just outside the edge (Watkins
+    # Glen's first corner) otherwise began 3 cm up, a step the wheels came back over
+    n_c = len(xz)
+    inner = np.full((n_c, 2), np.inf)
+    np.minimum.at(inner, (iu, (lat_signed > 0).astype(int)), lat_u)
+    reach = 1
+    inner = np.stack([ndimage.minimum_filter1d(inner[:, k], 2 * reach + 1, mode='wrap') for k in range(2)], 1)
+    start_u = np.maximum(width[iu] / 2 - 0.35, inner[iu, (lat_signed > 0).astype(int)])
+    across_u = np.clip((lat_u - start_u) / 1.45, 0.0, 1.0)
     hump_u = 0.016 + 0.014 * np.sin(np.pi * across_u)
 
     if base_tris:
@@ -2079,6 +2432,8 @@ def build_ac_kerb_mesh(phys_kerb_tris, xz, tan2, rgt2, yc, width, ds, off, extra
         base_soup = srf.TriSoup(T_base, np.zeros(len(T_base), np.int32), np.zeros((len(T_base), 3), np.uint8))
         for k, v in enumerate(U_v):
             hs = [h for h, _, _ in base_soup.hits(v[0], v[2]) if abs(h - v[1]) <= 0.8]
+            if not hs and collider_soup is not None:
+                hs = [h for h, _, _ in collider_soup.hits(v[0], v[2]) if abs(h - v[1]) <= 0.8]
             if hs:
                 U_v[k, 1] = max(hs) + hump_u[k]
             else:
@@ -2136,7 +2491,18 @@ def sample_profile_and_bank(soup, road_set, xz, rgt2, width, y_ai_mapped, ds, fa
             inside = abs(lat) <= (width[i] / 2 + 0.3)
             win = 0.6 if inside else 1.5
             h = soup.height_near(p[0], p[1], pred, win, prefer=road_set if inside else None)
-            row[k] = h[0] if h is not None else pred
+            if h is not None:
+                row[k] = h[0]
+                continue
+            # Nothing under this point (past the end of the mod's physical ground): the drop carried from the last
+            # point measured eases back to the road's plane. Carried as it was, one ditch's 3 m held for kilometres
+            # on LilSki's Watkins Glen, and the road edge, interpolated towards it, sank under the cars
+            kin2 = kin - 1 if k > 4 else kin + 1
+            if kin == 4:
+                row[k] = pred
+                continue
+            plane = row[kin] + (row[kin] - row[kin2]) / (bt.LAT[kin] - bt.LAT[kin2]) * (lat - bt.LAT[kin])
+            row[k] = plane + 0.8 * (pred - plane)
     for k, lat in enumerate(bt.LAT):
         dev = yprof[:, k] - yprof[:, 4]
         lim = np.where(np.abs(lat) <= width / 2, fall_max * abs(lat) + 0.1, 0.35 * abs(lat) + 0.5)
@@ -2251,7 +2617,8 @@ def build_ac_track(tid, cfg, args):
             seen_mat_names[m_obj['name']] = sig
         mat_offset = len(materials)
         materials.extend(mats)
-        is_phys_file = kf.lower() in ('physical.kn5', 'walls.kn5')
+        # `physicsFiles`: the KN5 files that hold only physics meshes (SpeedVegas's walls.kn5 also draws its tyre walls)
+        is_phys_file = kf.lower() in cfg.get('physicsFiles', ('physical.kn5', 'walls.kn5'))
 
         for nd in nodes:
             m = nd['mesh']
@@ -2354,6 +2721,24 @@ def build_ac_track(tid, cfg, args):
                 n_skin += 1
         log(f'  skin {cfg["skinDir"]}: {n_skin} textures replaced')
 
+    # `texturePatches`: {texture: [(x0, y0, x1, y1) as fractions of its width and height]}, each rectangle painted over
+    # in its own median colour: a panel of a sign atlas that must not be drawn, where hiding by texture would take
+    # every other sign on the atlas with it
+    for tname, rects in cfg.get('texturePatches', {}).items():
+        if tname not in tex_pool:
+            log(f'  texture patch: {tname} not found')
+            continue
+        im = decode_rgba(tex_pool[tname])
+        a = np.asarray(im).copy()
+        h, w = a.shape[:2]
+        for x0, y0, x1, y1 in rects:
+            r = (slice(round(y0 * h), round(y1 * h)), slice(round(x0 * w), round(x1 * w)))
+            a[r[0], r[1], :3] = np.median(a[r[0], r[1], :3].reshape(-1, 3), 0).astype(np.uint8)
+        buf = io.BytesIO()
+        Image.fromarray(a, 'RGBA').save(buf, 'PNG')
+        tex_pool[tname] = buf.getvalue()
+        log(f'  texture patch: {tname}, {len(rects)} rectangle(s) painted over')
+
     # 2. Extract centreline & AI racing line from fast_lane.ai
     ai_path = os.path.join(layout_path, 'ai', 'fast_lane.ai')
     pts_ai, ex_ai = read_ai_lane(ai_path)
@@ -2402,6 +2787,7 @@ def build_ac_track(tid, cfg, args):
         'write_glb': lambda off, extra, glb_out: write_ac_glb(
             visual_items, tex_pool, materials, parse_groove_ini(data_dir), 1.0, off, extra, glb_out,
             double_sided_re=cfg.get('doubleSidedMaterials'),
+            bake_masks=bool(cfg.get('bakeMultilayerMasks')), skip_bake=road_mat_names,
         ),
     }
     return build_from_sources(tid, cfg, args, src)
