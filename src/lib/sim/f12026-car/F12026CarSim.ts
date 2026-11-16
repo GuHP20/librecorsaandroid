@@ -91,6 +91,7 @@ import type { AiDrivePlan } from '../ai/drive-plan';
 import { lockShareOf } from '../tyre-slide-fx';
 import { filterChassisG } from '../chassis-g';
 import { beyondLayoutEdge, CourseCutWatch, inLapStretch, isCourseHop } from '../course-limits';
+import { coneLaneRangeAt } from '../cone-lanes';
 
 const G = 9.81;
 const DEG2RAD = Math.PI / 180;
@@ -2094,6 +2095,14 @@ export class F12026CarSim implements SimulatorCar {
     const halfTrack = 0.5 * Math.max(this.profile.config.chassis.trackWidthFront, this.profile.config.chassis.trackWidthRear);
     if (!lipNeg && outNeg > 0) lo = Math.min(lo, -(half + outNeg - halfTrack - TRACK_KERB_EDGE_ROOM_M));
     if (!lipPos && outPos > 0) hi = Math.max(hi, half + outPos - halfTrack - TRACK_KERB_EDGE_ROOM_M);
+    // A course laid out in cones: the lane between them, as a road edge (cone-lanes.ts)
+    const cones = coneLaneRangeAt(this.track.id, s, this.track.totalLengthM);
+    if (cones) {
+      const margin = autopilotEdgeMarginM(this.profile);
+      lo = Math.max(lo, cones[0] + margin);
+      hi = Math.min(hi, cones[1] - margin);
+      if (lo > hi) lo = hi = 0.5 * (cones[0] + cones[1]);
+    }
     return [lo, hi];
   }
 
