@@ -22,7 +22,7 @@ import type { Env } from '../cloudflare/api/types';
 import { fakeD1, fakeR2 } from './lib/fake-cloudflare';
 import { planImport, type SupabaseDriver, type SupabaseLap } from './migrate-supabase-board';
 import { carById, type CarId } from '../src/lib/cars/car-registry';
-import { CHALLENGE_ROTATION, challengeAt, challengeCompound, challengeConditionsLabel, challengeProblem, fitsChallenge, isoWeekId, timeLeftLabel } from '../src/lib/net/weekly-challenge';
+import { CHALLENGE_ROTATION, challengeAt, challengeCompound, challengeConditionsLabel, challengeProblem, challengesSoFar, fitsChallenge, isoWeekId, timeLeftLabel } from '../src/lib/net/weekly-challenge';
 
 /** The revision the laps here are driven under: the board of the car they are driven in (the LC26's own) */
 const CURRENT = lapPhysicsVersion('lc26');
@@ -294,6 +294,12 @@ async function main(): Promise<void> {
     check('challenge: weeks run Monday to Monday (UTC), named by ISO week', isoWeekId(Date.UTC(2026, 10, 9)) === '2026-W46' && isoWeekId(Date.UTC(2026, 11, 28)) === '2026-W53' && isoWeekId(Date.UTC(2027, 0, 4)) === '2027-W01');
     const monday = Date.UTC(2026, 10, 9);
     check('challenge: one challenge from Monday 00:00 to Sunday 23:59', challengeAt(monday).id === '2026-W46' && challengeAt(monday + 7 * 86_400_000 - 1).id === '2026-W46' && challengeAt(monday - 1).id === '2026-W45' && challengeAt(monday).endsMs - challengeAt(monday).startsMs === 7 * 86_400_000);
+    {
+      // The weeks the home page's board lists: this week first, back to the first week, never one before it
+      const soFar = challengesSoFar(Date.UTC(2026, 10, 25, 12));
+      check('challenge: the weeks so far run newest first back to 2026-W46', soFar.map((w) => w.id).join(',') === '2026-W48,2026-W47,2026-W46' && soFar[2].trackId === 'dunsfold', soFar.map((w) => w.id).join(','));
+      check('challenge: before the first week there are none, and the list is capped', challengesSoFar(monday - 1).length === 0 && challengesSoFar(Date.UTC(2030, 0, 1), 5).length === 5);
+    }
     {
       // Which circuits a week may be on, and how circuits and cars are paired
       type Listed = { id: string; quality: string };

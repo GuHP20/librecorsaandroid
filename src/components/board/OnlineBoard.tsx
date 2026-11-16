@@ -3,7 +3,8 @@
 /*
  * The online board of a circuit, a page at a time: the one panel the title menu, the pause menu and the home page show.
  * The circuit picker sits top right and the circuit's totals under the heading. "My car" is the car being driven
- * (absent on the home page), "All cars" every driver once with their fastest lap in any car. Twenty places a page;
+ * (absent on the home page, which picks a car from a list instead), "All cars" every driver once with their fastest
+ * lap in any car. A weekly challenge's board (`event`) is shown the same way, on its fixed circuit and car. Twenty places a page;
  * the pager at the foot turns pages with the pointer, LT / RT or Z / C (registered with the screen's own navigation),
  * and Jump to me goes to the page with the player's row. Free of the simulator, so the home page loads it on its own.
  */
@@ -51,8 +52,23 @@ export interface OnlineBoardProps {
   circuits: readonly { id: string; label: string }[];
   circuit: string;
   onCircuitChange: (id: string) => void;
-  /** The car being driven: its board is "My car"; absent (the home page), every car's board only */
+  /** The car being driven: its board is "My car"; absent (the home page), every car's board or `carPicker`'s */
   myCar?: { vehicle: VehicleModelId; label: string };
+  /** Without `myCar`: the cars the board can be narrowed to (each car's own board), and the one picked */
+  carPicker?: { cars: readonly { id: VehicleModelId; label: string; detail?: string }[]; value: BoardCar; onChange: (car: BoardCar) => void };
+  /**
+   * A weekly challenge's board instead of the open one: its week (the event id) and the car it is driven in. The
+   * circuit and car are fixed and the filters hidden, as the week's rules already are one. A week that has `ended`,
+   * with no laps on the revision the car is driven under now, is read on the newest revision it has laps under (the
+   * week still running keeps to today's, as the game's challenge panel does).
+   */
+  event?: { id: string; vehicle: VehicleModelId; carLabel: string; ended?: boolean };
+  /** In place of the circuit picker top right (the challenge's week picker) */
+  picker?: React.ReactNode;
+  /** Under the heading, in place of the board choice (the challenge's circuit, car and rules) */
+  intro?: React.ReactNode;
+  /** Said when the board has no laps at all, in place of the default line */
+  emptyText?: string;
   /** A car's short name and class colour, for the rows of every car's board */
   carTag: (vehicle: VehicleModelId) => BoardCarTag;
   /** The player's name: marks their row and finds their place */
@@ -69,9 +85,11 @@ export interface OnlineBoardProps {
 
 type Scope = "mine" | "all";
 
+/** "312 drivers" */
+const driversLine = (n: number) => `${formatCount(n)} ${n === 1 ? "driver" : "drivers"}`;
+
 /** "1,204 laps · 312 drivers" */
-const totalsLine = (t: CircuitTotals) =>
-  `${formatCount(t.laps)} ${t.laps === 1 ? "lap" : "laps"} · ${formatCount(t.drivers)} ${t.drivers === 1 ? "driver" : "drivers"}`;
+const totalsLine = (t: CircuitTotals) => `${formatCount(t.laps)} ${t.laps === 1 ? "lap" : "laps"} · ${driversLine(t.drivers)}`;
 
 /** "0.214 s behind Ana" */
 const behind = (ms: number, aheadMs: number, who: string) => `${((ms - aheadMs) / 1000).toFixed(3)} s behind ${who}`;
@@ -95,6 +113,11 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
   circuit,
   onCircuitChange,
   myCar,
+  carPicker,
+  event,
+  picker,
+  intro,
+  emptyText,
   carTag,
   driverName = "",
   boardVersion = 0,
@@ -107,19 +130,28 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
   const headingId = React.useId();
   const [scopeChosen, setScope] = useState<Scope>("mine");
   const scope: Scope = myCar ? scopeChosen : "all";
-  const car: BoardCar = scope === "mine" && myCar ? myCar.vehicle : ALL_CARS;
+  // Without a car being driven, the car picked from the list (every car's board until one is)
+  const picked: BoardCar = carPicker?.cars.some((c) => c.id === carPicker.value) ? carPicker.value : ALL_CARS;
+  const car: BoardCar = event ? event.vehicle : myCar ? (scope === "mine" ? myCar.vehicle : ALL_CARS) : picked;
+  const eventId = event?.id ?? "";
 
-  // Filters, and an older physics revision of this car (only on one car's board)
-  const [noAssists, setNoAssists] = useState(false);
-  const [fullRealism, setFullRealism] = useState(false);
-  const [wetOnly, setWetOnly] = useState(false);
+  // Filters (none on a challenge's board: its rules are fixed), and an older physics revision of this car (only on
+  // one car's board, or a challenge week's)
+  const [noAssistsPick, setNoAssists] = useState(false);
+  const [fullRealismPick, setFullRealism] = useState(false);
+  const [wetOnlyPick, setWetOnly] = useState(false);
+  const noAssists = !event && noAssistsPick;
+  const fullRealism = !event && fullRealismPick;
+  const wetOnly = !event && wetOnlyPick;
   const currentPhysics = car === ALL_CARS ? 0 : lapPhysicsVersion(car);
-  const [olderPick, setOlderPick] = useState<{ car: BoardCar; physics: number } | null>(null);
-  const physics = olderPick && olderPick.car === car ? olderPick.physics : currentPhysics;
+  /** The board an older revision was picked on: the car's, or the car's in that challenge week */
+  const boardOf = `${car}|${eventId}`;
+  const [olderPick, setOlderPick] = useState<{ of: string; physics: number } | null>(null);
+  const physics = olderPick && olderPick.of === boardOf ? olderPick.physics : currentPhysics;
   const filtersOn = [noAssists, fullRealism, wetOnly].filter(Boolean).length;
 
-  // The board shown: another circuit, car, filter or revision starts on its first page again
-  const base = `${circuit}|${car}|${physics}|${noAssists}|${fullRealism}|${wetOnly}`;
+  // The board shown: another circuit, car, week, filter or revision starts on its first page again
+  const base = `${circuit}|${car}|${physics}|${eventId}|${noAssists}|${fullRealism}|${wetOnly}`;
   const [paging, setPaging] = useState({ base, page: 1 });
   const page = paging.base === base ? paging.page : 1;
   const [reload, setReload] = useState(0);
@@ -140,6 +172,7 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
     void fetchBoardPage(circuit, car, {
       filter,
       physics: car === ALL_CARS ? undefined : physics,
+      event: eventId || undefined,
       offset: (page - 1) * BOARD_PAGE_SIZE,
       limit: BOARD_PAGE_SIZE,
       name: name || undefined,
@@ -149,6 +182,12 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
       .catch(() => null)
       .then((board) => {
         if (!live) return;
+        // An ended challenge week with no laps on this revision but laps on another (the physics changed since that
+        // week): its newest one, read before anything is shown
+        if (event?.ended && board && board.total === 0 && board.physics.length > 0 && !board.physics.includes(physics)) {
+          setOlderPick({ of: boardOf, physics: board.physics[0] });
+          return;
+        }
         // A failed refresh of the same page keeps the times already shown
         setRead((prev) => ({
           key,
@@ -161,13 +200,17 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
     return () => {
       live = false;
     };
-    // `key` stands for the circuit, car, revision, filters, page, name and refreshes
+    // `key` stands for the circuit, car, week, revision, filters, page, name and refreshes
   }, [key]);
 
-  /** The circuit's totals: its laps and its board's drivers, with no filter (read again when a lap went up) */
-  const totalsOf = `${circuit}|${car}|${physics}`;
+  /**
+   * The circuit's totals: its laps and its board's drivers, with no filter (read again when a lap went up). A
+   * challenge week has no totals of its own: its line is the page's count of drivers.
+   */
+  const totalsOf = event ? "" : `${circuit}|${car}|${physics}`;
   const [totals, setTotals] = useState<{ of: string; totals: CircuitTotals | null } | null>(null);
   useEffect(() => {
+    if (!totalsOf) return;
     let live = true;
     void fetchCircuitTotals(circuit, car, car === ALL_CARS ? undefined : physics)
       .catch(() => null)
@@ -190,7 +233,8 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
   const myPage = me ? Math.ceil(me.pos / BOARD_PAGE_SIZE) : null;
   const myKey = driverNameKey(name);
   const shownTotals = totals?.of === totalsOf ? totals.totals : null;
-  const totalsLoading = totals?.of !== totalsOf;
+  const totalsText = event ? (shown ? driversLine(total) : null) : shownTotals ? totalsLine(shownTotals) : null;
+  const totalsLoading = event ? !shown && !failed : totals?.of !== totalsOf;
 
   // The board shrank under the page shown (drivers renamed or lapsed since): back to its last page
   useEffect(() => {
@@ -231,7 +275,8 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
           {tag.label}
         </Badge>
       ) : undefined,
-      detail: `${e.conditions ? `${boardLabel(e.conditions)} · ` : ""}${new Date(e.recordedAt).toLocaleDateString()}`,
+      // A challenge's laps were all driven to its rules: only the day
+      detail: `${e.conditions && !event ? `${boardLabel(e.conditions)} · ` : ""}${new Date(e.recordedAt).toLocaleDateString()}`,
       lapMs: e.lapTimeMs,
       fastest: pos === 1,
       sectorsMs: e.sectorTimesMs,
@@ -244,7 +289,12 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
   const ahead = me && shown?.near && me.pos > 1 ? (shown.near.entries[me.pos - 1 - shown.near.pos] ?? null) : null;
   const circuitName = circuits.find((c) => c.id === circuit)?.label ?? circuit;
   const versions = car === ALL_CARS ? [] : [...new Set([...(shown?.physics ?? []).filter((v) => v !== currentPhysics), ...(physics !== currentPhysics ? [physics] : [])])];
-  const boardName = `${car === ALL_CARS ? "All cars" : (myCar?.label ?? "")} · ${circuitName}`;
+  const carName = event
+    ? event.carLabel
+    : car === ALL_CARS
+      ? "All cars"
+      : (myCar?.label ?? carPicker?.cars.find((c) => c.id === car)?.label ?? car);
+  const boardName = `${carName} · ${circuitName}${event ? ` · ${event.id}` : ""}`;
 
   return (
     <section
@@ -252,25 +302,23 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
       aria-labelledby={headingId}
       className={`flex min-w-0 flex-col gap-3.5 rounded-lc-card border border-white/7 bg-lc-carbon/80 p-4.5 text-lc-chalk phone:p-3.5 ${className}`}
     >
-      {/* The heading with the circuit's totals under it; the circuit picker top right */}
+      {/* The heading with the circuit's totals under it; the circuit picker (or the week's) top right */}
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-col gap-1">
           <Heading id={headingId} className="lc-h3 m-0 min-w-0">
             {title}
           </Heading>
           <p className="lc-mono m-0 flex h-[18px] items-center text-[13px] text-lc-fog" aria-live="polite">
-            {shownTotals ? (
-              totalsLine(shownTotals)
-            ) : totalsLoading ? (
-              <Skeleton shape="line" className="h-3 w-40" />
-            ) : null}
+            {totalsText ?? (totalsLoading ? <Skeleton shape="line" className="h-3 w-40" /> : null)}
           </p>
         </div>
-        <Select aria-label="Circuit" className="w-80 max-w-full" value={circuit} onChange={onCircuitChange} options={circuits} />
+        {picker ?? <Select aria-label="Circuit" className="w-80 max-w-full" value={circuit} onChange={onCircuitChange} options={circuits} />}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
-        {myCar ? (
+        {intro ? (
+          intro
+        ) : myCar ? (
           <Segmented
             aria-label="Board"
             size="sm"
@@ -281,6 +329,17 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
               { id: "all", label: "All cars" },
             ]}
           />
+        ) : carPicker ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+            <Select
+              aria-label="Car"
+              className="w-72 max-w-full"
+              value={car}
+              onChange={carPicker.onChange}
+              options={[{ id: ALL_CARS, label: "All cars" }, ...carPicker.cars]}
+            />
+            {car === ALL_CARS ? <span className="lc-hint">Every driver once, with their fastest car</span> : null}
+          </div>
         ) : (
           <span className="lc-hint">Every driver once, with their fastest car</span>
         )}
@@ -296,35 +355,37 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
         </Button>
       </div>
 
-      <Disclosure moreLabel={filtersOn ? `Filters · ${filtersOn} on` : "Filters"} lessLabel="Hide filters">
-        <SettingRow label="No assists" hint="Only laps driven without driving aids">
-          <Toggle checked={noAssists} onChange={setNoAssists} />
-        </SettingRow>
-        <SettingRow label="Full realism" hint="Only laps driven on full realism">
-          <Toggle checked={fullRealism} onChange={setFullRealism} />
-        </SettingRow>
-        <SettingRow label="Wet laps" hint="Only laps driven on a wet track">
-          <Toggle checked={wetOnly} onChange={setWetOnly} />
-        </SettingRow>
-        {versions.length > 0 ? (
-          <SettingRow label="Physics version" hint="Laps from an older version of the physics are kept on their own board">
-            {versions.length + 1 <= 5 ? (
-              <Segmented
-                size="sm"
-                value={physics === currentPhysics ? CURRENT : String(physics)}
-                onChange={(id) => setOlderPick(id === CURRENT ? null : { car, physics: Number(id) })}
-                options={[{ id: CURRENT, label: "Current" }, ...versions.map((v) => ({ id: String(v), label: `v${v}` }))]}
-              />
-            ) : (
-              <Select
-                value={physics === currentPhysics ? CURRENT : String(physics)}
-                onChange={(id) => setOlderPick(id === CURRENT ? null : { car, physics: Number(id) })}
-                options={[{ id: CURRENT, label: "Current" }, ...versions.map((v) => ({ id: String(v), label: `Older laps (v${v})` }))]}
-              />
-            )}
+      {event ? null : (
+        <Disclosure moreLabel={filtersOn ? `Filters · ${filtersOn} on` : "Filters"} lessLabel="Hide filters">
+          <SettingRow label="No assists" hint="Only laps driven without driving aids">
+            <Toggle checked={noAssists} onChange={setNoAssists} />
           </SettingRow>
-        ) : null}
-      </Disclosure>
+          <SettingRow label="Full realism" hint="Only laps driven on full realism">
+            <Toggle checked={fullRealism} onChange={setFullRealism} />
+          </SettingRow>
+          <SettingRow label="Wet laps" hint="Only laps driven on a wet track">
+            <Toggle checked={wetOnly} onChange={setWetOnly} />
+          </SettingRow>
+          {versions.length > 0 ? (
+            <SettingRow label="Physics version" hint="Laps from an older version of the physics are kept on their own board">
+              {versions.length + 1 <= 5 ? (
+                <Segmented
+                  size="sm"
+                  value={physics === currentPhysics ? CURRENT : String(physics)}
+                  onChange={(id) => setOlderPick(id === CURRENT ? null : { of: boardOf, physics: Number(id) })}
+                  options={[{ id: CURRENT, label: "Current" }, ...versions.map((v) => ({ id: String(v), label: `v${v}` }))]}
+                />
+              ) : (
+                <Select
+                  value={physics === currentPhysics ? CURRENT : String(physics)}
+                  onChange={(id) => setOlderPick(id === CURRENT ? null : { of: boardOf, physics: Number(id) })}
+                  options={[{ id: CURRENT, label: "Current" }, ...versions.map((v) => ({ id: String(v), label: `Older laps (v${v})` }))]}
+                />
+              )}
+            </SettingRow>
+          ) : null}
+        </Disclosure>
+      )}
 
       {/* Where the player stands */}
       {me ? (
@@ -343,7 +404,7 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
         <BoardError onRetry={() => setReload((n) => n + 1)}>Couldn&apos;t load the online times. Check your connection.</BoardError>
       ) : shown.entries.length === 0 && total === 0 ? (
         <EmptyState
-          icon={<Icon name={filtersOn ? "filter" : "online"} />}
+          icon={<Icon name={filtersOn ? "filter" : event ? "challenge" : "online"} />}
           action={
             filtersOn ? (
               <Button size="sm" variant="secondary" onClick={clearFilters}>
@@ -354,7 +415,9 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
         >
           {filtersOn
             ? "No online laps like that here yet. Clear the filters to see every lap."
-            : car === ALL_CARS
+            : emptyText
+              ? emptyText
+              : car === ALL_CARS
               ? `No online times on ${circuitName} yet. Finish a lap there and yours can be the first.`
               : "No online times for this circuit and car yet. Finish a lap and yours can be the first."}
         </EmptyState>

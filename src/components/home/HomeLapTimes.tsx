@@ -2,7 +2,8 @@
 
 /*
  * The home page's lap times: the game's online board (src/components/board/OnlineBoard.tsx) in its own Lap times section,
- * every car's by default (the home page drives no car), with its circuit picker and pages. Nothing of it loads with
+ * every car's by default (the home page drives no car) or one car's, with its circuit picker and pages, and the weekly
+ * challenge's boards beside it (HomeBoards.tsx). Nothing of it loads with
  * the page: once the page has finished loading and the section comes near the view, the online side is asked whether
  * its boards are on, and only then are the board's code and its first page fetched. Until then it shows a loading
  * card; with the boards off, out of reach or no online side at all, it says the lap times are offline.
@@ -14,7 +15,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/icons";
 import { Skeleton } from "@/components/ui/Skeleton";
 
-const OnlineBoard = lazy(() => import("@/components/board/OnlineBoard").then((m) => ({ default: m.OnlineBoard })));
+const HomeBoards = lazy(() => import("./HomeBoards").then((m) => ({ default: m.HomeBoards })));
 
 /** Set at build time: without an online side there is no board to look for */
 const HAS_API = Boolean(process.env.NEXT_PUBLIC_ONLINE_API?.trim());
@@ -24,6 +25,10 @@ export interface HomeLapTimesProps {
   /** The circuit the hub has picked: the board starts there and follows it until another is picked here */
   circuit: string;
   carTags: Readonly<Partial<Record<VehicleModelId, BoardCarTag>>>;
+  /** The cars the board can be narrowed to */
+  carChoices: readonly { id: VehicleModelId; label: string; detail?: string }[];
+  /** Car names by car id, for the challenge weeks */
+  carTitles: Readonly<Record<string, string>>;
   /** The box the page scrolls in (the hub's panel), for "near the view" */
   scrollRoot: React.RefObject<HTMLElement | null>;
   /** The board is on screen (the prompt bar names its page keys then) */
@@ -56,7 +61,7 @@ const LoadingCard: React.FC = () => (
   </div>
 );
 
-export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, carTags, scrollRoot, onShown }) => {
+export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, carTags, carChoices, carTitles, scrollRoot, onShown }) => {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<"waiting" | "on" | "off" | "unreachable">("waiting");
   const [picked, setPicked] = useState<{ from: string; id: string } | null>(null);
@@ -115,13 +120,13 @@ export const HomeLapTimes: React.FC<HomeLapTimesProps> = ({ circuits, circuit, c
         <EmptyState icon={<Icon name="offline" size="lg" />}>Couldn&apos;t reach the online board. I&apos;ll keep trying.</EmptyState>
       ) : state === "on" ? (
         <Suspense fallback={<LoadingCard />}>
-          <OnlineBoard
-            title="Lap times"
-            headingAs="h2"
+          <HomeBoards
             circuits={circuits}
             circuit={shownCircuit}
             onCircuitChange={(id) => setPicked({ from: circuit, id })}
             carTag={(v) => carTags[v] ?? { label: v, color: "slate" }}
+            carChoices={carChoices}
+            carTitles={carTitles}
           />
         </Suspense>
       ) : (

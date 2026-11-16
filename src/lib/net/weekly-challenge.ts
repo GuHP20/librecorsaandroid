@@ -171,6 +171,18 @@ export function challengeAt(nowMs: number): WeeklyChallenge {
 }
 
 /**
+ * Every challenge that has run up to `nowMs`, this week's first: from the week of 9 November 2026, the first one, so
+ * none is made up for a week before the challenge existed. At most `max` of them.
+ */
+export function challengesSoFar(nowMs: number, max = 104): WeeklyChallenge[] {
+  const weeks: WeeklyChallenge[] = [];
+  for (let index = weekIndex(nowMs); index >= ROTATION_FIRST_WEEK && weeks.length < max; index--) {
+    weeks.push(challengeAt(FIRST_MONDAY_MS + index * WEEK_MS));
+  }
+  return weeks;
+}
+
+/**
  * The one tyre a car runs in the challenge: the softest dry compound it has. Every car's softest dry slot is its
  * "soft" (the Liana's street tyre fills every slot, so "soft" is that tyre). Listed here, not read from the car
  * configs, because the Worker imports this file.

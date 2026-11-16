@@ -22,6 +22,8 @@ async function draw(): Promise<void> {
         circuits: [{ id: 'spielberg', label: 'Red Bull Ring' }],
         circuit: 'spielberg',
         carTags: {},
+        carChoices: [],
+        carTitles: {},
         scrollRoot: { current: null },
       }),
     ),

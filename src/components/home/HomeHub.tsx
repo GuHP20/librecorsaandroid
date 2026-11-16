@@ -412,7 +412,15 @@ export const HomeHub: React.FC<{ data: HomeData }> = ({ data }) => {
 
             {/* The online board of every car, loaded when the section is opened; it starts on the hub's circuit */}
             {tab === "laps" ? (
-              <HomeLapTimes circuits={boardCircuits} circuit={layout.id} carTags={data.boardCars} scrollRoot={panelRef} onShown={setBoardShown} />
+              <HomeLapTimes
+                circuits={boardCircuits}
+                circuit={layout.id}
+                carTags={data.boardCars}
+                carChoices={data.boardCarChoices}
+                carTitles={data.carTitles}
+                scrollRoot={panelRef}
+                onShown={setBoardShown}
+              />
             ) : null}
 
             {/* Day-by-day patch notes, newest first */}
