@@ -3,6 +3,11 @@ name: Build Android APK
 # Roda só quando você clicar em "Run workflow" na aba Actions.
 on:
   workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Incluir console de depuração dentro do app (eruda)'
+        type: boolean
+        default: true
 
 jobs:
   apk:
@@ -36,6 +41,12 @@ jobs:
         run: |
           rm -rf www
           cp -r out www
+          # Console de depuração dentro do app (botão flutuante no canto da tela)
+          if [ "${{ inputs.debug }}" = "true" ]; then
+            npm install --no-save eruda
+            cp node_modules/eruda/eruda.js www/eruda.js
+            find www -name '*.html' -exec sed -i 's#</body>#<script src="/eruda.js"></script><script>try{eruda.init()}catch(e){}</script></body>#' {} +
+          fi
           # Rotas do Next exportadas como "rota.html" também ficam disponíveis como "rota/index.html"
           find www -name '*.html' ! -name 'index.html' ! -name '404.html' | while read -r f; do
             d="${f%.html}"
