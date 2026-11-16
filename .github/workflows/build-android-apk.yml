@@ -1,0 +1,63 @@
+name: Build Android APK
+
+# Roda só quando você clicar em "Run workflow" na aba Actions.
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar Java (necessário para o Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Instalar dependências do projeto
+        run: npm ci
+
+      - name: Mostrar o next.config.ts (para conferir basePath nos logs)
+        run: cat next.config.ts
+
+      - name: Gerar o site estático (pasta out)
+        run: npm run build
+
+      - name: Preparar a pasta www para o Capacitor
+        run: |
+          rm -rf www
+          cp -r out www
+          # Se o site foi gerado para rodar em /librecorsa (GitHub Pages),
+          # os arquivos seriam procurados nesse caminho dentro do app.
+          # Copiamos o site também para www/librecorsa para esses caminhos funcionarem.
+          if grep -q "/librecorsa/_next" out/index.html; then
+            echo "basePath /librecorsa detectado: duplicando em www/librecorsa"
+            mkdir -p www/librecorsa
+            cp -r out/. www/librecorsa/
+          fi
+
+      - name: Adicionar o Capacitor e criar o projeto Android
+        run: |
+          npm install --no-save @capacitor/core@^7 @capacitor/cli@^7 @capacitor/android@^7
+          npx cap init LibreCorsa com.librecorsa.app --web-dir=www
+          npx cap add android
+          npx cap sync android
+
+      - name: Compilar o APK de debug
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Publicar o APK como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: librecorsa-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
