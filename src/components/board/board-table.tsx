@@ -11,6 +11,8 @@ import { PlayerTag } from "@/components/ui/badges/PlayerTag";
 import { PositionBadge } from "@/components/ui/badges/PositionBadge";
 import { Icon } from "@/components/ui/icons/Icon";
 import { formatLapTime, formatSectorTime } from "@/components/hud/hud-format";
+import type { LapInput } from "@/lib/sim/lap-types";
+import { InputIcon } from "./InputIcon";
 
 export interface BoardRow {
   key: string;
@@ -19,6 +21,8 @@ export interface BoardRow {
   title: string;
   /** The driver's three-letter code, before the name */
   code?: string;
+  /** What the lap was driven with: an icon after the name */
+  input?: LapInput;
   /** Beside the title: the car a lap was driven in, on a board of every car */
   tag?: React.ReactNode;
   /** One line under the title: when, and how the lap was driven */
@@ -116,6 +120,7 @@ export const BoardTable: React.FC<{
                     <span className="truncate text-[14px] font-semibold text-lc-chalk" title={r.title}>
                       {r.title}
                     </span>
+                    <InputIcon input={r.input} className="text-lc-fog" />
                     {r.mine ? <PlayerTag size="sm" /> : null}
                   </span>
                   {r.tag || r.detail ? (
