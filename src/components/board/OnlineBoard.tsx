@@ -58,10 +58,11 @@ export interface OnlineBoardProps {
   carPicker?: { cars: readonly { id: VehicleModelId; label: string; detail?: string }[]; value: BoardCar; onChange: (car: BoardCar) => void };
   /**
    * A weekly challenge's board instead of the open one: its week (the event id) and the car it is driven in. The
-   * circuit and car are fixed and the filters hidden, as the week's rules already are one. A past week is read on the
-   * newest physics revision it has laps under.
+   * circuit and car are fixed and the filters hidden, as the week's rules already are one. A week that has `ended`,
+   * with no laps on the revision the car is driven under now, is read on the newest revision it has laps under (the
+   * week still running keeps to today's, as the game's challenge panel does).
    */
-  event?: { id: string; vehicle: VehicleModelId; carLabel: string };
+  event?: { id: string; vehicle: VehicleModelId; carLabel: string; ended?: boolean };
   /** In place of the circuit picker top right (the challenge's week picker) */
   picker?: React.ReactNode;
   /** Under the heading, in place of the board choice (the challenge's circuit, car and rules) */
@@ -181,9 +182,9 @@ export const OnlineBoard: React.FC<OnlineBoardProps> = ({
       .catch(() => null)
       .then((board) => {
         if (!live) return;
-        // A challenge week with no laps on this revision but laps on another (the physics changed since that week):
-        // its newest one, read before anything is shown
-        if (event && board && board.total === 0 && board.physics.length > 0 && !board.physics.includes(physics)) {
+        // An ended challenge week with no laps on this revision but laps on another (the physics changed since that
+        // week): its newest one, read before anything is shown
+        if (event?.ended && board && board.total === 0 && board.physics.length > 0 && !board.physics.includes(physics)) {
           setOlderPick({ of: boardOf, physics: board.physics[0] });
           return;
         }

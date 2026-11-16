@@ -107,7 +107,7 @@ export const HomeBoards: React.FC<HomeBoardsProps> = ({ circuits, circuit, onCir
         circuits={circuits}
         circuit={week.trackId}
         onCircuitChange={() => {}}
-        event={{ id: week.id, vehicle: week.vehicle, carLabel: carName(week) }}
+        event={{ id: week.id, vehicle: week.vehicle, carLabel: carName(week), ended: !thisWeek }}
         picker={
           <Select
             aria-label="Week"
