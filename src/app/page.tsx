@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { HomeHub } from "@/components/home/HomeHub";
 import type { HomeData, WhatsNewDay } from "@/components/home/home-data";
 import { withBasePath } from "@/lib/base-path";
-import { CAR_CLASSES, CARS, carThumbUrl, type CarId } from "@/lib/cars/car-registry";
+import { CAR_CLASSES, CARS, anyCarForVehicle, carThumbUrl, type CarDefinition, type CarId } from "@/lib/cars/car-registry";
 import { carBoardTag } from "@/lib/cars/board-tag";
-import { VEHICLE_MODEL_IDS } from "@/types/f1";
+import { VEHICLE_MODEL_IDS, type VehicleModelId } from "@/types/f1";
 import { REPO_CAR_IDS } from "@/lib/hosted-content";
 import outlines from "@/lib/home/circuit-outlines.json";
 import whatsNewJson from "@/lib/home/whats-new.json";
@@ -28,11 +28,26 @@ function thumbOf(id: CarId): string | null {
   return withBasePath(url);
 }
 
+/**
+ * The cars of each online board: the listed cars on it in menu order, else (a preview car, which a weekly challenge
+ * may run) the one the game knows. The rigid-body model's old F1 board has no car and is left out.
+ */
+function boardCarsByVehicle(): Map<VehicleModelId, CarDefinition[]> {
+  const byVehicle = new Map<VehicleModelId, CarDefinition[]>();
+  for (const c of CARS) byVehicle.set(c.physics, [...(byVehicle.get(c.physics) ?? []), c]);
+  for (const v of VEHICLE_MODEL_IDS) {
+    const known = v === "f12026-car" ? undefined : anyCarForVehicle(v);
+    if (known && !byVehicle.has(v)) byVehicle.set(v, [known]);
+  }
+  return byVehicle;
+}
+
 /** The home page: the game's circuits, cars and press, with Drive into the game at /play */
 export default function HomePage() {
   const missing = CIRCUIT_VENUES.flatMap((v) => v.layouts.filter((t) => !OUTLINES[t.id]).map((t) => t.id));
   if (missing.length) console.warn(`Home page: no outline for ${missing.join(", ")} (npm run home-outlines)`);
   const articles = coverage();
+  const boardCarList = [...boardCarsByVehicle()];
 
   const data: HomeData = {
     defaultTrackId: DEFAULT_TRACK_ID,
@@ -67,6 +82,13 @@ export default function HomePage() {
     repoUrl: REPO_URL,
     supportUrl: SUPPORT_URL,
     boardCars: Object.fromEntries(VEHICLE_MODEL_IDS.map((v) => [v, carBoardTag(v)])),
+    // A board two cars share is named for the first, with the other under it
+    boardCarChoices: boardCarList.map(([id, [first, ...others]]) => ({
+      id,
+      label: first.title,
+      ...(others.length ? { detail: `Shared with the ${others.map((c) => c.title).join(", ")}` } : {}),
+    })),
+    carTitles: Object.fromEntries(boardCarList.flatMap(([, cars]) => cars.map((c) => [c.id, c.title]))),
     whatsNew: whatsNewJson as WhatsNewDay[],
   };
 

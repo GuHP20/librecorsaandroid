@@ -99,6 +99,10 @@ export interface HomeData {
   supportUrl: string;
   /** Each car's short name and class colour, for the rows of the online board of every car (the Lap times section) */
   boardCars: Partial<Record<VehicleModelId, { label: string; color: PaletteColor }>>;
+  /** The cars the Lap times board can be narrowed to, one per board (cars that drive the same share one), in menu order */
+  boardCarChoices: { id: VehicleModelId; label: string; detail?: string }[];
+  /** Car names by car id, for the weekly challenge's weeks (preview cars included: a week may run one) */
+  carTitles: Record<string, string>;
   /** The What's new section's patch notes, newest day first */
   whatsNew: WhatsNewDay[];
 }
